@@ -1,0 +1,527 @@
+<script lang="ts">
+	import type { ResumeData, LocalizedText, Person, TechCategory } from '$lib/types/resume';
+	import { soloImages } from '$lib/images/manifest';
+	import pdfStyles from './pdf-print.css?inline';
+	import andLogo from '$lib/assets/and.svg?url';
+	import pixelcodeLogoDark from '$lib/assets/pixelcodelogodark.svg?url';
+	import worldclassUrl from '$lib/assets/worldclass.webp?url';
+
+	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
+	type Language = 'sv' | 'en';
+
+	let {
+		data,
+		image,
+		language = 'sv',
+		person,
+		profileTechStack: initialProfileTechStack
+	}: {
+		data: ResumeData;
+		image?: ImageResource | string | null;
+		language?: Language;
+		person?: Person;
+		profileTechStack?: TechCategory[];
+	} = $props();
+
+	const resolvedImage: ImageResource | { src: string; srcset?: string } | null = $derived.by(() => {
+		const source = image ?? person?.avatar_url ?? null;
+		if (!source) return null;
+		if (typeof source === 'string') {
+			return { src: source };
+		}
+		return source;
+	});
+
+	let profileTechStack: TechCategory[] = initialProfileTechStack ?? person?.techStack ?? [];
+	const profileHasSkills = $derived(profileTechStack.some((cat) => cat.skills.length > 0));
+	const normalize = (value: string) => value.trim().toLowerCase();
+	const profileSkillSet = $derived(
+		new Set(profileTechStack.flatMap((cat) => cat.skills ?? []).map((skill) => normalize(skill)))
+	);
+	const extraTechniques = $derived(
+		(data.techniques ?? []).filter((tech) => !profileSkillSet.has(normalize(tech)))
+	);
+	const translations: Record<string, { sv: string; en: string }> = {
+		frontend: { sv: 'Frontend', en: 'Frontend' },
+		backend: { sv: 'Backend', en: 'Backend' },
+		tools: { sv: 'Verktyg', en: 'Tools' },
+		design: { sv: 'Design', en: 'Design' },
+		'ui/ux': { sv: 'UI/UX', en: 'UI/UX' },
+		devops: { sv: 'DevOps', en: 'DevOps' },
+		database: { sv: 'Databas', en: 'Database' },
+		methodologies: { sv: 'Metoder', en: 'Methods' },
+		architecture: { sv: 'Arkitektur', en: 'Architecture' },
+		'soft skills': { sv: 'Mjuka färdigheter', en: 'Soft skills' },
+		methods: { sv: 'Metoder', en: 'Methods' },
+		other: { sv: 'Övrigt', en: 'Other' }
+	};
+	const labelFor = (name: string) => {
+		const key = name.trim().toLowerCase();
+		const entry = translations[key];
+		return entry ? entry[language] : name;
+	};
+	const displayCategories = $derived(() => {
+		const categories: TechCategory[] = profileTechStack.filter(
+			(cat) => (cat.skills ?? []).length > 0
+		);
+		if (extraTechniques.length > 0) {
+			categories.push({ id: 'other', name: labelFor('other'), skills: extraTechniques });
+		}
+		if (data.methods.length > 0) {
+			categories.push({ id: 'methods', name: labelFor('methods'), skills: data.methods });
+		}
+		return categories;
+	});
+
+	$effect(() => {
+		profileTechStack = initialProfileTechStack ?? person?.techStack ?? [];
+	});
+
+	const visibleHighlighted = $derived(data.highlightedExperiences.filter((exp) => !exp.hidden));
+	const visibleExperiences = $derived(data.experiences.filter((exp) => !exp.hidden));
+
+	// Helper to resolve localized text
+	const t = (text: LocalizedText | undefined): string => {
+		if (!text) return '';
+		if (typeof text === 'string') return text;
+		return text[language] ?? text.sv ?? '';
+	};
+
+	// Format date for display (e.g., "Jan 2020")
+	const formatDate = (dateString: string | null | undefined): string => {
+		if (!dateString) return language === 'sv' ? 'Pågående' : 'Ongoing';
+		const date = new Date(dateString);
+		if (isNaN(date.getTime())) return dateString;
+		const month = date.toLocaleDateString(language === 'sv' ? 'sv-SE' : 'en-US', {
+			month: 'short'
+		});
+		const year = date.getFullYear();
+		return `${month} ${year}`;
+	};
+</script>
+
+<svelte:head>
+	{@html `<style>${pdfStyles}</style>`}
+</svelte:head>
+
+<div class="pdf-mode">
+	<!-- PAGE 1: COVER PAGE -->
+	<div class="resume-print-page page-1 bg-white text-slate-900">
+		<!-- Header Section -->
+		<div class="header-top">
+			<!-- Brand -->
+			<div class="header-brand mb-6 text-center">
+				<img src={pixelcodeLogoDark} alt="Pixel & Code" class="mx-auto h-8" />
+				<p
+					class="-mt-1 -rotate-10 text-2xl text-primary"
+					style="font-family: 'Fave Script', cursive;"
+				>
+					proudly presents
+				</p>
+			</div>
+
+			<!-- Two Column Layout (matching ConsultantProfile) -->
+			<div class="header-grid grid flex-1 grid-cols-[45mm_1fr] gap-8">
+				<!-- Left Column: Image + Skills + Contact -->
+				<div class="consultant-profile">
+					<!-- Profile Image (matching ConsultantProfile.svelte) -->
+					<div
+						class="relative aspect-square w-full flex-shrink-0 overflow-hidden rounded-xs border border-slate-200 bg-white"
+					>
+						{#if resolvedImage}
+							<img
+								src={resolvedImage.src}
+								srcset={resolvedImage.srcset ?? resolvedImage.src}
+								alt={data.name || 'Profile'}
+								class="h-full w-full object-cover object-center"
+								loading="lazy"
+								decoding="async"
+							/>
+						{:else}
+							<div
+								class="absolute inset-0 flex items-center justify-center bg-slate-50 text-slate-400"
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									class="h-20 w-20"
+									fill="none"
+									viewBox="0 0 24 24"
+									stroke="currentColor"
+									stroke-width="1.5"
+								>
+									<path
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z"
+									/>
+								</svg>
+							</div>
+						{/if}
+					</div>
+
+					<!-- Example Skills (pills that wrap) -->
+					{#if data.exampleSkills.length > 0}
+						<div class="flex-shrink-0 rounded-xs p-4">
+							<p class="mb-3 text-xs font-semibold tracking-wide text-slate-700 uppercase">
+								{language === 'sv' ? 'Exempel på färdigheter' : 'Examples of skills'}
+							</p>
+							<div class="flex flex-wrap gap-1">
+								{#each data.exampleSkills as skill}
+									<span class="rounded-xs bg-slate-200 px-2 py-0.5 text-xs text-slate-700"
+										>{skill}</span
+									>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					<!-- Contact (matching ConsultantProfile.svelte) -->
+					{#if data.contacts.length > 0}
+						<div class="flex-shrink-0 space-y-3 rounded-xs bg-slate-50 p-4">
+							{#each data.contacts as contact}
+								<div class="space-y-1">
+									<p class="text-xs font-semibold tracking-wide text-slate-600 uppercase">
+										{language === 'sv' ? 'Kontakt' : 'Contact'}
+									</p>
+									<div class="space-y-2 text-sm text-slate-800">
+										<div class="leading-tight">
+											<p class="text-sm font-medium">{contact.name}</p>
+											{#if contact.phone}<p class="text-xs text-slate-600">{contact.phone}</p>{/if}
+											{#if contact.email}<p class="text-xs text-slate-600">{contact.email}</p>{/if}
+										</div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+				<!-- Right Column: Name + Summary + Highlighted Experience -->
+				<div class="space-y-6">
+					<!-- Name and Title -->
+					<div>
+						{#if data.name}
+							<h1 class="mb-2 text-4xl font-bold text-slate-900">{data.name}</h1>
+						{/if}
+						<h2 class="text-xl font-medium text-slate-700">{t(data.title)}</h2>
+					</div>
+
+					<!-- Summary -->
+					<div class="text-sm leading-relaxed text-slate-700">
+						<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+						{@html t(data.summary)}
+					</div>
+
+					<!-- Highlighted Experience (matching HighlightedExperience.svelte) -->
+					{#if visibleHighlighted.length > 0}
+						<div class="space-y-4">
+							<h3 class="pt-4 text-base font-bold tracking-wide text-slate-900 uppercase">
+								{language === 'sv' ? 'Utvald Erfarenhet' : 'Highlighted Experience'}
+							</h3>
+
+							{#each visibleHighlighted as exp}
+								<div class="space-y-3 border-l border-primary pl-4">
+									<div>
+										<p class="text-sm font-semibold text-slate-900">{exp.company}</p>
+										<p class="text-sm text-slate-700 italic">{t(exp.role)}</p>
+									</div>
+									<div class="experience-description text-sm leading-relaxed text-slate-700">
+										<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+										{@html t(exp.description)}
+									</div>
+									{#if exp.technologies.length > 0}
+										<div class="space-y-1">
+											<p class="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+												{language === 'sv' ? 'Nyckeltekniker' : 'Key Technologies'}
+											</p>
+											<div class="flex flex-wrap gap-2">
+												{#each exp.technologies as tech}
+													<span class="rounded-xs bg-slate-100 px-3 py-1 text-xs text-slate-800"
+														>{tech}</span
+													>
+												{/each}
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			</div>
+		</div>
+
+		<!-- Ampersand at bottom left -->
+		<div class="ampersand-container">
+			<img src={andLogo} class="ampersand-logo h-20 w-auto opacity-80" alt="&" />
+			<p class="ampersand-url">www.pixelcode.se</p>
+		</div>
+	</div>
+
+	<!-- PAGE 2+: CONTENT -->
+	<div class="page-break"></div>
+
+	<div class="resume-print-page page-2-plus bg-white text-slate-900">
+		<!-- Previous Experience Section (matching ExperienceSection + ExperienceItem) -->
+		{#if visibleExperiences.length > 0}
+			<section class="resume-print-section mb-8">
+				<!-- Section Header with dividers (matching ExperienceSection.svelte) -->
+				<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+					<h2 class="text-base font-bold text-slate-900 uppercase">
+						{language === 'sv' ? 'Tidigare Erfarenheter' : 'Previous Experience'}
+					</h2>
+					<div class="flex items-center">
+						<div class="h-px flex-1 bg-slate-300"></div>
+					</div>
+				</div>
+
+				<div class="mt-4 space-y-6">
+					{#each visibleExperiences as exp}
+						<!-- Experience Item (matching ExperienceItem.svelte) -->
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+							<!-- Column 1: Period, Company, Location -->
+							<div class="space-y-1">
+								<p class="text-sm font-semibold text-slate-900">
+									<span class="whitespace-nowrap">{formatDate(exp.startDate)}</span>
+									<span> - </span>
+									<span class="whitespace-nowrap">{formatDate(exp.endDate)}</span>
+								</p>
+								<p class="text-sm font-semibold text-slate-900">{exp.company}</p>
+								{#if exp.location}
+									<p class="text-sm text-slate-700">{t(exp.location)}</p>
+								{/if}
+							</div>
+
+							<!-- Column 2: Role, Description, Technologies -->
+							<div class="space-y-3">
+								<h3 class="text-base font-bold break-words hyphens-auto text-slate-900" lang="en">
+									{t(exp.role)}
+								</h3>
+								<div
+									class="text-sm leading-relaxed break-words hyphens-auto text-slate-700"
+									lang="en"
+								>
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html t(exp.description)}
+								</div>
+								{#if exp.technologies.length > 0}
+									<div class="flex flex-wrap gap-2">
+										{#each exp.technologies as tech}
+											<span class="rounded-xs bg-slate-100 px-3 py-1 text-xs text-slate-800"
+												>{tech}</span
+											>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
+		<!-- Skills Section (matching SkillsCategorized with pills for techniques/methods) -->
+		{#if displayCategories().length > 0}
+			<section class="resume-print-section mb-8">
+				<!-- Section Header with dividers -->
+				<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+					<h2 class="text-base font-bold text-slate-900 uppercase">
+						{language === 'sv' ? 'Kompetenser' : 'Skills'}
+					</h2>
+					<div class="flex items-center">
+						<div class="h-px flex-1 bg-slate-300"></div>
+					</div>
+				</div>
+
+				<div class="mt-4 space-y-4">
+					{#each displayCategories() as category (category.id)}
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+								{labelFor(category.name)}
+							</p>
+							<div class="flex flex-wrap gap-2">
+								{#each category.skills as skill}
+									<span class="rounded-xs bg-slate-100 px-3 py-1 text-xs text-slate-800"
+										>{skill}</span
+									>
+								{/each}
+							</div>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
+		<!-- Other Section (Languages, Education, Portfolio - matching SkillsCategorized) -->
+		{#if data.languages.length > 0 || data.education.length > 0 || (data.portfolio && data.portfolio.length > 0)}
+			<section class="resume-print-section mb-8">
+				<!-- Section Header with dividers -->
+				<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+					<h2 class="text-base font-bold text-slate-900 uppercase">
+						{language === 'sv' ? 'Övrigt' : 'Other'}
+					</h2>
+					<div class="flex items-center">
+						<div class="h-px flex-1 bg-slate-300"></div>
+					</div>
+				</div>
+
+				<div class="mt-4 space-y-4">
+					{#if data.languages.length > 0}
+						<!-- Languages Row (matching SkillsCategorized isLanguage) -->
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+								{language === 'sv' ? 'Språk' : 'Languages'}
+							</p>
+							<div class="flex flex-col gap-1 text-sm text-slate-800">
+								{#each data.languages as lang}
+									<p>
+										<span class="font-bold">{t(lang.label)}</span>: {t(lang.value)}
+									</p>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if data.education.length > 0}
+						<!-- Education Row (matching SkillsCategorized isEducation) -->
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+								{language === 'sv' ? 'Utbildning' : 'Education'}
+							</p>
+							<div class="flex flex-col gap-1 text-sm text-slate-800">
+								{#each data.education as edu}
+									<p>
+										<span class="font-semibold">{edu.label}</span>
+										{#if t(edu.value)}<span>: {t(edu.value)}</span>{/if}
+									</p>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if data.portfolio && data.portfolio.length > 0}
+						<!-- Portfolio Row (matching SkillsCategorized isPortfolio) -->
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">Portfolio</p>
+							<div class="flex flex-wrap gap-2 text-sm text-slate-800">
+								{#each data.portfolio as url}
+									<a
+										href={url}
+										target="_blank"
+										rel="noopener noreferrer"
+										class="underline decoration-slate-400 underline-offset-2 hover:decoration-slate-700"
+										>{url}</a
+									>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+			</section>
+		{/if}
+
+		<!-- Footer -->
+		{#if data.footerNote}
+			<div class="mt-8 border-t border-slate-200 pt-4 text-center text-sm text-slate-500 italic">
+				{t(data.footerNote)}
+			</div>
+		{/if}
+
+		<!-- Worldclass image at bottom -->
+		<div class="mt-8 flex justify-center border-t border-slate-200 pt-6">
+			<img
+				src={worldclassUrl}
+				alt="Worldclass Tech, Worldclass People"
+				class="max-h-[200px] w-auto object-contain"
+			/>
+		</div>
+		<!-- Ampersand at bottom left -->
+		<div class="ampersand-container">
+			<img src={andLogo} class="ampersand-logo h-20 w-auto opacity-80" alt="&" />
+			<p class="ampersand-url">www.pixelcode.se</p>
+		</div>
+	</div>
+</div>
+
+<style>
+	.pdf-mode {
+		background: #fff;
+		min-height: 100vh;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 0;
+	}
+
+	.page-1 {
+		display: flex;
+		flex-direction: column;
+		min-height: 297mm;
+		position: relative;
+	}
+
+	.page-2-plus {
+		position: relative;
+	}
+
+	.consultant-profile {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.ampersand-container {
+		position: absolute;
+		bottom: 15mm;
+		left: 15mm;
+		z-index: 10;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2mm;
+	}
+
+	.ampersand-url {
+		margin: 0;
+		font-size: 8px;
+		color: rgb(148 163 184);
+	}
+
+	:global(body) {
+		background: #fff;
+	}
+
+	:global(.experience-description blockquote) {
+		border-left-width: 2px;
+		border-color: rgb(251 146 60);
+		padding-left: 0.75rem;
+		font-size: 0.875rem;
+		color: rgb(51 65 85);
+		font-style: italic;
+		margin-top: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+	:global(.experience-description blockquote::before) {
+		content: '"';
+	}
+	:global(.experience-description blockquote::after) {
+		content: '"';
+	}
+
+	:global(.resume-print-page blockquote) {
+		border-left-width: 2px;
+		border-color: rgb(251 146 60);
+		padding-left: 0.75rem;
+		font-size: 0.875rem;
+		color: rgb(51 65 85);
+		font-style: italic;
+		margin-top: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+	:global(.resume-print-page blockquote::before) {
+		content: '"';
+	}
+	:global(.resume-print-page blockquote::after) {
+		content: '"';
+	}
+</style>

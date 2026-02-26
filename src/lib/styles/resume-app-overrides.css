@@ -1,0 +1,70 @@
+/* Internal admin overrides */
+
+:global(body.internal-light) {
+	background: #f6f8fb;
+	color: #0f172a;
+}
+
+:global(.internal-root) {
+	--color-background: #f6f8fb;
+	--color-foreground: #0f172a;
+	--color-card-bg: #ffffff;
+	--color-card-border: #e2e8f0;
+	--color-input: #ffffff;
+	--color-primary: #e76f51;
+	color-scheme: light;
+}
+
+:global(.internal-root input),
+:global(.internal-root select),
+:global(.internal-root textarea),
+:global(.internal-root button),
+:global(.internal-root .blocks-select__trigger),
+:global(.internal-root .blocks-select__content),
+:global(.internal-root .blocks-select__item),
+:global(.internal-root .blocks-input),
+:global(.internal-root .blocks-textarea) {
+	background-color: #ffffff;
+	color: #0f172a;
+}
+
+:global(.internal-root .blocks-select__trigger) {
+	border-color: #cbd5e1;
+}
+
+.internal-root .news-table thead th,
+.internal-root .user-table thead th,
+.internal-root .news-table thead th :is(div, button),
+.internal-root .user-table thead th :is(div, button) {
+	color: rgb(17 24 39);
+	font-weight: 600;
+}
+
+.internal-root .news-table thead th svg,
+.internal-root .user-table thead th svg {
+	stroke: rgb(17 24 39);
+}
+
+.internal-root .news-table .flex.justify-center.p-2.text-sm.font-semibold,
+.internal-root .user-table .flex.justify-center.p-2.text-sm.font-semibold {
+	color: rgb(17 24 39);
+	opacity: 0.9;
+}
+
+.internal-root .news-table a {
+	color: #f35b3f;
+	font-weight: 500;
+}
+
+.internal-root .news-table a:hover {
+	color: #d84f36;
+}
+
+.internal-root .news-table .flex.justify-end a {
+	color: #f35b3f;
+	font-weight: 500;
+}
+
+.internal-root .news-table .flex.justify-end a:hover {
+	color: #d84f36;
+}

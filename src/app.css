@@ -1,0 +1,263 @@
+@import 'tailwindcss';
+@import '@pixelcode_/blocks/app.css';
+@import '@uppy/core/dist/style.min.css';
+@import '@uppy/dashboard/dist/style.min.css';
+@source "../node_modules/@pixelcode_/blocks/**/*.{js,ts,svelte}";
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-Thin.ttf') format('truetype');
+	font-weight: 100;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-ThinItalic.ttf') format('truetype');
+	font-weight: 100;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-ExtraLight.ttf') format('truetype');
+	font-weight: 200;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-ExtraLightItalic.ttf') format('truetype');
+	font-weight: 200;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-Light.ttf') format('truetype');
+	font-weight: 300;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-LightItalic.ttf') format('truetype');
+	font-weight: 300;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-Italic.ttf') format('truetype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-Medium.ttf') format('truetype');
+	font-weight: 500;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-MediumItalic.ttf') format('truetype');
+	font-weight: 500;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-SemiBold.ttf') format('truetype');
+	font-weight: 600;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-SemiBoldItalic.ttf') format('truetype');
+	font-weight: 600;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-Bold.ttf') format('truetype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-BoldItalic.ttf') format('truetype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-ExtraBold.ttf') format('truetype');
+	font-weight: 800;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-ExtraBoldItalic.ttf') format('truetype');
+	font-weight: 800;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-Black.ttf') format('truetype');
+	font-weight: 900;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Montserrat';
+	src: url('/fonts/montserrat/Montserrat-BlackItalic.ttf') format('truetype');
+	font-weight: 900;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Fave Script';
+	src: url('/fonts/fave-script/Fave-Script.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+
+/* new primary??? #f35b3f */
+@theme {
+	--color-primary: #E76F51;
+	--color-background: #18191b;
+	--color-foreground: #f5f6f8;
+    --color-text: #18191b;
+	--font-sans: 'Montserrat', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	--font-fave-script: 'Fave Script', 'Brush Script MT', cursive;
+	
+	/* Discord-style card colors */
+	--color-card-bg: #1e1e1e;
+	--color-card-border: rgba(255, 255, 255, 0.05);
+	--color-message-bg: #2a2a2a;
+    --color-input: #18191b;
+}
+
+@layer theme {
+	.dark {
+		--color-primary: oklch(100 0 0);
+	}
+}
+
+@layer base {
+	body {
+		font-family: var(--font-sans);
+		@apply bg-[#0f0f11] text-[#f0f0f0];
+	}
+}
+
+@layer components {
+	.attachment-tooltip {
+		max-width: 18rem;
+		min-width: 12rem;
+		text-align: left;
+		white-space: normal;
+	}
+	
+	/* Override input text color to use foreground color for better readability */
+
+	
+	input::placeholder {
+		color: rgba(148, 163, 184, 0.6);
+	}
+}
+
+
+@keyframes marquee {
+	0% {
+		transform: translate3d(0, 0, 0);
+	}
+
+	100% {
+		transform: translate3d(var(--marquee-loop, -50%), 0, 0);
+	}
+}
+
+@layer utilities {
+	.animate-marquee {
+		animation: marquee var(--marquee-duration, 32s) linear infinite;
+		will-change: transform;
+	}
+
+	.animate-marquee[data-paused='true'] {
+		animation-play-state: paused;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.animate-marquee {
+		animation-play-state: paused;
+	}
+}
+
+@media print {
+        body {
+                background: white;
+                color: #0f172a;
+        }
+
+        .resume-print-page {
+                page-break-inside: avoid;
+                padding: 2rem;
+        }
+
+        .resume-print-section {
+                margin-bottom: 1.5rem;
+        }
+}
+
+/* Resume bullet point styling */
+.resume-print-section ul {
+        list-style-type: disc;
+        padding-left: 1.5rem;
+        margin: 0.5rem 0;
+}
+
+.resume-print-section li {
+        margin-bottom: 0.25rem;
+}
+
+.resume-print-section ul ul {
+        list-style-type: circle;
+        margin-top: 0.25rem;
+}

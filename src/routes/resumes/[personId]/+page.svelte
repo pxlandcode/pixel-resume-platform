@@ -1,0 +1,1376 @@
+<script lang="ts">
+	import { Button } from '@pixelcode_/blocks/components';
+	import {
+		ArrowLeft,
+		Calendar,
+		CheckCircle2,
+		Copy,
+		FileText,
+		Loader2,
+		Trash2,
+		Upload,
+		User,
+		AlertCircle
+	} from 'lucide-svelte';
+	import { base, resolve } from '$app/paths';
+	import { goto, replaceState } from '$app/navigation';
+	import { page } from '$app/stores';
+	import TechStackEditor from '$lib/components/tech-stack-editor/tech-stack-editor.svelte';
+	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
+	import PixelDrawer from '$lib/components/PixelDrawer.svelte';
+	import { confirm } from '$lib/utils/confirm';
+	import { loading } from '$lib/stores/loading';
+	import { pdfImportStore } from '$lib/stores/pdfImportStore';
+	import { get } from 'svelte/store';
+	import { onDestroy, onMount, tick } from 'svelte';
+	import Uppy from '@uppy/core';
+	import Dashboard from '@uppy/dashboard';
+	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
+
+	const { data, form } = $props();
+
+	const profile = data.profile;
+	const availability = data.availability ?? null;
+	const resumes = data.resumes ?? [];
+	const canEdit = data.canEdit ?? false;
+	type ResumeListItem = (typeof resumes)[number];
+	type TechCategory = { name?: string; skills?: string[] };
+	const techStack = (profile?.tech_stack as TechCategory[]) ?? [];
+	const viewCategories = $derived(
+		(techStack ?? []).filter((cat) => Array.isArray(cat?.skills) && cat.skills.length > 0)
+	);
+
+	const deriveHasAssignment = (value: typeof availability) => {
+		if (!value) return true;
+		if (value.noticePeriodDays != null || value.plannedFromDate) return true;
+		if (value.nowPercent === 100) return false;
+		return true;
+	};
+
+	const deriveUsesCustomAvailabilityPercentages = (value: typeof availability) => {
+		const hasAssignment = deriveHasAssignment(value);
+		const hasFutureTiming = Boolean(value?.noticePeriodDays != null || value?.plannedFromDate);
+		const defaultNowPercent = hasAssignment ? null : 100;
+		const defaultFuturePercent = hasFutureTiming ? 100 : null;
+
+		return (
+			(value?.nowPercent ?? null) !== defaultNowPercent ||
+			(value?.futurePercent ?? null) !== defaultFuturePercent
+		);
+	};
+
+	let isEditing = $state(false);
+	let editingBio = $state(profile?.bio ?? '');
+	let editingTechStack = $state(structuredClone(techStack));
+	let editingAvailabilityNowPercent = $state(
+		availability?.nowPercent != null ? String(availability.nowPercent) : ''
+	);
+	let editingAvailabilityFuturePercent = $state(
+		availability?.futurePercent != null ? String(availability.futurePercent) : ''
+	);
+	let editingAvailabilityNoticePeriodDays = $state(
+		availability?.noticePeriodDays != null ? String(availability.noticePeriodDays) : ''
+	);
+	let editingAvailabilityPlannedFromDate = $state(availability?.plannedFromDate ?? '');
+	let editingHasAssignment = $state(deriveHasAssignment(availability));
+	let editingOpenToSwitchEarly = $state(availability?.noticePeriodDays != null);
+	let editingUseCustomAvailabilityPercentages = $state(
+		deriveUsesCustomAvailabilityPercentages(availability)
+	);
+	const techStackJson = $derived(JSON.stringify(editingTechStack ?? []));
+
+	const hasNoticePeriodInput = $derived(
+		editingHasAssignment &&
+			editingOpenToSwitchEarly &&
+			editingAvailabilityNoticePeriodDays.trim().length > 0
+	);
+	const hasPlannedAvailabilityDate = $derived(
+		editingHasAssignment && editingAvailabilityPlannedFromDate.trim().length > 0
+	);
+	const hasFutureAvailabilityTiming = $derived(hasNoticePeriodInput || hasPlannedAvailabilityDate);
+
+	const submittedAvailabilityNowPercent = $derived.by(() => {
+		const defaultValue = editingHasAssignment ? '' : '100';
+		if (!editingUseCustomAvailabilityPercentages) return defaultValue;
+		const customValue = editingAvailabilityNowPercent.trim();
+		return customValue.length > 0 ? customValue : defaultValue;
+	});
+
+	const submittedAvailabilityFuturePercent = $derived.by(() => {
+		if (!editingHasAssignment) return '';
+		if (!hasFutureAvailabilityTiming) return '';
+
+		const defaultValue = '100';
+		if (!editingUseCustomAvailabilityPercentages) return defaultValue;
+		const customValue = editingAvailabilityFuturePercent.trim();
+		return customValue.length > 0 ? customValue : defaultValue;
+	});
+
+	const submittedAvailabilityNoticePeriodDays = $derived.by(() => {
+		if (!editingHasAssignment || !editingOpenToSwitchEarly) return '';
+		return editingAvailabilityNoticePeriodDays.trim();
+	});
+
+	const submittedAvailabilityPlannedFromDate = $derived.by(() => {
+		if (!editingHasAssignment) return '';
+		return editingAvailabilityPlannedFromDate.trim();
+	});
+
+	const resetProfileEditor = () => {
+		editingBio = profile?.bio ?? '';
+		editingTechStack = structuredClone(techStack);
+		editingAvailabilityNowPercent =
+			availability?.nowPercent != null ? String(availability.nowPercent) : '';
+		editingAvailabilityFuturePercent =
+			availability?.futurePercent != null ? String(availability.futurePercent) : '';
+		editingAvailabilityNoticePeriodDays =
+			availability?.noticePeriodDays != null ? String(availability.noticePeriodDays) : '';
+		editingAvailabilityPlannedFromDate = availability?.plannedFromDate ?? '';
+		editingHasAssignment = deriveHasAssignment(availability);
+		editingOpenToSwitchEarly = availability?.noticePeriodDays != null;
+		editingUseCustomAvailabilityPercentages = deriveUsesCustomAvailabilityPercentages(availability);
+	};
+
+	const handlePercentInput =
+		(setter: (value: string) => void) =>
+		(event: Event & { currentTarget: EventTarget & HTMLInputElement }) => {
+			setter(event.currentTarget.value);
+		};
+
+	const cancelProfileEdit = () => {
+		resetProfileEditor();
+		isEditing = false;
+	};
+
+	let resumeList = $state<ResumeListItem[]>(resumes ?? []);
+	let draggedResume: ResumeListItem | null = $state(null);
+	let dragOverIndex: number | null = $state(null);
+	let importDrawerOpen = $state(false);
+	let importDrawerWasOpened = $state(false);
+	let importError = $state<string | null>(null);
+	let showCloseConfirm = $state(false);
+	let pendingCloseAction = $state<(() => void) | null>(null);
+	let handledOpenImportParam = $state(false);
+	type PdfImportPhase =
+		| 'idle'
+		| 'creating-job'
+		| 'staging-file'
+		| 'starting-background'
+		| 'queued'
+		| 'processing';
+	type ResumeImportJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
+	type ResumeImportJobStatusResponse = {
+		id: string;
+		status: ResumeImportJobStatus;
+		error_message: string | null;
+		resume_id: string | null;
+		resume_version_name: string | null;
+		created_at: string | null;
+		started_at: string | null;
+		completed_at: string | null;
+	};
+
+	let importStatus = $state<PdfImportPhase>('idle');
+	let uppyContainer: HTMLDivElement | null = null;
+	let uppy: InstanceType<typeof Uppy> | null = null;
+	let selectedImportFile = $state<UppyFile<Record<string, unknown>, Blob> | null>(null);
+	let importAbortController: AbortController | null = null;
+	let importPollAbortController: AbortController | null = null;
+	let importJobId = $state<string | null>(null);
+	let importPollTimeoutId: number | null = null;
+	let importSourceFilename = $state<string | null>(null);
+	const isImportBusy = $derived(importStatus !== 'idle');
+	const isKickoffImporting = $derived(
+		importStatus === 'creating-job' ||
+			importStatus === 'staging-file' ||
+			importStatus === 'starting-background'
+	);
+	const isBackgroundImporting = $derived(
+		importStatus === 'queued' || importStatus === 'processing'
+	);
+	const importStatusLabel = $derived(
+		importStatus === 'creating-job'
+			? 'Preparing import...'
+			: importStatus === 'staging-file'
+				? 'Uploading PDF to secure temp storage...'
+				: importStatus === 'starting-background'
+					? 'Starting background import...'
+					: importStatus === 'queued'
+						? 'Queued import...'
+						: importStatus === 'processing'
+							? 'Importing and building resume...'
+							: ''
+	);
+
+	// Sort resumes: main first, then by updated_at descending
+	const sortedResumeList = $derived(
+		[...resumeList].sort((a, b) => {
+			// Main resume always first
+			if (a.is_main && !b.is_main) return -1;
+			if (!a.is_main && b.is_main) return 1;
+			// Then by updated_at descending
+			const dateA = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
+			const dateB = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
+			return dateB - dateA;
+		})
+	);
+
+	$effect(() => {
+		resetProfileEditor();
+		resumeList = [...(resumes ?? [])];
+	});
+
+	$effect(() => {
+		if (!canEdit) {
+			isEditing = false;
+		}
+	});
+
+	// Sync import state with global store (debounced to prevent loops)
+	let lastSyncedState = $state<string | null>(null);
+	$effect(() => {
+		if (!profile || !canEdit) return;
+
+		const stateKey = `${importJobId}-${importStatus}-${importError}`;
+		if (stateKey === lastSyncedState) return;
+		lastSyncedState = stateKey;
+
+		if (importJobId && (isKickoffImporting || isBackgroundImporting)) {
+			pdfImportStore.setImporting(profile.id, importJobId, importSourceFilename, importStatus);
+		} else if (importError) {
+			pdfImportStore.setError(importError);
+		}
+	});
+
+	$effect(() => {
+		if (!profile || !canEdit || handledOpenImportParam) return;
+		const shouldOpen = $page.url.searchParams.get('openImport') === '1';
+		if (shouldOpen) {
+			handledOpenImportParam = true;
+			replaceState(`/resumes/${encodeURIComponent(profile.id)}`, {});
+			void openImportDrawer();
+		}
+	});
+
+	const handleDragStart = (resume: ResumeListItem) => {
+		if (!canEdit) return;
+		draggedResume = resume;
+	};
+
+	const handleDragOver = (event: DragEvent, index: number) => {
+		if (!canEdit) return;
+		event.preventDefault();
+		dragOverIndex = index;
+	};
+
+	const handleDragLeave = () => {
+		dragOverIndex = null;
+	};
+
+	const reorderResumes = (targetIndex: number) => {
+		if (!canEdit) return;
+		if (!draggedResume) return;
+		const currentIndex = resumeList.findIndex((r) => r.id === draggedResume.id);
+		if (currentIndex === -1 || currentIndex === targetIndex) return;
+		const next = [...resumeList];
+		next.splice(currentIndex, 1);
+		next.splice(targetIndex, 0, draggedResume);
+		// mark main
+		resumeList = next.map((r, idx) => ({ ...r, is_main: idx === 0 }));
+	};
+
+	const saveOrder = async () => {
+		if (!canEdit) return;
+		loading(true, 'Saving order...');
+		try {
+			const order = resumeList.map((r) => r.id);
+			const formData = new FormData();
+			formData.set('person_id', profile.id);
+			formData.set('resume_order', JSON.stringify(order));
+			await fetch('?/updateResumeOrder', { method: 'POST', body: formData });
+		} finally {
+			loading(false);
+		}
+	};
+
+	const handleDrop = async (event: DragEvent, index: number) => {
+		if (!canEdit) return;
+		event.preventDefault();
+		reorderResumes(index);
+		draggedResume = null;
+		dragOverIndex = null;
+		await saveOrder();
+	};
+
+	const addResume = async () => {
+		if (!canEdit) return;
+		loading(true, 'Creating resume...');
+		try {
+			const formData = new FormData();
+			formData.set('person_id', profile.id);
+			const res = await fetch('?/createResume', { method: 'POST', body: formData });
+			if (res.ok) {
+				// Refresh list
+				location.reload();
+			}
+		} finally {
+			loading(false);
+		}
+	};
+
+	const deleteResume = async (resumeId: string) => {
+		if (!canEdit) return;
+		loading(true, 'Deleting resume...');
+		try {
+			const formData = new FormData();
+			formData.set('resume_id', resumeId);
+			const res = await fetch('?/deleteResume', { method: 'POST', body: formData });
+			if (res.ok) {
+				// Remove from local list
+				resumeList = resumeList.filter((r) => r.id !== resumeId);
+			}
+		} finally {
+			loading(false);
+		}
+	};
+
+	const copyResume = async (resumeId: string) => {
+		if (!canEdit) return;
+		loading(true, 'Copying resume...');
+		try {
+			const formData = new FormData();
+			formData.set('resume_id', resumeId);
+			const res = await fetch('?/copyResume', { method: 'POST', body: formData });
+			if (res.ok) {
+				location.reload();
+			}
+		} finally {
+			loading(false);
+		}
+	};
+
+	const destroyUppy = () => {
+		if (!uppy) return;
+
+		uppy.cancelAll();
+		uppy.destroy();
+		uppy = null;
+	};
+
+	const stopImportPolling = () => {
+		if (importPollTimeoutId !== null) {
+			window.clearTimeout(importPollTimeoutId);
+			importPollTimeoutId = null;
+		}
+		importPollAbortController?.abort();
+		importPollAbortController = null;
+	};
+
+	const clearPersistedImportJob = () => {
+		pdfImportStore.clear();
+	};
+
+	const resetImportProcessState = () => {
+		importAbortController?.abort();
+		importAbortController = null;
+		stopImportPolling();
+		importStatus = 'idle';
+		importError = null;
+		importJobId = null;
+		importSourceFilename = null;
+		selectedImportFile = null;
+		loading(false);
+		pdfImportStore.clear();
+	};
+
+	const clearDrawerOnlyImportState = () => {
+		importAbortController?.abort();
+		importAbortController = null;
+		selectedImportFile = null;
+		loading(false);
+	};
+
+	const getErrorMessageFromResponse = async (response: Response, fallback: string) => {
+		const contentType = response.headers.get('content-type') || '';
+		if (contentType.includes('application/json')) {
+			const payload = (await response.json().catch(() => null)) as { message?: unknown } | null;
+			if (typeof payload?.message === 'string' && payload.message.trim()) {
+				return payload.message;
+			}
+		}
+
+		const text = (await response.text().catch(() => '')).trim();
+		return text || fallback;
+	};
+
+	const createPdfImportJob = async (file: File): Promise<string> => {
+		if (!profile) {
+			throw new Error('Missing profile context.');
+		}
+
+		importStatus = 'creating-job';
+		const controller = new AbortController();
+		importAbortController = controller;
+
+		const response = await fetch(resolve('/internal/api/resumes/import-from-pdf/jobs'), {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({
+				person_id: profile.id,
+				filename: file.name,
+				size_bytes: file.size
+			}),
+			credentials: 'include',
+			signal: controller.signal
+		});
+
+		const payload = (await response.json().catch(() => null)) as {
+			job_id?: unknown;
+			message?: unknown;
+		} | null;
+		if (!response.ok) {
+			const message =
+				typeof payload?.message === 'string' && payload.message.trim()
+					? payload.message
+					: 'Could not start PDF import.';
+			throw new Error(message);
+		}
+
+		const jobId = typeof payload?.job_id === 'string' ? payload.job_id : '';
+		if (!jobId) {
+			throw new Error('Import job created but no job ID was returned.');
+		}
+
+		return jobId;
+	};
+
+	const stagePdfImportFile = async (file: File, jobId: string) => {
+		if (!profile) {
+			throw new Error('Missing profile context.');
+		}
+
+		importStatus = 'staging-file';
+		const controller = new AbortController();
+		importAbortController = controller;
+
+		const formData = new FormData();
+		formData.set('person_id', profile.id);
+		formData.set('file', file);
+
+		const response = await fetch(
+			resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]/stage-file', { jobId }),
+			{
+				method: 'POST',
+				body: formData,
+				credentials: 'include',
+				signal: controller.signal
+			}
+		);
+
+		if (!response.ok) {
+			const message = await getErrorMessageFromResponse(
+				response,
+				'Could not upload PDF to secure temp storage.'
+			);
+			throw new Error(message);
+		}
+	};
+
+	const kickoffPdfImportBackground = async (jobId: string) => {
+		if (!profile) {
+			throw new Error('Missing profile context.');
+		}
+
+		importStatus = 'starting-background';
+		const controller = new AbortController();
+		importAbortController = controller;
+
+		const response = await fetch(`${base}/.netlify/functions/resume-import-from-pdf-background`, {
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json'
+			},
+			body: JSON.stringify({ job_id: jobId }),
+			credentials: 'include',
+			signal: controller.signal
+		});
+
+		if (!response.ok) {
+			const message = await getErrorMessageFromResponse(
+				response,
+				'Could not start background PDF import.'
+			);
+			throw new Error(message);
+		}
+	};
+
+	const handleImportJobSuccess = async (resumeId: string) => {
+		if (!profile) return;
+		stopImportPolling();
+		importAbortController?.abort();
+		importAbortController = null;
+		loading(false);
+		importDrawerOpen = false;
+		importStatus = 'idle';
+		importError = null;
+		importJobId = null;
+		importSourceFilename = null;
+		selectedImportFile = null;
+		destroyUppy();
+		// Signal success to the store - this will show the success indicator in +layout.svelte
+		pdfImportStore.setSuccess(resumeId);
+	};
+
+	const scheduleImportJobPoll = (jobId: string) => {
+		if (importJobId !== jobId) return;
+		importPollTimeoutId = window.setTimeout(() => {
+			void pollImportJob(jobId);
+		}, 2000);
+	};
+
+	const pollImportJob = async (jobId: string) => {
+		if (!profile || importJobId !== jobId) return;
+
+		const controller = new AbortController();
+		importPollAbortController = controller;
+
+		try {
+			const response = await fetch(
+				resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]', { jobId }),
+				{
+					method: 'GET',
+					credentials: 'include',
+					signal: controller.signal
+				}
+			);
+
+			if (!response.ok) {
+				const message = await getErrorMessageFromResponse(
+					response,
+					'Could not fetch PDF import status.'
+				);
+				throw new Error(message);
+			}
+
+			const payload = (await response.json()) as ResumeImportJobStatusResponse;
+			if (importJobId !== jobId) return;
+
+			if (payload.status === 'queued') {
+				importStatus = 'queued';
+				scheduleImportJobPoll(jobId);
+				return;
+			}
+
+			if (payload.status === 'processing') {
+				importStatus = 'processing';
+				scheduleImportJobPoll(jobId);
+				return;
+			}
+
+			if (payload.status === 'failed') {
+				stopImportPolling();
+				importStatus = 'idle';
+				importJobId = null;
+				clearPersistedImportJob();
+				importError = payload.error_message || 'Could not import resume from PDF.';
+				return;
+			}
+
+			const resumeId = payload.resume_id?.trim() || '';
+			if (!resumeId) {
+				throw new Error('PDF import finished but no resume ID was returned.');
+			}
+
+			await handleImportJobSuccess(resumeId);
+		} catch (error) {
+			if (error instanceof DOMException && error.name === 'AbortError') {
+				return;
+			}
+
+			stopImportPolling();
+			importStatus = 'idle';
+			importJobId = null;
+			clearPersistedImportJob();
+			importError =
+				error instanceof TypeError
+					? 'Network error while checking import status. Please reopen the drawer and try again.'
+					: error instanceof Error
+						? error.message
+						: 'Could not fetch PDF import status.';
+		} finally {
+			if (importPollAbortController === controller) {
+				importPollAbortController = null;
+			}
+		}
+	};
+
+	const runPdfImport = async (sourceFile: UppyFile<Record<string, unknown>, Blob>) => {
+		if (!profile || !canEdit || isImportBusy) return;
+		const blob = sourceFile.data as Blob | undefined;
+		if (!blob) {
+			importError = 'Could not read selected PDF file.';
+			return;
+		}
+
+		const file =
+			blob instanceof File
+				? blob
+				: new File([blob], sourceFile.name || 'resume.pdf', {
+						type: blob.type || 'application/pdf'
+					});
+
+		importError = null;
+		importJobId = null;
+		importSourceFilename = file.name || sourceFile.name || 'resume.pdf';
+		loading(true, 'Starting PDF import...');
+
+		try {
+			const jobId = await createPdfImportJob(file);
+			importJobId = jobId;
+
+			await stagePdfImportFile(file, jobId);
+			await kickoffPdfImportBackground(jobId);
+
+			importAbortController = null;
+			loading(false);
+			importStatus = 'queued';
+			await pollImportJob(jobId);
+		} catch (error) {
+			if (error instanceof DOMException && error.name === 'AbortError') {
+				importError = 'Import cancelled.';
+			} else if (error instanceof TypeError) {
+				importError =
+					'Network error while starting the PDF import. Check your proxy/firewall and browser Network tab.';
+			} else {
+				importError = error instanceof Error ? error.message : 'Could not import resume from PDF.';
+			}
+			importStatus = 'idle';
+			importJobId = null;
+			clearPersistedImportJob();
+			stopImportPolling();
+		} finally {
+			importAbortController = null;
+			loading(false);
+		}
+	};
+
+	const initializeUppy = () => {
+		if (!profile || !canEdit) return;
+		if (!uppyContainer || uppy) return;
+
+		uppy = new Uppy({
+			autoProceed: false,
+			allowMultipleUploads: false,
+			restrictions: {
+				maxNumberOfFiles: 1,
+				maxFileSize: 10 * 1024 * 1024,
+				allowedFileTypes: ['.pdf', 'application/pdf']
+			}
+		});
+
+		uppy.use(Dashboard, {
+			target: uppyContainer,
+			inline: true,
+			proudlyDisplayPoweredByUppy: false,
+			hideUploadButton: true,
+			disableStatusBar: true,
+			showRemoveButtonAfterComplete: true,
+			note: 'PDF up to 10MB'
+		});
+
+		uppy.on('file-added', (file) => {
+			importError = null;
+			selectedImportFile = file as UppyFile<Record<string, unknown>, Blob>;
+		});
+
+		uppy.on('file-removed', (file) => {
+			if (selectedImportFile?.id === file.id) {
+				selectedImportFile = null;
+			}
+		});
+
+		uppy.on('restriction-failed', (_file, error) => {
+			importError = error?.message || 'Invalid file. Please upload a PDF up to 10MB.';
+		});
+	};
+
+	const importSelectedPdf = async () => {
+		if (!selectedImportFile || isImportBusy) return;
+		await runPdfImport(selectedImportFile);
+	};
+
+	const openImportDrawer = async () => {
+		if (!profile || !canEdit) return;
+		if (!isBackgroundImporting && !isKickoffImporting) {
+			importError = null;
+			importStatus = 'idle';
+			importJobId = null;
+			importSourceFilename = null;
+		}
+		selectedImportFile = null;
+		importDrawerOpen = true;
+		await tick();
+		initializeUppy();
+	};
+
+	const closeImportDrawer = () => {
+		if (!requestImportDrawerClose()) return;
+		importDrawerOpen = false;
+	};
+
+	const requestImportDrawerClose = (): boolean => {
+		if (isKickoffImporting) {
+			showCloseConfirm = true;
+			pendingCloseAction = () => {
+				importAbortController?.abort();
+				importDrawerOpen = false;
+			};
+			return false;
+		}
+
+		if (isBackgroundImporting) {
+			// Just close - import continues in background
+			return true;
+		}
+
+		return true;
+	};
+
+	const confirmClose = () => {
+		showCloseConfirm = false;
+		if (pendingCloseAction) {
+			pendingCloseAction();
+			pendingCloseAction = null;
+		}
+	};
+
+	const cancelClose = () => {
+		showCloseConfirm = false;
+		pendingCloseAction = null;
+	};
+
+	$effect(() => {
+		if (importDrawerOpen) {
+			importDrawerWasOpened = true;
+			void (async () => {
+				await tick();
+				initializeUppy();
+			})();
+			return;
+		}
+
+		// Only reset state if drawer was actually opened and then closed
+		// (not on initial page load when drawer starts closed)
+		if (!importDrawerWasOpened) return;
+
+		if (isBackgroundImporting) {
+			clearDrawerOnlyImportState();
+			destroyUppy();
+			return;
+		}
+
+		resetImportProcessState();
+		destroyUppy();
+	});
+
+	onMount(() => {
+		if (!profile || !canEdit) return;
+		if (importJobId) return;
+
+		// Check if store has a persisted job for this person
+		const storeState = get(pdfImportStore);
+		if (storeState.personId === profile.id && storeState.jobId && storeState.status !== 'idle') {
+			importError = storeState.error;
+			importJobId = storeState.jobId;
+			importSourceFilename = storeState.sourceFilename;
+			importStatus = storeState.status === 'processing' ? 'processing' : 'queued';
+
+			void tick().then(() => {
+				if (!importJobId || importJobId !== storeState.jobId) return;
+				void pollImportJob(storeState.jobId);
+			});
+		}
+	});
+
+	onDestroy(() => {
+		// Don't clear the store on destroy - let it persist across navigation
+		importAbortController?.abort();
+		importAbortController = null;
+		stopImportPolling();
+		loading(false);
+		destroyUppy();
+	});
+</script>
+
+<div class="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
+	<div class="mb-8">
+		<div class="mb-6 flex items-center justify-between">
+			<Button
+				variant="ghost"
+				href="/resumes"
+				class="pl-0 hover:bg-transparent hover:text-indigo-600"
+			>
+				<ArrowLeft size={16} class="mr-2" />
+				Back to all people
+			</Button>
+
+			{#if profile && canEdit}
+				<div class="flex gap-2">
+					{#if isEditing}
+						<Button type="button" variant="ghost" onclick={cancelProfileEdit}>Cancel</Button>
+						<Button form="profile-form" type="submit" variant="primary">Save profile</Button>
+					{:else}
+						<Button type="button" onclick={() => (isEditing = true)}>Edit profile</Button>
+					{/if}
+				</div>
+			{/if}
+		</div>
+
+		{#if profile}
+			<div class="flex flex-col gap-8 md:flex-row md:items-start">
+				<div
+					class="h-32 w-32 flex-shrink-0 overflow-hidden border-4 border-white shadow-lg md:h-48 md:w-48"
+				>
+					{#if profile.avatar_url}
+						<img
+							src={profile.avatar_url}
+							alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
+							class="h-full w-full object-cover"
+						/>
+					{:else}
+						<div class="flex h-full w-full items-center justify-center bg-slate-100 text-slate-300">
+							<User size={48} />
+						</div>
+					{/if}
+				</div>
+
+				<div class="flex-1 space-y-4">
+					<form
+						id="profile-form"
+						method="POST"
+						action="?/updateProfile"
+						class="space-y-4"
+						onsubmit={() => {
+							// keep editing values
+						}}
+					>
+						<input type="hidden" name="person_id" value={profile.id} />
+						<input type="hidden" name="tech_stack" value={techStackJson} />
+
+						{#if form?.message}
+							<div
+								class="rounded border px-3 py-2 text-sm
+									{form.ok
+									? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+									: 'border-red-200 bg-red-50 text-red-700'}"
+							>
+								{form.message}
+							</div>
+						{/if}
+
+						<div>
+							<h1 class="text-3xl font-bold text-slate-900 sm:text-4xl">
+								{[profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Unnamed'}
+							</h1>
+							{#if profile.title}
+								<p class="mt-2 text-xl font-medium text-primary">{profile.title}</p>
+							{/if}
+						</div>
+
+						<div>
+							<h3 class="mb-2 text-lg font-semibold text-slate-900">Bio</h3>
+							{#if isEditing && canEdit}
+								<textarea
+									name="bio"
+									bind:value={editingBio}
+									class="w-full rounded border border-slate-200 p-3 text-sm text-slate-900"
+									rows="4"
+									placeholder="Tell us about this person"
+								/>
+							{:else if profile.bio}
+								<p class="mt-1 max-w-2xl text-sm leading-6 whitespace-pre-wrap text-slate-700">
+									{profile.bio}
+								</p>
+							{:else}
+								<p class="text-sm text-slate-500">No bio yet.</p>
+							{/if}
+						</div>
+
+						<div class="pt-2">
+							<h3 class="mb-2 text-lg font-semibold text-slate-900">Availability</h3>
+							{#if isEditing && canEdit}
+								<div class="space-y-4">
+									<input
+										type="hidden"
+										name="availability_now_percent"
+										value={submittedAvailabilityNowPercent}
+									/>
+									<input
+										type="hidden"
+										name="availability_future_percent"
+										value={submittedAvailabilityFuturePercent}
+									/>
+									<input
+										type="hidden"
+										name="availability_notice_period_days"
+										value={submittedAvailabilityNoticePeriodDays}
+									/>
+									<input
+										type="hidden"
+										name="availability_planned_from_date"
+										value={submittedAvailabilityPlannedFromDate}
+									/>
+
+									<!-- Current status -->
+									<div class="rounded-lg border border-slate-200 bg-white p-5">
+										<p class="mb-3 text-sm font-medium text-slate-900">Current status</p>
+										<div class="flex flex-col gap-2">
+											<label
+												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-slate-50"
+											>
+												<input
+													type="radio"
+													name="availability-status"
+													checked={!editingHasAssignment}
+													onchange={() => (editingHasAssignment = false)}
+													class="h-4 w-4 border-slate-300 text-primary focus:ring-primary"
+												/>
+												<div>
+													<span class="text-sm font-medium text-slate-800">Available now</span>
+													<span class="ml-2 text-xs text-slate-500">100% available immediately</span
+													>
+												</div>
+											</label>
+											<label
+												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-slate-50"
+											>
+												<input
+													type="radio"
+													name="availability-status"
+													checked={editingHasAssignment}
+													onchange={() => (editingHasAssignment = true)}
+													class="h-4 w-4 border-slate-300 text-primary focus:ring-primary"
+												/>
+												<div>
+													<span class="text-sm font-medium text-slate-800">On assignment</span>
+													<span class="ml-2 text-xs text-slate-500">Currently busy</span>
+												</div>
+											</label>
+										</div>
+									</div>
+
+									<!-- Assignment details (only when on assignment) -->
+									{#if editingHasAssignment}
+										<div class="rounded-lg border border-slate-200 bg-white p-5">
+											<p class="mb-4 text-sm font-medium text-slate-900">Assignment details</p>
+											<div class="space-y-4">
+												<div>
+													<label
+														for="availability-planned-date"
+														class="mb-1.5 block text-sm font-medium text-slate-700"
+													>
+														Assignment end date
+													</label>
+													<input
+														id="availability-planned-date"
+														type="date"
+														bind:value={editingAvailabilityPlannedFromDate}
+														class="w-full max-w-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+													/>
+													<p class="mt-1 text-xs text-slate-500">
+														When will the current assignment end?
+													</p>
+												</div>
+
+												<div class="border-t border-slate-100 pt-4">
+													<label class="flex cursor-pointer items-center gap-3">
+														<input
+															type="checkbox"
+															bind:checked={editingOpenToSwitchEarly}
+															class="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+														/>
+														<span class="text-sm font-medium text-slate-800"
+															>Open to switching early</span
+														>
+													</label>
+
+													{#if editingOpenToSwitchEarly}
+														<div class="mt-3 ml-7">
+															<label
+																for="availability-notice-period-days"
+																class="mb-1.5 block text-sm font-medium text-slate-700"
+															>
+																Notice period (days)
+															</label>
+															<input
+																id="availability-notice-period-days"
+																type="number"
+																min="0"
+																step="1"
+																inputmode="numeric"
+																value={editingAvailabilityNoticePeriodDays}
+																oninput={handlePercentInput(
+																	(value) => (editingAvailabilityNoticePeriodDays = value)
+																)}
+																class="w-full max-w-[120px] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+																placeholder="e.g. 30"
+															/>
+														</div>
+													{/if}
+												</div>
+											</div>
+										</div>
+									{/if}
+
+									<!-- Advanced options toggle -->
+									{#if !editingUseCustomAvailabilityPercentages}
+										<button
+											type="button"
+											class="text-sm font-medium text-slate-500 hover:text-slate-700"
+											onclick={() => (editingUseCustomAvailabilityPercentages = true)}
+										>
+											+ Advanced options
+										</button>
+									{:else}
+										<div class="rounded-lg border border-slate-200 bg-slate-50 p-5">
+											<div class="mb-4 flex items-center justify-between">
+												<p class="text-sm font-medium text-slate-900">
+													Custom availability percentages
+												</p>
+												<button
+													type="button"
+													class="text-xs font-medium text-slate-500 hover:text-slate-700"
+													onclick={() => {
+														editingUseCustomAvailabilityPercentages = false;
+														editingAvailabilityNowPercent = '';
+														editingAvailabilityFuturePercent = '';
+													}}
+												>
+													Reset to defaults
+												</button>
+											</div>
+											<div class="grid gap-4 sm:grid-cols-2">
+												<div>
+													<label
+														for="availability-now-percent"
+														class="mb-1.5 block text-sm font-medium text-slate-700"
+													>
+														Available now
+													</label>
+													<div class="relative max-w-[120px]">
+														<input
+															id="availability-now-percent"
+															type="number"
+															min="0"
+															max="100"
+															step="1"
+															inputmode="numeric"
+															value={editingAvailabilityNowPercent}
+															oninput={handlePercentInput(
+																(value) => (editingAvailabilityNowPercent = value)
+															)}
+															class="w-full rounded-md border border-slate-200 bg-white py-2 pr-8 pl-3 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+															placeholder={editingHasAssignment ? '0' : '100'}
+														/>
+														<span
+															class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-400"
+															>%</span
+														>
+													</div>
+												</div>
+												{#if editingHasAssignment && hasFutureAvailabilityTiming}
+													<div>
+														<label
+															for="availability-future-percent"
+															class="mb-1.5 block text-sm font-medium text-slate-700"
+														>
+															Future availability
+														</label>
+														<div class="relative max-w-[120px]">
+															<input
+																id="availability-future-percent"
+																type="number"
+																min="0"
+																max="100"
+																step="1"
+																inputmode="numeric"
+																value={editingAvailabilityFuturePercent}
+																oninput={handlePercentInput(
+																	(value) => (editingAvailabilityFuturePercent = value)
+																)}
+																class="w-full rounded-md border border-slate-200 bg-white py-2 pr-8 pl-3 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+																placeholder="100"
+															/>
+															<span
+																class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-400"
+																>%</span
+															>
+														</div>
+													</div>
+												{/if}
+											</div>
+											<p class="mt-3 text-xs text-slate-500">
+												Override default percentages for part-time or partial availability.
+											</p>
+										</div>
+									{/if}
+								</div>
+							{:else}
+								<ConsultantAvailabilityPills {availability} />
+							{/if}
+						</div>
+
+						<div class="pt-2">
+							<h3 class="mb-2 text-lg font-semibold text-slate-900">Tech Stack</h3>
+							{#if isEditing && canEdit}
+								<TechStackEditor bind:categories={editingTechStack} isEditing />
+							{:else if viewCategories.length === 0}
+								<p class="text-sm text-slate-600">No tech stack recorded yet.</p>
+							{:else}
+								<div class="space-y-3">
+									{#each viewCategories as cat (cat.name ?? '')}
+										<div class="space-y-1">
+											<p class="text-xs font-semibold tracking-wide text-slate-800 uppercase">
+												{cat.name}
+											</p>
+											<div class="flex flex-wrap gap-2">
+												{#each cat.skills as skill, skillIndex (`${cat.name ?? 'cat'}-${skill}-${skillIndex}`)}
+													<span
+														class="inline-flex min-h-[28px] min-w-[28px] items-center justify-center border border-primary bg-transparent px-2 py-1 text-xs font-semibold text-primary"
+													>
+														{skill}
+													</span>
+												{/each}
+											</div>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					</form>
+				</div>
+			</div>
+		{:else}
+			<div class="rounded-lg bg-red-50 p-4 text-red-800">Person not found.</div>
+		{/if}
+	</div>
+
+	{#if profile}
+		<div class="mt-12 border-t border-slate-200 pt-12">
+			<div class="mb-6 flex items-center justify-between">
+				<h2 class="text-2xl font-bold text-slate-900">Resumes</h2>
+				{#if canEdit}
+					<div class="flex items-center gap-2">
+						<Button size="sm" variant="outline" onclick={openImportDrawer}>
+							<Upload size={14} />
+							Create resume from PDF
+						</Button>
+						<Button size="sm" variant="outline" onclick={addResume}>+ Add resume</Button>
+					</div>
+				{/if}
+			</div>
+
+			<div class="space-y-4">
+				{#each sortedResumeList as resume, index (resume.id)}
+					<div
+						draggable={canEdit}
+						ondragstart={() => handleDragStart(resume)}
+						ondragover={(e) => handleDragOver(e, index)}
+						ondragleave={handleDragLeave}
+						ondrop={(e) => handleDrop(e, index)}
+						ondragend={() => {
+							draggedResume = null;
+							dragOverIndex = null;
+						}}
+						onclick={() =>
+							goto(
+								`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resume.id)}`
+							)}
+						class={`flex cursor-pointer items-center justify-between rounded-none border p-6 shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md ${
+							dragOverIndex === index ? 'border-primary' : 'border-slate-200'
+						} ${draggedResume?.id === resume.id ? 'opacity-50' : ''}`}
+					>
+						<div class="flex items-start gap-4">
+							<div
+								class="flex h-12 w-12 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"
+							>
+								<FileText size={24} />
+							</div>
+							<div>
+								<div class="flex items-center gap-3">
+									<h3 class="text-lg font-semibold text-slate-900">
+										{resume.version_name ?? 'Main'}
+									</h3>
+									{#if resume.is_main}
+										<span
+											class="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-green-600/20 ring-inset"
+										>
+											<CheckCircle2 size={12} />
+											Main Resume
+										</span>
+									{/if}
+								</div>
+								<div class="mt-1 flex items-center gap-4 text-sm text-slate-500">
+									<span class="flex items-center gap-1">
+										<Calendar size={14} />
+										Updated {resume.updated_at ?? resume.created_at ?? '—'}
+									</span>
+								</div>
+							</div>
+						</div>
+						{#if canEdit}
+							<div class="flex items-center gap-1">
+								<button
+									type="button"
+									class="cursor-pointer rounded-md p-2 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+									onclick={(e) => {
+										e.stopPropagation();
+										copyResume(resume.id);
+									}}
+									title="Copy resume"
+								>
+									<Copy size={18} />
+								</button>
+								<button
+									type="button"
+									class="cursor-pointer rounded-md p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+									onclick={(e) => e.stopPropagation()}
+									title="Delete resume"
+									use:confirm={{
+										title: 'Delete resume?',
+										description: `Are you sure you want to delete "${resume.version_name}"? This cannot be undone.`,
+										actionLabel: 'Delete',
+										action: () => deleteResume(resume.id)
+									}}
+								>
+									<Trash2 size={18} />
+								</button>
+							</div>
+						{/if}
+					</div>
+				{/each}
+				{#if sortedResumeList.length === 0}
+					<div class="rounded-lg border-2 border-dashed border-slate-200 p-12 text-center">
+						<FileText size={48} class="mx-auto mb-4 text-slate-300" />
+						<h3 class="text-lg font-medium text-slate-900">No resumes found</h3>
+						<p class="mt-2 text-slate-500">Connect this profile to a resume to see it here.</p>
+					</div>
+				{/if}
+			</div>
+		</div>
+	{/if}
+</div>
+
+{#if profile && canEdit}
+	<PixelDrawer
+		bind:open={importDrawerOpen}
+		variant="bottom"
+		title="Import from PDF"
+		subtitle="Upload a resume PDF to create an editable draft."
+		beforeClose={requestImportDrawerClose}
+	>
+		<div class="flex min-h-0 flex-1 flex-col">
+			{#if isBackgroundImporting}
+				<!-- Importing state -->
+				<div class="flex flex-1 flex-col items-center justify-center py-8">
+					<div class="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+						<Loader2 size={32} class="animate-spin text-primary" />
+					</div>
+					<p class="mb-1 text-lg font-medium text-slate-900">{importStatusLabel}</p>
+					{#if importSourceFilename}
+						<p class="text-sm text-slate-500">{importSourceFilename}</p>
+					{/if}
+					<p class="mt-4 text-xs text-slate-400">
+						You can close this drawer. The import will continue in the background.
+					</p>
+				</div>
+			{:else}
+				<!-- Upload state -->
+				<div bind:this={uppyContainer} class="uppy-container w-full flex-1 rounded-xs" />
+
+				{#if importError}
+					<div class="mt-4 flex items-start gap-2 rounded-lg bg-red-50 p-3">
+						<AlertCircle size={16} class="mt-0.5 shrink-0 text-red-500" />
+						<p class="text-sm text-red-700">{importError}</p>
+					</div>
+				{/if}
+
+				<div class="mt-4 flex items-center justify-between gap-4 border-t border-slate-200 pt-4">
+					<p class="text-xs text-slate-400">PDF only, max 10MB</p>
+					<div class="flex gap-2">
+						<Button type="button" variant="ghost" size="sm" onclick={closeImportDrawer}>
+							Cancel
+						</Button>
+						<Button
+							type="button"
+							variant="primary"
+							size="sm"
+							onclick={importSelectedPdf}
+							disabled={!selectedImportFile || isImportBusy}
+							loading={isKickoffImporting}
+						>
+							Import
+						</Button>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</PixelDrawer>
+
+	<!-- Close confirmation dialog -->
+	{#if showCloseConfirm}
+		<div
+			class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+			onclick={cancelClose}
+			onkeydown={(e) => e.key === 'Escape' && cancelClose()}
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1"
+		>
+			<div
+				class="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
+				onclick={(e) => e.stopPropagation()}
+				role="document"
+			>
+				<h3 class="mb-2 text-lg font-semibold text-slate-900">Cancel import?</h3>
+				<p class="mb-4 text-sm text-slate-600">
+					The import is still starting. If you close now, it will be cancelled.
+				</p>
+				<div class="flex justify-end gap-2">
+					<Button type="button" variant="ghost" size="sm" onclick={cancelClose}>
+						Keep importing
+					</Button>
+					<Button type="button" variant="destructive" size="sm" onclick={confirmClose}>
+						Cancel import
+					</Button>
+				</div>
+			</div>
+		</div>
+	{/if}
+{/if}
+
+<style>
+	:global(.uppy-container .uppy-Dashboard) {
+		border: 1px dashed var(--color-slate-300, #cbd5e1);
+		border-radius: 0.5rem;
+		background: var(--color-slate-50, #f8fafc);
+		min-height: 160px;
+	}
+	:global(.uppy-container .uppy-Dashboard-inner) {
+		background: transparent;
+		border: none;
+	}
+	:global(.uppy-container .uppy-Dashboard-AddFiles) {
+		border: none;
+		border-radius: 0.5rem;
+	}
+	:global(.uppy-container .uppy-Dashboard-AddFiles-title) {
+		font-size: 0.875rem;
+		color: var(--color-slate-600, #475569);
+	}
+	:global(.uppy-container .uppy-Dashboard-note) {
+		display: none;
+	}
+</style>

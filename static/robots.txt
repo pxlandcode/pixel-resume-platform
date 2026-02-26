@@ -1,0 +1,11 @@
+# Allow marketing pages but keep admin/API endpoints out of the index
+User-agent: *
+Disallow: /internal/
+Disallow: /internal
+Disallow: /api/
+Disallow: /api
+Disallow: /ai-compatibility-checker
+Disallow: /ai-compatibility-checker/
+Allow: /
+
+Sitemap: https://pixelcode.se/sitemap.xml
