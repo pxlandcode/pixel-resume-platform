@@ -1,8 +1,7 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import { dev } from '$app/environment';
 import { createClient } from '@supabase/supabase-js';
-import { AUTH_COOKIE_NAMES } from '$lib/server/supabase';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from '$env/static/private';
+import { AUTH_COOKIE_NAMES, getSupabasePublishableKey, getSupabaseUrl } from '$lib/server/supabase';
 
 const cookieOptions = {
 	path: '/',
@@ -54,7 +53,17 @@ export const actions: Actions = {
 			});
 		}
 
-		const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+		const supabaseUrl = getSupabaseUrl();
+		const publishableKey = getSupabasePublishableKey();
+		if (!supabaseUrl || !publishableKey) {
+			return fail(500, {
+				ok: false,
+				message:
+					'Supabase keys are not configured (SUPABASE_PUBLISHABLE_KEY / legacy SUPABASE_ANON_KEY).'
+			});
+		}
+
+		const supabase = createClient(supabaseUrl, publishableKey, {
 			auth: {
 				persistSession: false,
 				autoRefreshToken: false
@@ -69,7 +78,8 @@ export const actions: Actions = {
 		if (setError || !sessionData.session) {
 			return fail(400, {
 				ok: false,
-				message: setError?.message ?? 'This reset link is no longer valid. Please request a new email.'
+				message:
+					setError?.message ?? 'This reset link is no longer valid. Please request a new email.'
 			});
 		}
 

@@ -12,7 +12,7 @@ const RESUME_IMPORTS_TEMP_BUCKET = 'resume-imports-temp';
 
 type ResumeImportJobRow = {
 	id: string;
-	person_id: string;
+	talent_id: string;
 	requested_by_user_id: string;
 	status: 'queued' | 'processing' | 'succeeded' | 'failed';
 	source_size_bytes: number;
@@ -62,12 +62,12 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		return json({ message: 'Invalid upload payload.' }, { status: 400 });
 	}
 
-	const personId =
-		typeof formData.get('person_id') === 'string' ? String(formData.get('person_id')).trim() : '';
+	const talentId =
+		typeof formData.get('talent_id') === 'string' ? String(formData.get('talent_id')).trim() : '';
 	const file = formData.get('file');
 
-	if (!personId) {
-		return json({ message: 'Invalid person id.' }, { status: 400 });
+	if (!talentId) {
+		return json({ message: 'Invalid talent id.' }, { status: 400 });
 	}
 
 	if (!isUploadFile(file)) {
@@ -91,7 +91,7 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	const { data: jobRow, error: jobError } = await adminClient
 		.from('resume_import_jobs')
 		.select(
-			'id, person_id, requested_by_user_id, status, source_size_bytes, source_bucket, source_object_path'
+			'id, talent_id, requested_by_user_id, status, source_size_bytes, source_bucket, source_object_path'
 		)
 		.eq('id', jobId)
 		.maybeSingle();
@@ -104,8 +104,8 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	}
 
 	const job = jobRow as ResumeImportJobRow;
-	if (job.person_id !== personId) {
-		return json({ message: 'Import job does not match target profile.' }, { status: 400 });
+	if (job.talent_id !== talentId) {
+		return json({ message: 'Import job does not match target talent.' }, { status: 400 });
 	}
 
 	if (job.status !== 'queued') {
@@ -119,22 +119,21 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 		);
 	}
 
-	const permissions = await getResumeEditPermissions(supabase, adminClient, personId);
+	const permissions = await getResumeEditPermissions(supabase, adminClient, talentId);
 	if (!permissions.canEdit || !permissions.userId) {
-		return json({ message: 'Not authorized to create resumes for this user.' }, { status: 403 });
+		return json({ message: 'Not authorized to create resumes for this talent.' }, { status: 403 });
 	}
 
 	if (permissions.userId !== job.requested_by_user_id) {
 		return json({ message: 'Import job requester mismatch.' }, { status: 403 });
 	}
 
-	// Best-effort cleanup if a queued job is being re-staged.
 	if (job.source_bucket && job.source_object_path) {
 		await adminClient.storage.from(job.source_bucket).remove([job.source_object_path]);
 	}
 
 	const sanitized = sanitizeName(filename);
-	const objectPath = `resume-imports/${personId}/${jobId}-${Date.now()}-${sanitized}.pdf`;
+	const objectPath = `resume-imports/${talentId}/${jobId}-${Date.now()}-${sanitized}.pdf`;
 
 	const { error: uploadError } = await adminClient.storage
 		.from(RESUME_IMPORTS_TEMP_BUCKET)
@@ -167,7 +166,6 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 			'[resume-import/stage-file] Failed to update import job with staged file path',
 			updateError
 		);
-		// Best-effort cleanup if DB update fails after upload
 		await adminClient.storage.from(RESUME_IMPORTS_TEMP_BUCKET).remove([objectPath]);
 		return json({ message: updateError.message }, { status: 500 });
 	}

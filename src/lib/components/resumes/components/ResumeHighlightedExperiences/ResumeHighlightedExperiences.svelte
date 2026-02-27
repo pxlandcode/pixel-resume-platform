@@ -1,8 +1,9 @@
 <script lang="ts">
-	import type { HighlightedExperience } from '$lib/types/resume';
+	import type { HighlightedExperience, ExperienceLibraryItem } from '$lib/types/resume';
 	import { Button, Input, FormControl } from '@pixelcode_/blocks/components';
 	import { QuillEditor, TechStackSelector } from '$lib/components';
 	import { ResumeAiWriterDrawer } from '../ResumeAiWriterDrawer';
+	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		t,
 		getLocalizedValue,
@@ -16,7 +17,9 @@
 		experiences = $bindable(),
 		isEditing = false,
 		language = 'sv',
+		libraryExperiences = [],
 		onAdd,
+		onAddFromLibrary,
 		onRemove,
 		onMove,
 		onReorder,
@@ -25,7 +28,9 @@
 		experiences: HighlightedExperience[];
 		isEditing?: boolean;
 		language?: Language;
+		libraryExperiences?: ExperienceLibraryItem[];
 		onAdd?: () => void;
+		onAddFromLibrary?: (libraryId: string) => void;
 		onRemove?: (index: number) => void;
 		onMove?: (index: number, direction: 'up' | 'down') => void;
 		onReorder?: (fromIndex: number, toIndex: number) => void;
@@ -33,9 +38,11 @@
 	} = $props();
 	const debugLoggingEnabled = import.meta.env.DEV;
 	let aiDescriptionRevisionByRow = $state<Record<string, number>>({});
+	let showLibraryPicker = $state(false);
+	let librarySearch = $state('');
 
 	// Collapse state - track which items are expanded
-	let expandedIds = $state<Set<string>>(new Set());
+	let expandedIds = new SvelteSet<string>();
 	let allCollapsed = $state(true);
 
 	const getRowId = (exp: HighlightedExperience, index: number) => exp._id ?? `row-${index}`;
@@ -53,15 +60,18 @@
 		} else {
 			expandedIds.add(id);
 		}
-		expandedIds = new Set(expandedIds);
 	};
 
 	const toggleAll = () => {
 		if (allCollapsed) {
-			expandedIds = new Set(experiences.map((exp) => exp._id ?? ''));
+			expandedIds.clear();
+			for (const exp of experiences) {
+				const id = exp._id ?? '';
+				if (id) expandedIds.add(id);
+			}
 			allCollapsed = false;
 		} else {
-			expandedIds = new Set();
+			expandedIds.clear();
 			allCollapsed = true;
 		}
 	};
@@ -105,11 +115,28 @@
 		draggedIndex = null;
 		dragOverIndex = null;
 	};
+
+	const filteredLibraryExperiences = $derived.by(() => {
+		const needle = librarySearch.trim().toLowerCase();
+		if (!needle) return libraryExperiences;
+		return libraryExperiences.filter((entry) => {
+			const company = (entry.company ?? '').toLowerCase();
+			const roleSv = getLocalizedValue(entry.role, 'sv').toLowerCase();
+			const roleEn = getLocalizedValue(entry.role, 'en').toLowerCase();
+			const techs = (entry.technologies ?? []).join(' ').toLowerCase();
+			return (
+				company.includes(needle) ||
+				roleSv.includes(needle) ||
+				roleEn.includes(needle) ||
+				techs.includes(needle)
+			);
+		});
+	});
 </script>
 
 <div class="space-y-4">
 	{#if !isEditing && experiences.length > 0}
-		<h3 class="pt-4 text-base font-bold tracking-wide text-slate-900 uppercase">
+		<h3 class="pt-4 text-base font-bold uppercase tracking-wide text-slate-900">
 			{language === 'sv' ? 'Utvald Erfarenhet' : 'Highlighted Experience'}
 		</h3>
 	{/if}
@@ -125,18 +152,67 @@
 				>
 					+ Add Highlighted Experience
 				</Button>
+				<Button
+					variant="outline"
+					class="border-slate-300 text-slate-700 hover:bg-white"
+					onclick={() => (showLibraryPicker = !showLibraryPicker)}
+				>
+					Add from Library
+				</Button>
 				<Button variant="ghost" size="sm" class="text-slate-600" onclick={toggleAll}>
 					{allCollapsed ? 'Expand All' : 'Collapse All'}
 				</Button>
 			</div>
+			{#if showLibraryPicker}
+				<div class="rounded-xs mb-4 border border-slate-200 bg-slate-50 p-3">
+					<div class="mb-2 flex items-center justify-between gap-2">
+						<p class="text-xs font-semibold uppercase tracking-wide text-slate-700">
+							Experience Library
+						</p>
+						<Button variant="ghost" size="sm" onclick={() => (showLibraryPicker = false)}>
+							Close
+						</Button>
+					</div>
+					<Input
+						placeholder="Search company, role, or tech..."
+						bind:value={librarySearch}
+						class="mb-3"
+					/>
+					<div class="max-h-56 space-y-2 overflow-auto">
+						{#if filteredLibraryExperiences.length === 0}
+							<p class="text-sm text-slate-500">No saved experiences found.</p>
+						{:else}
+							{#each filteredLibraryExperiences as entry (entry.id)}
+								<div
+									class="rounded-xs flex items-center justify-between border border-slate-200 bg-white px-3 py-2"
+								>
+									<div class="min-w-0">
+										<p class="truncate text-sm font-semibold text-slate-800">
+											{entry.company || 'Untitled'}
+										</p>
+										<p class="truncate text-xs text-slate-500">
+											{getLocalizedValue(entry.role, language) ||
+												getLocalizedValue(entry.role, 'en')}
+										</p>
+									</div>
+									<Button size="sm" variant="outline" onclick={() => onAddFromLibrary?.(entry.id)}>
+										Add
+									</Button>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+			{/if}
 			<div class="space-y-3">
 				{#each experiences as exp, index (exp._id ?? index)}
 					{@const rowId = getRowId(exp, index)}
 					<div
-						class="rounded-xs border border-slate-200 bg-white transition-all {draggedIndex === index
+						class="rounded-xs border border-slate-200 bg-white transition-all {draggedIndex ===
+						index
 							? 'opacity-50'
 							: ''} {dragOverIndex === index && draggedIndex !== index
-							? 'border-2 border-primary'
+							? 'border-primary border-2'
 							: ''}"
 						ondragover={handleDragOver(index)}
 						ondragleave={handleDragLeave}
@@ -241,7 +317,11 @@
 												'sv',
 												payload.drafts.roleByLanguage.sv
 											);
-											nextRole = setLocalizedValue(nextRole, 'en', payload.drafts.roleByLanguage.en);
+											nextRole = setLocalizedValue(
+												nextRole,
+												'en',
+												payload.drafts.roleByLanguage.en
+											);
 
 											const nextExp: HighlightedExperience = {
 												...exp,
@@ -285,11 +365,7 @@
 									disabled={index === experiences.length - 1}
 									onclick={() => onMove?.(index, 'down')}>↓</Button
 								>
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => onRemove?.(index)}>✕</Button
-								>
+								<Button variant="ghost" size="sm" onclick={() => onRemove?.(index)}>✕</Button>
 							</div>
 						</div>
 
@@ -323,7 +399,9 @@
 									</FormControl>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-slate-700">Description (SV)</label>
+									<label class="mb-1 block text-sm font-medium text-slate-700"
+										>Description (SV)</label
+									>
 									<div class="rounded-xs border border-slate-300 bg-white">
 										{#key `sv-${rowId}-${getDescriptionRevision(rowId)}`}
 											<QuillEditor
@@ -336,7 +414,9 @@
 									</div>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-slate-700">Description (EN)</label>
+									<label class="mb-1 block text-sm font-medium text-slate-700"
+										>Description (EN)</label
+									>
 									<div class="rounded-xs border border-slate-300 bg-white">
 										{#key `en-${rowId}-${getDescriptionRevision(rowId)}`}
 											<QuillEditor
@@ -349,7 +429,9 @@
 									</div>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-slate-700">Key Technologies</label>
+									<label class="mb-1 block text-sm font-medium text-slate-700"
+										>Key Technologies</label
+									>
 									<TechStackSelector
 										bind:value={exp.technologies}
 										onchange={(techs) => (exp.technologies = techs ?? [])}
@@ -362,11 +444,11 @@
 			</div>
 		</div>
 	{:else}
-		{#each experiences.filter((exp) => !exp.hidden) as exp}
-			<div class="space-y-3 border-l border-primary pl-4">
+		{#each experiences.filter((exp) => !exp.hidden) as exp, index (`view-highlighted-${exp._id ?? exp.libraryId ?? exp.company}-${index}`)}
+			<div class="border-primary space-y-3 border-l pl-4">
 				<div>
 					<p class="text-sm font-semibold text-slate-900">{exp.company}</p>
-					<p class="text-sm text-slate-700 italic">{t(exp.role, language)}</p>
+					<p class="text-sm italic text-slate-700">{t(exp.role, language)}</p>
 				</div>
 				<div class="experience-description text-sm leading-relaxed text-slate-700">
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -374,11 +456,11 @@
 				</div>
 				{#if exp.technologies.length > 0}
 					<div class="space-y-1">
-						<p class="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+						<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
 							{language === 'sv' ? 'Nyckeltekniker' : 'Key Technologies'}
 						</p>
 						<div class="flex flex-wrap gap-2">
-							{#each exp.technologies as tech}
+							{#each exp.technologies as tech, techIndex (`${tech}-${techIndex}`)}
 								<span class="rounded-xs bg-slate-100 px-3 py-1 text-xs text-slate-800">{tech}</span>
 							{/each}
 						</div>

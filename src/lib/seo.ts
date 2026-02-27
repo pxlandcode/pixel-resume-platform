@@ -36,9 +36,9 @@ const DEFAULT_OG_PATH = '/og/default.png';
 export const siteMeta = {
 	name: 'Resume Platform',
 	url: 'https://pixelcode.se',
-	tagline: 'Manage consultant resumes and employee profiles',
+	tagline: 'Manage consultant resumes and talent profiles',
 	defaultDescription:
-		'Secure platform for managing employee profiles, consultant resumes, and export-ready resume packages.',
+		'Secure platform for managing talent profiles, consultant resumes, and export-ready resume packages.',
 	logoPath: '/and.svg',
 	defaultOgImage: DEFAULT_OG_PATH
 };

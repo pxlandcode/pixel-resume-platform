@@ -4,7 +4,8 @@
 		HighlightedExperience,
 		ExperienceItem,
 		LabeledItem,
-		LocalizedText
+		LocalizedText,
+		ExperienceLibraryItem
 	} from '$lib/types/resume';
 	import { soloImages } from '$lib/images/manifest';
 	import worldclassUrl from '$lib/assets/worldclass.svg?url';
@@ -37,6 +38,7 @@
 		isEditing = false,
 		person,
 		profileTechStack,
+		experienceLibrary = [],
 		onGenerateDescription
 	}: {
 		data: ResumeData;
@@ -45,9 +47,11 @@
 		isEditing?: boolean;
 		person?: Person;
 		profileTechStack?: TechCategory[];
+		experienceLibrary?: ExperienceLibraryItem[];
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
 	} = $props();
 
+	// eslint-disable-next-line svelte/prefer-writable-derived
 	let profileCategories = $state(structuredClone(profileTechStack ?? person?.techStack ?? []));
 	const displayName = $derived(person?.name ?? data.name ?? '');
 
@@ -284,13 +288,13 @@
 			profile: number;
 			current: number;
 		};
-		const signalByKey = new Map<string, SkillSignal>();
+		const signalByKey: Record<string, SkillSignal> = {};
 		const addSignal = (raw: string, source: SkillSignalSource, weight: number) => {
 			const cleaned = clip(raw, 80);
 			const normalizedSkill = normalize(cleaned);
 			if (!normalizedSkill) return;
 			const key = normalizedSkill.toLowerCase();
-			const current = signalByKey.get(key) ?? {
+			const current = signalByKey[key] ?? {
 				label: normalizedSkill,
 				score: 0,
 				highlighted: 0,
@@ -303,7 +307,7 @@
 				score: current.score + weight,
 				[source]: current[source] + 1
 			};
-			signalByKey.set(key, next);
+			signalByKey[key] = next;
 		};
 
 		const highlightedVisible = editingData.highlightedExperiences.filter((exp) => !exp.hidden);
@@ -396,7 +400,7 @@
 			);
 		}
 
-		const rankedSignals = Array.from(signalByKey.values())
+		const rankedSignals = Object.values(signalByKey)
 			.sort((a, b) => {
 				if (b.score !== a.score) return b.score - a.score;
 				if (b.highlighted !== a.highlighted) return b.highlighted - a.highlighted;
@@ -454,6 +458,23 @@
 		editingData.experiences = [newExp, ...editingData.experiences];
 	};
 
+	const addExperienceFromLibrary = (libraryId: string) => {
+		const selected = experienceLibrary.find((entry) => entry.id === libraryId);
+		if (!selected) return;
+		const newExp: ExperienceItem = {
+			_id: crypto.randomUUID(),
+			libraryId: selected.id,
+			startDate: selected.startDate ?? '',
+			endDate: selected.endDate ?? '',
+			company: selected.company ?? '',
+			location: selected.location ?? { sv: '', en: '' },
+			role: selected.role ?? { sv: '', en: '' },
+			description: selected.description ?? { sv: '', en: '' },
+			technologies: Array.isArray(selected.technologies) ? [...selected.technologies] : []
+		};
+		editingData.experiences = [newExp, ...editingData.experiences];
+	};
+
 	const removeExperience = (index: number) => {
 		editingData.experiences = editingData.experiences.filter((_, i) => i !== index);
 	};
@@ -481,6 +502,20 @@
 			role: { sv: '', en: '' },
 			description: { sv: '', en: '' },
 			technologies: []
+		};
+		editingData.highlightedExperiences = [...editingData.highlightedExperiences, newExp];
+	};
+
+	const addHighlightedExperienceFromLibrary = (libraryId: string) => {
+		const selected = experienceLibrary.find((entry) => entry.id === libraryId);
+		if (!selected) return;
+		const newExp: HighlightedExperience = {
+			_id: crypto.randomUUID(),
+			libraryId: selected.id,
+			company: selected.company ?? '',
+			role: selected.role ?? { sv: '', en: '' },
+			description: selected.description ?? { sv: '', en: '' },
+			technologies: Array.isArray(selected.technologies) ? [...selected.technologies] : []
 		};
 		editingData.highlightedExperiences = [...editingData.highlightedExperiences, newExp];
 	};
@@ -619,7 +654,9 @@
 					{isEditing}
 					language={componentLanguage}
 					{onGenerateDescription}
+					libraryExperiences={experienceLibrary}
 					onAdd={addHighlightedExperience}
+					onAddFromLibrary={addHighlightedExperienceFromLibrary}
 					onRemove={removeHighlightedExperience}
 					onMove={moveHighlightedExperience}
 					onReorder={reorderHighlightedExperience}
@@ -676,7 +713,9 @@
 						{isEditing}
 						language={componentLanguage}
 						{onGenerateDescription}
+						libraryExperiences={experienceLibrary}
 						onAdd={addHighlightedExperience}
+						onAddFromLibrary={addHighlightedExperienceFromLibrary}
 						onRemove={removeHighlightedExperience}
 						onMove={moveHighlightedExperience}
 						onReorder={reorderHighlightedExperience}
@@ -692,7 +731,9 @@
 		{isEditing}
 		language={componentLanguage}
 		{onGenerateDescription}
+		libraryExperiences={experienceLibrary}
 		onAdd={addExperience}
+		onAddFromLibrary={addExperienceFromLibrary}
 		onRemove={removeExperience}
 		onMove={moveExperience}
 		onReorder={reorderExperience}

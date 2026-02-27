@@ -6,9 +6,9 @@
 
 	const quickActions = [
 		{
-			title: 'View Employees',
-			description: 'Browse all consultants and their profiles',
-			href: '/employees',
+			title: 'View Talents',
+			description: 'Browse all consultants and their talent profiles',
+			href: '/talents',
 			icon: Users,
 			color: 'bg-blue-500'
 		},
@@ -103,7 +103,11 @@
 					</p>
 				</div>
 			</div>
-			<Button variant="outline" size="sm" href={`/employees/${data.user?.id}`}>
+			<Button
+				variant="outline"
+				size="sm"
+				href={data.currentTalentId ? `/resumes/${data.currentTalentId}` : '/talents'}
+			>
 				Edit profile
 			</Button>
 		</div>

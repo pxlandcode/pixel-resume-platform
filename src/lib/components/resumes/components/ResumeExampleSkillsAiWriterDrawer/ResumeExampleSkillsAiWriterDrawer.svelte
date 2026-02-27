@@ -2,7 +2,7 @@
 	import { Button, FormControl } from '@pixelcode_/blocks/components';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { TechStackSelector } from '$lib/components';
-	import PixelDrawer from '$lib/components/PixelDrawer.svelte';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { confirm } from '$lib/utils/confirm';
 	import type { Language, ResumeAiGenerateParams, ResumeAiGenerateResult } from '../utils';
 
@@ -204,7 +204,7 @@
 	<Sparkles size={16} />
 </Button>
 
-<PixelDrawer
+<Drawer
 	bind:open
 	variant="bottom"
 	title={rowTitle}
@@ -214,7 +214,7 @@
 	<div class="relative flex min-h-0 flex-1 flex-col gap-4">
 		<button
 			type="button"
-			class="pointer-events-none absolute top-0 right-0 h-0 w-0 opacity-0"
+			class="pointer-events-none absolute right-0 top-0 h-0 w-0 opacity-0"
 			aria-hidden="true"
 			bind:this={closeConfirmTrigger}
 			use:confirm={{
@@ -263,7 +263,7 @@
 					bind:value={prompt}
 					rows="5"
 					placeholder="Optional job focus, e.g. '.NET backend role with Angular frontend and Azure'"
-					class="w-full resize-y rounded-xs border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-indigo-400"
+					class="rounded-xs w-full resize-y border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-indigo-400"
 				></textarea>
 			</FormControl>
 
@@ -308,7 +308,7 @@
 
 			<div class="rounded-xs border border-slate-200 bg-slate-50 p-4">
 				<div class="mb-2 flex items-center justify-between gap-2">
-					<p class="text-xs font-semibold tracking-wide text-slate-700 uppercase">
+					<p class="text-xs font-semibold uppercase tracking-wide text-slate-700">
 						Draft skills ({draftSkills.length})
 					</p>
 					<p class="text-xs text-slate-500">Adjust before applying</p>
@@ -327,4 +327,4 @@
 			</Button>
 		</div>
 	</div>
-</PixelDrawer>
+</Drawer>

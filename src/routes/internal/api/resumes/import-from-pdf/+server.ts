@@ -6,6 +6,7 @@ import {
 } from '$lib/server/supabase';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 import { importResumeFromPdf, ResumePdfImportError } from '$lib/server/resumes/pdfImport';
+import { saveResumeData } from '$lib/server/resumes/store';
 
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set(['application/pdf']);
@@ -33,11 +34,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	} catch {
 		return json({ message: 'Invalid upload payload.' }, { status: 400 });
 	}
-	const personId = formData.get('person_id');
+	const talentId = formData.get('talent_id');
 	const file = formData.get('file');
 
-	if (typeof personId !== 'string' || !personId.trim()) {
-		return json({ message: 'Invalid person id.' }, { status: 400 });
+	if (typeof talentId !== 'string' || !talentId.trim()) {
+		return json({ message: 'Invalid talent id.' }, { status: 400 });
 	}
 
 	const isUploadFile =
@@ -65,23 +66,23 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ message: 'PDF file is too large. Max size is 10MB.' }, { status: 400 });
 	}
 
-	const { data: profile, error: profileError } = await adminClient
-		.from('profiles')
+	const { data: talent, error: talentError } = await adminClient
+		.from('talents')
 		.select('id, first_name, last_name')
-		.eq('id', personId)
+		.eq('id', talentId)
 		.maybeSingle();
 
-	if (profileError || !profile?.id) {
-		return json({ message: 'Profile not found.' }, { status: 404 });
+	if (talentError || !talent?.id) {
+		return json({ message: 'Talent not found.' }, { status: 404 });
 	}
 
-	const { canEdit } = await getResumeEditPermissions(supabase, adminClient, personId);
+	const { canEdit } = await getResumeEditPermissions(supabase, adminClient, talentId);
 	if (!canEdit) {
-		return json({ message: 'Not authorized to create resumes for this user.' }, { status: 403 });
+		return json({ message: 'Not authorized to create resumes for this talent.' }, { status: 403 });
 	}
 
 	const personName =
-		[profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || 'Consultant';
+		[talent.first_name, talent.last_name].filter(Boolean).join(' ').trim() || 'Talent';
 
 	try {
 		const imported = await importResumeFromPdf({
@@ -95,12 +96,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		const { data: created, error: createError } = await adminClient
 			.from('resumes')
 			.insert({
-				user_id: personId,
+				talent_id: talentId,
 				version_name: versionName,
 				is_main: false,
 				is_active: true,
 				allow_word_export: false,
-				content: imported.content,
 				preview_html: null
 			})
 			.select('id, version_name')
@@ -112,6 +112,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 				{ status: 500 }
 			);
 		}
+
+		await saveResumeData(adminClient, String(created.id), talentId, imported.content);
 
 		return json({
 			id: String(created.id),

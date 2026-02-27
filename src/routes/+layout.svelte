@@ -4,6 +4,7 @@
 	import { page, navigating } from '$app/stores';
 	import { siteMeta, withMetaDefaults } from '$lib/seo';
 	import ResumeLayout from '$lib/components/resume-layout/resume-layout.svelte';
+	import type { AdminRole } from '$lib/components/resume-layout/resume-layout.svelte';
 	import { Mode } from '@pixelcode_/blocks/components';
 	import { loadingStore } from '$lib/stores/loading';
 	import {
@@ -35,16 +36,18 @@
 				: [resolvedMeta.jsonLd]
 			: []
 	);
+	const jsonLdScripts = $derived(jsonLdEntries.map((schema) => JSON.stringify(schema)));
+	const jsonLdIndexes = $derived(jsonLdScripts.map((_schema, index) => index));
 
-	const isBusy = $derived(useAppShell && (Boolean($navigating) || $loadingStore.isLoading));
+	const isBusy = $derived(useAppShell && ($navigating !== null || $loadingStore.isLoading));
 	const loadingLabel = $derived(
-		$loadingStore.loadingText ?? (Boolean($navigating) ? 'Loading page...' : 'Loading...')
+		$loadingStore.loadingText ?? ($navigating !== null ? 'Loading page...' : 'Loading...')
 	);
 
 	const showImportIndicator = $derived(useAppShell && $isImportActive);
 	const importHasError = $derived(!!$pdfImportStore.error && $pdfImportStore.status === 'idle');
 	const importIsSuccess = $derived($isImportSucceeded);
-	const importPersonId = $derived($pdfImportStore.personId);
+	const importTalentId = $derived($pdfImportStore.talentId);
 	const importResumeId = $derived($pdfImportStore.resumeId);
 	const importFilename = $derived($pdfImportStore.sourceFilename);
 	const importError = $derived($pdfImportStore.error);
@@ -54,6 +57,8 @@
 			? 'You do not have permission to view that section.'
 			: null
 	);
+	const layoutRole = $derived((data.role ?? null) as AdminRole | null);
+	const layoutRoles = $derived((data.roles ?? []) as AdminRole[]);
 
 	let successDismissing = $state(false);
 	let successDismissTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -78,16 +83,6 @@
 			}
 		}
 	});
-
-	function getImportLink(): string {
-		if (!importPersonId) return '/resumes';
-		return `/resumes/${encodeURIComponent(importPersonId)}?openImport=1`;
-	}
-
-	function getSuccessResumeLink(): string {
-		if (!importPersonId || !importResumeId) return '/resumes';
-		return `/resumes/${encodeURIComponent(importPersonId)}/resume/${encodeURIComponent(importResumeId)}`;
-	}
 
 	function handleSuccessClick() {
 		if (successDismissTimeout) {
@@ -271,14 +266,12 @@
 	{/if}
 	<meta name="theme-color" content="#0f172a" />
 	<link rel="icon" href={favicon} />
-	{#if jsonLdEntries.length}
-		{#each jsonLdEntries as schema}
-			<script type="application/ld+json">
-{JSON.stringify(schema)}
-			</script>
-		{/each}
-	{/if}
-</svelte:head>
+		{#if jsonLdScripts.length}
+			{#each jsonLdIndexes as index (`jsonld-${index}`)}
+				<script type="application/ld+json">{@html jsonLdScripts[index]}</script>
+			{/each}
+		{/if}
+	</svelte:head>
 
 <Mode.Watcher defaultMode="light" />
 
@@ -288,7 +281,10 @@
 	>
 		{#if importIsSuccess}
 			<a
-				href={getSuccessResumeLink()}
+				href={resolve('/resumes/[personId]/resume/[resumeId]', {
+					personId: importTalentId ?? '',
+					resumeId: importResumeId ?? ''
+				})}
 				onclick={handleSuccessClick}
 				class="flex items-center gap-3 rounded-lg bg-emerald-500 px-4 py-3 text-white shadow-lg transition-all hover:scale-105 hover:bg-emerald-600"
 				title="Click to open resume"
@@ -304,7 +300,7 @@
 		{:else}
 			<div class="group relative">
 				<a
-					href={getImportLink()}
+					href={resolve('/resumes/[personId]', { personId: importTalentId ?? '' })}
 					class={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 ${
 						importHasError
 							? 'bg-red-500 text-white hover:bg-red-600'
@@ -367,8 +363,8 @@
 	<div class="internal-root">
 		<ResumeLayout
 			profile={data.profile}
-			role={data.role}
-			roles={data.roles}
+			role={layoutRole}
+			roles={layoutRoles}
 			userEmail={data.user?.email ?? null}
 			{unauthorizedMessage}
 		>

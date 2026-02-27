@@ -41,13 +41,13 @@ You can preview the production build with `npm run preview`.
 
 The AI Compatibility Checker relies on the following environment variables:
 
-| Variable | Required | Description |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | ✅ | Used for LLM-based diagnostics. |
-| `LLM_MODEL` | ➖ | Optional override for the OpenAI model (defaults to `gpt-4o-mini`). |
-| `BRAVE_SEARCH_KEY` | ➖ | Optional key to enable Brave Search ranking. |
-| `BRAVE_AI_GROUNDING_KEY` | ➖ | Optional key to enable citation grounding results. |
-| `ENABLE_RANKING` | ➖ | Set to `1` to activate the presence module (`/api/presence`). |
+| Variable                 | Required | Description                                                         |
+| ------------------------ | -------- | ------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | ✅       | Used for LLM-based diagnostics.                                     |
+| `LLM_MODEL`              | ➖       | Optional override for the OpenAI model (defaults to `gpt-4o-mini`). |
+| `BRAVE_SEARCH_KEY`       | ➖       | Optional key to enable Brave Search ranking.                        |
+| `BRAVE_AI_GROUNDING_KEY` | ➖       | Optional key to enable citation grounding results.                  |
+| `ENABLE_RANKING`         | ➖       | Set to `1` to activate the presence module (`/api/presence`).       |
 
 When `ENABLE_RANKING=1`, provide a Brave Search key to enrich the SERP presence report.
 
@@ -56,8 +56,13 @@ When `ENABLE_RANKING=1`, provide a Brave Search key to enrich the SERP presence 
 The custom 404 page now hosts a Snake mini-game that persists scores through Supabase. Configure the following environment variables before deploying:
 
 - `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` (optional but recommended for server-side inserts; otherwise ensure RLS policies allow anonymous writes to the table below)
+- `SUPABASE_PUBLISHABLE_KEY` (or legacy `SUPABASE_ANON_KEY`)
+- `SUPABASE_SECRET_KEY` (or legacy `SUPABASE_SERVICE_ROLE_KEY`)
+
+For browser/client usage, set:
+
+- `PUBLIC_SUPABASE_URL`
+- `PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or legacy `PUBLIC_SUPABASE_ANON_KEY`)
 
 Create the leaderboard table with this schema:
 
@@ -70,7 +75,7 @@ create table if not exists public.snake_highscores (
 );
 ```
 
-Grant the `insert` and `select` privileges (or author the corresponding row-level security policies) for the anon role if you choose not to supply a service role key.
+Grant the `insert` and `select` privileges (or author the corresponding row-level security policies) for low-privilege clients if you choose not to supply a secret key.
 
 ### Manual test plan
 
@@ -78,3 +83,21 @@ Grant the `insert` and `select` privileges (or author the corresponding row-leve
 2. Start the game, eat at least one ampersand food item, and verify the live score and session best counters update.
 3. Crash the snake, submit a score with a test name, and confirm a success toast as well as an updated entry in the leaderboard when Supabase is reachable.
 4. Temporarily disable the network or Supabase credentials, reload the 404 page, and ensure the leaderboard falls back to the local session best without breaking gameplay.
+
+## Supabase migration order (fresh talent-native DB)
+
+Apply migrations in this order:
+
+1. `supabase-migrations-foundation-talent-org.sql`
+2. `supabase-migrations-foundation-roles-org-links-refactor.sql`
+3. `supabase-migrations-profile-availability.sql`
+4. `supabase-migrations-resume-normalized-schema.sql`
+5. `supabase-migrations-resume-normalized-cutover.sql`
+6. `supabase-migrations-resume-import-jobs.sql`
+7. `supabase-migrations-storage-buckets.sql`
+
+### Migrations to skip in fresh setup
+
+- `supabase-migrations-resumes.sql` (legacy employee/profile policies)
+- `supabase-migrations-employee-availability.sql` (deprecated no-op)
+- Any legacy migration that references `profiles`, `employee`, or `cms_admin`

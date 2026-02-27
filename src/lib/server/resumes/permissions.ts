@@ -7,12 +7,26 @@ export type ResumeEditPermissions = {
 	userId: string | null;
 };
 
-const EDIT_ROLES = new Set(['admin', 'cms_admin', 'employer']);
+const EDIT_ROLES = new Set(['admin', 'broker', 'employer']);
+
+const extractRoleKeys = (
+	rows: Array<{ roles?: { key?: string | null } | Array<{ key?: string | null }> | null }>
+): string[] =>
+	rows
+		.flatMap((row) => {
+			if (Array.isArray(row.roles)) {
+				return row.roles
+					.map((roleRow) => (typeof roleRow?.key === 'string' ? roleRow.key : null))
+					.filter((role): role is string => role !== null);
+			}
+			return typeof row.roles?.key === 'string' ? [row.roles.key] : [];
+		})
+		.filter((value, index, all) => all.indexOf(value) === index);
 
 export const getResumeEditPermissions = async (
 	supabase: SupabaseClient | null,
 	adminClient: SupabaseClient | null,
-	targetUserId: string
+	targetTalentId: string
 ): Promise<ResumeEditPermissions> => {
 	if (!supabase || !adminClient) {
 		return { canEdit: false, canEditAll: false, isOwnProfile: false, userId: null };
@@ -28,14 +42,23 @@ export const getResumeEditPermissions = async (
 		return { canEdit: false, canEditAll: false, isOwnProfile: false, userId: null };
 	}
 
-	const { data: userRoles } = await adminClient
-		.from('user_roles')
-		.select('role')
-		.eq('user_id', currentUserId);
+	const [{ data: userRoles }, ownTalentResult] = await Promise.all([
+		adminClient.from('user_roles').select('roles(key)').eq('user_id', currentUserId),
+		adminClient
+			.from('talents')
+			.select('id')
+			.eq('id', targetTalentId)
+			.eq('user_id', currentUserId)
+			.maybeSingle()
+	]);
 
-	const roles = (userRoles ?? []).map((r) => r.role);
+	const roles = extractRoleKeys(
+		(userRoles as Array<{
+			roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
+		}>) ?? []
+	);
 	const canEditAll = roles.some((role) => EDIT_ROLES.has(role));
-	const isOwnProfile = currentUserId === targetUserId;
+	const isOwnProfile = Boolean(ownTalentResult.data?.id);
 
 	return {
 		canEdit: canEditAll || isOwnProfile,

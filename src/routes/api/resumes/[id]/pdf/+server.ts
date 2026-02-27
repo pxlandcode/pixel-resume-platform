@@ -2,10 +2,9 @@ import type { RequestHandler } from './$types';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { error } from '@sveltejs/kit';
-import { AUTH_COOKIE_NAMES } from '$lib/server/supabase';
+import { AUTH_COOKIE_NAMES, getSupabasePublishableKey, getSupabaseUrl } from '$lib/server/supabase';
 import { ResumeService } from '$lib/services/resume';
 import { createClient } from '@supabase/supabase-js';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from '$env/static/private';
 import chromium from '@sparticuz/chromium';
 import { chromium as playwrightChromium } from 'playwright-core';
 
@@ -147,19 +146,27 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 
 		if (!accessToken && refreshToken) {
 			try {
-				const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-					auth: {
-						persistSession: false,
-						autoRefreshToken: false,
-						detectSessionInUrl: false
-					}
-				});
-				const { data, error: refreshError } = await supabase.auth.refreshSession({
-					refresh_token: refreshToken
-				});
+				const supabaseUrl = getSupabaseUrl();
+				const publishableKey = getSupabasePublishableKey();
+				if (!supabaseUrl || !publishableKey) {
+					console.error(
+						'[pdf] Missing Supabase URL or publishable key for refresh token exchange.'
+					);
+				} else {
+					const supabase = createClient(supabaseUrl, publishableKey, {
+						auth: {
+							persistSession: false,
+							autoRefreshToken: false,
+							detectSessionInUrl: false
+						}
+					});
+					const { data, error: refreshError } = await supabase.auth.refreshSession({
+						refresh_token: refreshToken
+					});
 
-				if (!refreshError && data.session) {
-					accessToken = data.session.access_token;
+					if (!refreshError && data.session) {
+						accessToken = data.session.access_token;
+					}
 				}
 			} catch (err) {
 				console.error('[pdf] Error during token refresh:', err);

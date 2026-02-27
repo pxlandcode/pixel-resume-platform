@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS public.resume_import_jobs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  person_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  talent_id uuid NOT NULL REFERENCES public.talents(id) ON DELETE CASCADE,
   requested_by_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   status text NOT NULL CHECK (status IN ('queued', 'processing', 'succeeded', 'failed')),
   source_filename text NOT NULL,
@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS public.resume_import_jobs (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS resume_import_jobs_person_id_idx
-  ON public.resume_import_jobs (person_id);
+CREATE INDEX IF NOT EXISTS resume_import_jobs_talent_id_idx
+  ON public.resume_import_jobs (talent_id);
 
 CREATE INDEX IF NOT EXISTS resume_import_jobs_requested_by_user_id_idx
   ON public.resume_import_jobs (requested_by_user_id);

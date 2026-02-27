@@ -1,10 +1,10 @@
 <script lang="ts" module>
-	export type UserRole = 'admin' | 'cms_admin' | 'employee' | 'employer';
+	export type UserRole = 'admin' | 'broker' | 'talent' | 'employer';
 </script>
 
 <script lang="ts">
-	import { Alert, Button, FormControl, Input } from '@pixelcode_/blocks/components';
-	import PixelDrawer from '$lib/components/PixelDrawer.svelte';
+	import { Alert, Button, FormControl, Input, Select } from '@pixelcode_/blocks/components';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { createEventDispatcher, onDestroy, tick } from 'svelte';
 	import Uppy from '@uppy/core';
 	import Dashboard from '@uppy/dashboard';
@@ -23,9 +23,13 @@
 
 	const roleOptions: Array<{ value: UserRole; label: string; description: string }> = [
 		{ value: 'admin', label: 'Admin', description: 'Full access to internal tools.' },
-		{ value: 'cms_admin', label: 'CMS Admin', description: 'Manage content and news.' },
-		{ value: 'employee', label: 'Employee', description: 'Access resumes and profile.' },
-		{ value: 'employer', label: 'Employer', description: 'Limited access to preboarding.' }
+		{ value: 'broker', label: 'Broker', description: 'Manage content, resumes, and talent flows.' },
+		{
+			value: 'talent',
+			label: 'Talent',
+			description: 'Can access talent-facing flows when a talent record is linked.'
+		},
+		{ value: 'employer', label: 'Employer', description: 'Client-side access to assigned resumes.' }
 	];
 
 	type InitialUser = {
@@ -36,6 +40,14 @@
 		roles: UserRole[];
 		avatar_url?: string | null;
 		active: boolean;
+		linked_talent_id?: string | null;
+	};
+
+	type TalentOption = {
+		id: string;
+		first_name: string;
+		last_name: string;
+		user_id: string | null;
 	};
 
 	let {
@@ -43,14 +55,16 @@
 		loading = $bindable(false),
 		error = $bindable<string | null>(null),
 		mode = $bindable<'create' | 'edit'>('create'),
+		talentOptions = $bindable<TalentOption[]>([]),
 		initial = $bindable<InitialUser>({
 			id: '',
 			first_name: '',
 			last_name: '',
 			email: '',
-			roles: ['employee'],
+			roles: ['talent'],
 			avatar_url: null,
-			active: true
+			active: true,
+			linked_talent_id: null
 		})
 	} = $props();
 
@@ -61,7 +75,7 @@
 	let uppy: UppyInstance | null = null;
 	let uppyContainer: HTMLDivElement | null = null;
 
-	let selectedRoles = $state<UserRole[]>(initial.roles ?? ['employee']);
+	let selectedRoles = $state<UserRole[]>(initial.roles ?? ['talent']);
 	let avatarUrl = $state(initial.avatar_url ?? '');
 	let previewUrl = $state(avatarUrl);
 	let avatarError = $state<string | null>(null);
@@ -72,8 +86,29 @@
 	let confirmPassword = $state('');
 	let passwordUnlocked = $state(false);
 	let passwordError = $state<string | null>(null);
+	let linkedTalentId = $state(initial.linked_talent_id ?? '');
 
 	const showUploader = $derived(!previewUrl);
+	const availableTalentOptions = $derived.by(() => {
+		if (mode !== 'edit') return [] as TalentOption[];
+
+		const filtered = talentOptions.filter(
+			(talent) => !talent.user_id || talent.user_id === initial.id
+		);
+		if (!linkedTalentId) return filtered;
+
+		const selected = talentOptions.find((talent) => talent.id === linkedTalentId);
+		if (selected && !filtered.some((talent) => talent.id === selected.id)) {
+			return [selected, ...filtered];
+		}
+
+		return filtered;
+	});
+
+	const formatTalentLabel = (talent: TalentOption) => {
+		const name = [talent.first_name, talent.last_name].filter(Boolean).join(' ').trim();
+		return name || talent.id;
+	};
 
 	const revokeTempObjectUrl = () => {
 		if (tempObjectUrl) {
@@ -222,7 +257,7 @@
 		const currentInitialId = initial?.id ?? null;
 
 		if (currentInitialId !== lastInitialId) {
-			selectedRoles = initial.roles ?? ['employee'];
+			selectedRoles = initial.roles ?? ['talent'];
 			avatarUrl = initial.avatar_url ?? '';
 			previewUrl = avatarUrl;
 			isActive = initial.active ?? true;
@@ -232,6 +267,7 @@
 			confirmPassword = '';
 			passwordUnlocked = false;
 			passwordError = null;
+			linkedTalentId = initial.linked_talent_id ?? '';
 			resetUploaderState();
 
 			lastInitialId = currentInitialId;
@@ -243,7 +279,7 @@
 			resetUploaderState();
 			avatarError = null;
 			isUploading = false;
-			selectedRoles = initial.roles ?? ['employee'];
+			selectedRoles = initial.roles ?? ['talent'];
 			avatarUrl = initial.avatar_url ?? '';
 			previewUrl = avatarUrl;
 			isActive = initial.active ?? true;
@@ -251,6 +287,7 @@
 			confirmPassword = '';
 			passwordUnlocked = false;
 			passwordError = null;
+			linkedTalentId = initial.linked_talent_id ?? '';
 		}
 	});
 
@@ -303,6 +340,9 @@
 		formData.delete('roles');
 		selectedRoles.forEach((role) => formData.append('roles', role));
 		formData.set('avatar_url', avatarUrl);
+		if (mode === 'edit') {
+			formData.set('linked_talent_id', linkedTalentId);
+		}
 
 		try {
 			if (mode === 'create') {
@@ -337,7 +377,7 @@
 			// Reset only when creating; keep selections on edit so the state mirrors what was saved.
 			if (mode === 'create') {
 				form.reset();
-				selectedRoles = ['employee'];
+				selectedRoles = ['talent'];
 				avatarUrl = '';
 			}
 
@@ -348,13 +388,13 @@
 	};
 </script>
 
-<PixelDrawer
+<Drawer
 	variant="right"
 	bind:open
 	{title}
 	subtitle={mode === 'create'
 		? 'Provision a new user with access and role.'
-		: 'Update role or activation status.'}
+		: 'Update role, activation status, and talent link.'}
 	class="mr-0 w-full max-w-2xl"
 	dismissable
 >
@@ -396,6 +436,31 @@
 				readonly={mode === 'edit'}
 			/>
 		</FormControl>
+
+		{#if mode === 'edit'}
+			<FormControl
+				label="Linked talent"
+				class="gap-2 text-sm"
+				bl="Link this user to one talent profile. Existing linking is managed here in edit mode."
+			>
+				<Select
+					id="linked_talent_id"
+					name="linked_talent_id"
+					bind:value={linkedTalentId}
+					class="bg-white text-gray-900"
+				>
+					<option value="">No linked talent</option>
+					{#each availableTalentOptions as talent (talent.id)}
+						<option value={talent.id}>{formatTalentLabel(talent)}</option>
+					{/each}
+				</Select>
+				{#if availableTalentOptions.length === 0 && !linkedTalentId}
+					<p class="text-xs text-gray-500">
+						No unlinked talents are available right now. Create a talent first.
+					</p>
+				{/if}
+			</FormControl>
+		{/if}
 
 		{#if mode === 'create'}
 			<div class="grid gap-4 sm:grid-cols-2">
@@ -548,7 +613,7 @@
 		<FormControl
 			label="Avatar"
 			class="gap-2 text-sm"
-			bl="Same image is used on the employee profile."
+			bl="Profile avatar for this user account. Talent avatars are managed on talent records."
 			tag="div"
 		>
 			<input type="hidden" name="avatar_url" value={avatarUrl} />
@@ -606,8 +671,7 @@
 		<div class="rounded-lg border border-slate-200 bg-white p-4">
 			<p class="text-sm font-semibold text-gray-900">Roles</p>
 			<p class="mb-3 text-xs text-gray-600">
-				Users can hold multiple roles. Employees get an editable profile and appear in the employee
-				list.
+				Users can hold multiple roles. Talent records are separate and must be linked explicitly.
 			</p>
 			<div class="grid gap-2 sm:grid-cols-2">
 				{#each roleOptions as option}
@@ -638,15 +702,24 @@
 		{/if}
 
 		<div
-			class="sticky bottom-0 flex flex-wrap justify-end gap-3 border-t border-slate-200 bg-white pt-4"
+			class="sticky bottom-0 flex flex-wrap justify-end gap-3 pt-4 {mode === 'edit'
+				? 'bg-transparent'
+				: 'border-t border-slate-200 bg-white'}"
 		>
-			<Button variant="outline" type="button" onclick={close}>Cancel</Button>
+			<Button
+				variant="outline"
+				type="button"
+				onclick={close}
+				class={mode === 'edit' ? 'bg-white hover:bg-slate-50' : ''}
+			>
+				Cancel
+			</Button>
 			<Button variant="primary" type="submit" {loading} loading-text="Saving…">
 				{submitLabel}
 			</Button>
 		</div>
 	</form>
-</PixelDrawer>
+</Drawer>
 
 <style>
 	:global(.uppy-container .uppy-Dashboard) {

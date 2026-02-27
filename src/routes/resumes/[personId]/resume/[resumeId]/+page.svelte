@@ -15,17 +15,13 @@
 	const canEdit = data.canEdit ?? false;
 	let showDownloadOptions = $state(false);
 	let viewLanguage: 'sv' | 'en' = $state((data.language as 'sv' | 'en') ?? 'sv');
-	let downloadLanguage: 'sv' | 'en' = $state((data.language as 'sv' | 'en') ?? 'sv');
+	let downloadLanguageOverride: 'sv' | 'en' | null = $state(null);
+	const downloadLanguage = $derived(downloadLanguageOverride ?? viewLanguage);
 	let isEditing = $state(false);
 	let saving = $state(false);
 	let downloading: 'pdf' | 'word' | null = $state(null);
 	let errorMessage = $state<string | null>(null);
 	let resumeViewRef: ReturnType<typeof ResumeView> | null = $state(null);
-
-	// Sync downloadLanguage when viewLanguage changes
-	$effect(() => {
-		downloadLanguage = viewLanguage;
-	});
 
 	$effect(() => {
 		if (!canEdit) {
@@ -170,12 +166,20 @@
 				throw new Error(detail?.message ?? 'Failed to save resume');
 			}
 			isEditing = false;
-			toast.success?.('Resume saved!') ?? toast('Resume saved!');
+			if (typeof toast.success === 'function') {
+				toast.success('Resume saved!');
+			} else {
+				toast('Resume saved!');
+			}
 			// Refetch page data to update the view with saved content
 			await invalidateAll();
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Failed to save resume';
-			toast.error?.(errorMessage) ?? toast(errorMessage);
+			if (typeof toast.error === 'function') {
+				toast.error(errorMessage);
+			} else {
+				toast(errorMessage);
+			}
 		} finally {
 			saving = false;
 			loading(false);
@@ -210,7 +214,11 @@
 			URL.revokeObjectURL(objectUrl);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to download file';
-			toast.error?.(message) ?? toast(message);
+			if (typeof toast.error === 'function') {
+				toast.error(message);
+			} else {
+				toast(message);
+			}
 		} finally {
 			downloading = null;
 			loading(false);
@@ -238,7 +246,7 @@
 <Toaster richColors position="top-center" closeButton />
 
 <!-- Fixed Edit/Save/Download Buttons in Bottom Right -->
-<div class="fixed right-6 bottom-6 z-50 flex gap-2 print:hidden">
+<div class="fixed bottom-6 right-6 z-50 flex gap-2 print:hidden">
 	{#if isEditing && canEdit}
 		<Button variant="inverted" onclick={handleCancel}>
 			<Icon icon={X} size="sm" />
@@ -251,7 +259,7 @@
 	{:else}
 		<div class="relative flex items-center gap-2">
 			{#if showDownloadOptions}
-				<div class="absolute right-0 bottom-14 flex flex-col items-end gap-2">
+				<div class="absolute bottom-14 right-0 flex flex-col items-end gap-2">
 					<div transition:fly={{ y: 12, duration: 120 }}>
 						<div
 							class="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium shadow-sm"
@@ -261,7 +269,7 @@
 								class={downloadLanguage === 'sv'
 									? 'rounded-full bg-indigo-600 px-2 py-0.5 text-white'
 									: 'px-2 py-0.5 text-slate-500 hover:text-slate-700'}
-								onclick={() => (downloadLanguage = 'sv')}
+								onclick={() => (downloadLanguageOverride = 'sv')}
 							>
 								SV
 							</button>
@@ -270,7 +278,7 @@
 								class={downloadLanguage === 'en'
 									? 'rounded-full bg-indigo-600 px-2 py-0.5 text-white'
 									: 'px-2 py-0.5 text-slate-500 hover:text-slate-700'}
-								onclick={() => (downloadLanguage = 'en')}
+								onclick={() => (downloadLanguageOverride = 'en')}
 							>
 								EN
 							</button>
@@ -328,6 +336,7 @@
 				person={data.resumePerson ?? undefined}
 				image={avatarImage ?? undefined}
 				profileTechStack={data.resumePerson?.techStack}
+				experienceLibrary={data.experienceLibrary ?? []}
 				onGenerateDescription={generateDescription}
 				{isEditing}
 			/>

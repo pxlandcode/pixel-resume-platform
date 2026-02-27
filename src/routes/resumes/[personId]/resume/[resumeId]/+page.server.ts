@@ -9,12 +9,14 @@ import {
 } from '$lib/server/supabase';
 import { fail } from '@sveltejs/kit';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
+import { listExperienceLibrary, saveResumeData } from '$lib/server/resumes/store';
+import type { ResumeData } from '$lib/types/resume';
 
 export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	const resumeId = params.resumeId;
-	const personId = params.personId;
+	const talentId = params.personId;
 
-	if (!resumeId || !personId) {
+	if (!resumeId || !talentId) {
 		throw error(400, 'Invalid identifier');
 	}
 
@@ -22,9 +24,9 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	const adminClient = getSupabaseAdminClient();
 
 	const resume = await ResumeService.getResume(resumeId);
-	const resumePerson = await ResumeService.getPerson(personId);
+	const resumePerson = await ResumeService.getPerson(talentId);
 
-	if (!resume || resume.personId !== personId) {
+	if (!resume || resume.personId !== talentId) {
 		throw error(404, 'Resume not found');
 	}
 
@@ -34,12 +36,18 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		resume.personId
 	);
 
+	const experienceLibrary =
+		adminClient && canEdit
+			? await listExperienceLibrary(adminClient, talentId).catch(() => [])
+			: [];
+
 	const langParam = url.searchParams.get('lang');
 	const language = langParam === 'en' ? 'en' : 'sv';
 
 	return {
 		resume,
 		resumePerson,
+		experienceLibrary,
 		avatarUrl: resumePerson?.avatar_url ?? null,
 		language,
 		isPdf: url.searchParams.get('pdf') === '1',
@@ -50,7 +58,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 			title: `${siteMeta.name} — Resume ${resume.title}`,
 			description: 'View and manage resume.',
 			noindex: true,
-			path: `/resumes/${personId}/resume/${resumeId}`
+			path: `/resumes/${talentId}/resume/${resumeId}`
 		}
 	};
 };
@@ -77,41 +85,42 @@ export const actions: Actions = {
 
 		const { data: resumeOwner } = await admin
 			.from('resumes')
-			.select('user_id')
+			.select('talent_id')
 			.eq('id', resumeId)
 			.maybeSingle();
 
-		if (!resumeOwner?.user_id) {
+		if (!resumeOwner?.talent_id) {
 			return fail(404, { ok: false, message: 'Resume not found' });
 		}
 
-		if (resumeOwner.user_id !== params.personId) {
-			return fail(400, { ok: false, message: 'Resume does not belong to this person' });
+		if (resumeOwner.talent_id !== params.personId) {
+			return fail(400, { ok: false, message: 'Resume does not belong to this talent' });
 		}
 
-		const { canEdit } = await getResumeEditPermissions(supabase, admin, resumeOwner.user_id);
+		const { canEdit } = await getResumeEditPermissions(supabase, admin, resumeOwner.talent_id);
 
 		if (!canEdit) {
 			return fail(403, { ok: false, message: 'Not authorized to edit this resume' });
 		}
 
-		let content: unknown = null;
+		let content: ResumeData | null = null;
 		try {
-			content = JSON.parse(contentRaw);
-		} catch (err) {
+			content = JSON.parse(contentRaw) as ResumeData;
+		} catch {
 			return fail(400, { ok: false, message: 'Invalid resume content' });
 		}
 
-		const { error: updateError } = await admin
-			.from('resumes')
-			.update({
-				content,
-				updated_at: new Date().toISOString()
-			})
-			.eq('id', resumeId);
+		if (!content || typeof content !== 'object') {
+			return fail(400, { ok: false, message: 'Invalid resume content' });
+		}
 
-		if (updateError) {
-			return fail(500, { ok: false, message: updateError.message });
+		try {
+			await saveResumeData(admin, resumeId, resumeOwner.talent_id, content);
+		} catch (saveError) {
+			return fail(500, {
+				ok: false,
+				message: saveError instanceof Error ? saveError.message : 'Failed to save resume'
+			});
 		}
 
 		return { ok: true };

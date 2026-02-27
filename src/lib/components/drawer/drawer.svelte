@@ -25,8 +25,8 @@
 		base: 'text-fg m-auto max-w-full bg-transparent animate-dialog-backdrop backdrop:animate-dialog-backdrop',
 		variants: {
 			variant: {
-				right: 'mr-0 w-1/3 max-h-full',
-				left: 'ml-0 w-1/3 max-h-full',
+				right: 'mr-0 h-[100dvh] max-h-[100dvh] w-1/3',
+				left: 'ml-0 h-[100dvh] max-h-[100dvh] w-1/3',
 				top: 'mt-0 w-full',
 				bottom: 'mb-0 w-full max-h-[92vh]',
 				modal: 'w-full md:w-2/3'
@@ -38,8 +38,8 @@
 		base: 'flex min-h-0 w-full flex-col overscroll-contain bg-background p-8',
 		variants: {
 			variant: {
-				right: 'min-h-screen pt-16',
-				left: 'min-h-screen pt-16',
+				right: 'h-full max-h-full overflow-hidden pt-8',
+				left: 'h-full max-h-full overflow-hidden pt-8',
 				top: '',
 				bottom: 'max-h-[92vh] overflow-hidden',
 				modal: 'max-h-[90vh] overflow-y-hidden'
@@ -76,8 +76,8 @@
 	});
 
 	let dialog: HTMLDialogElement | undefined = $state();
-	let container: HTMLDivElement | null = null;
-	let pointerDownInside = false;
+	let container = $state<HTMLDivElement | null>(null);
+	let pointerDownInside = $state(false);
 
 	function handleClickOutside(event: MouseEvent) {
 		// Only close when the interaction both starts and ends on the backdrop.
@@ -139,14 +139,14 @@
 
 {#key open}
 	<dialog
-		on:pointerdown={(event) => {
+		onpointerdown={(event) => {
 			pointerDownInside = container ? container.contains(event.target as Node) : false;
 		}}
 		transition:fly={transitionConfig}
 		data-open={open}
 		class={cn(drawerVariants({ variant, className }), 'overflow-hidden')}
-		on:click={handleClickOutside}
-		on:cancel={(e) => {
+		onclick={handleClickOutside}
+		oncancel={(e) => {
 			e.preventDefault();
 			void requestClose('escape');
 		}}
@@ -154,19 +154,26 @@
 		{...rest}
 	>
 		<div class={cn(drawerContainerVariants({ variant }))} bind:this={container}>
-			<div class="flex items-start justify-between">
-				<h2 class="flex-1 text-2xl font-semibold tracking-tight text-foreground">{title}</h2>
-				<button type="button" on:click={() => void requestClose('button')} aria-label="Close">
-					<X class="text-foreground" />
-				</button>
-			</div>
+			<div class="flex min-h-0 flex-1 flex-col">
+				<div class="flex items-start justify-between">
+					<h2 class="text-foreground flex-1 text-2xl font-semibold tracking-tight">{title}</h2>
+					<button type="button" onclick={() => void requestClose('button')} aria-label="Close">
+						<X class="text-foreground" />
+					</button>
+				</div>
 
-			{#if subtitle}
-				<p class="tracking-tight text-muted-fg">{subtitle}</p>
-			{/if}
+				{#if subtitle}
+					<p class="text-muted-fg tracking-tight">{subtitle}</p>
+				{/if}
 
-			<div class="mt-4 flex min-h-0 flex-1 flex-col text-foreground">
-				{@render children()}
+				<div class="text-foreground relative mt-3 flex min-h-0 flex-1 flex-col overflow-hidden">
+						<div
+							class="pointer-events-none absolute inset-x-0 top-0 z-10 h-4 bg-gradient-to-b from-background via-background/85 to-transparent"
+						></div>
+					<div class="flex min-h-0 flex-1 flex-col overflow-y-auto pt-4">
+						{@render children()}
+					</div>
+				</div>
 			</div>
 		</div>
 	</dialog>

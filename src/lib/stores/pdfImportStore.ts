@@ -13,7 +13,7 @@ export type PdfImportPhase =
 export interface PdfImportState {
 	status: PdfImportPhase;
 	jobId: string | null;
-	personId: string | null;
+	talentId: string | null;
 	sourceFilename: string | null;
 	error: string | null;
 	resumeId: string | null;
@@ -21,15 +21,15 @@ export interface PdfImportState {
 
 const STORAGE_KEY_PREFIX = 'resume-pdf-import-job:';
 
-function getStorageKey(personId: string): string {
-	return `${STORAGE_KEY_PREFIX}${personId}`;
+function getStorageKey(talentId: string): string {
+	return `${STORAGE_KEY_PREFIX}${talentId}`;
 }
 
 function createPdfImportStore() {
 	const initialState: PdfImportState = {
 		status: 'idle',
 		jobId: null,
-		personId: null,
+		talentId: null,
 		sourceFilename: null,
 		error: null,
 		resumeId: null
@@ -48,7 +48,7 @@ function createPdfImportStore() {
 					if (raw) {
 						const parsed = JSON.parse(raw);
 						if (parsed.jobId && parsed.status && parsed.status !== 'idle') {
-							const personId = key.replace(STORAGE_KEY_PREFIX, '');
+							const talentId = key.replace(STORAGE_KEY_PREFIX, '');
 							set({
 								status:
 									parsed.status === 'processing'
@@ -57,7 +57,7 @@ function createPdfImportStore() {
 											? 'queued'
 											: 'queued',
 								jobId: parsed.jobId,
-								personId,
+								talentId,
 								sourceFilename: parsed.sourceFilename || null,
 								error: null,
 								resumeId: null
@@ -73,10 +73,10 @@ function createPdfImportStore() {
 	}
 
 	function persist(state: PdfImportState) {
-		if (!browser || !state.personId || !state.jobId) return;
+		if (!browser || !state.talentId || !state.jobId) return;
 		if (state.status === 'idle') {
 			try {
-				sessionStorage.removeItem(getStorageKey(state.personId));
+				sessionStorage.removeItem(getStorageKey(state.talentId));
 			} catch {
 				// Ignore
 			}
@@ -85,7 +85,7 @@ function createPdfImportStore() {
 
 		try {
 			sessionStorage.setItem(
-				getStorageKey(state.personId),
+				getStorageKey(state.talentId),
 				JSON.stringify({
 					jobId: state.jobId,
 					sourceFilename: state.sourceFilename,
@@ -101,7 +101,7 @@ function createPdfImportStore() {
 	return {
 		subscribe,
 		setImporting: (
-			personId: string,
+			talentId: string,
 			jobId: string,
 			filename: string | null,
 			status: PdfImportPhase
@@ -109,7 +109,7 @@ function createPdfImportStore() {
 			const newState: PdfImportState = {
 				status,
 				jobId,
-				personId,
+				talentId,
 				sourceFilename: filename,
 				error: null,
 				resumeId: null
@@ -121,9 +121,9 @@ function createPdfImportStore() {
 			update((s) => {
 				const newState: PdfImportState = { ...s, status: 'succeeded', resumeId, error: null };
 				// Clear the storage since we're done
-				if (browser && s.personId) {
+				if (browser && s.talentId) {
 					try {
-						sessionStorage.removeItem(getStorageKey(s.personId));
+						sessionStorage.removeItem(getStorageKey(s.talentId));
 					} catch {
 						// Ignore
 					}
@@ -147,9 +147,9 @@ function createPdfImportStore() {
 		},
 		clear: () => {
 			const current = get({ subscribe });
-			if (browser && current.personId) {
+			if (browser && current.talentId) {
 				try {
-					sessionStorage.removeItem(getStorageKey(current.personId));
+					sessionStorage.removeItem(getStorageKey(current.talentId));
 				} catch {
 					// Ignore
 				}

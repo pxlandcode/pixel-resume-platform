@@ -8,7 +8,7 @@
 
 	const { data } = $props();
 
-	const liveEmployees = data.employees ?? [];
+	const liveTalents = data.talents ?? [];
 	let selectedTechs = $state<string[]>([]);
 	let searchOpen = $state(false);
 
@@ -18,20 +18,20 @@
 		selectedTechs.map((tech) => normalize(tech)).filter((tech) => tech.length > 0)
 	);
 
-	type EmployeeWithScore = (typeof liveEmployees)[number] & {
+	type TalentWithScore = (typeof liveTalents)[number] & {
 		matchCount: number;
 		matchedTechs: string[];
 		unmatchedTechs: string[];
 	};
 
-	const groupedEmployees = $derived.by(() => {
+	const groupedTalents = $derived.by(() => {
 		if (selectedTechFilters.length === 0) {
-			return [{ matchCount: 0, total: 0, employees: liveEmployees as EmployeeWithScore[] }];
+			return [{ matchCount: 0, total: 0, talents: liveTalents as TalentWithScore[] }];
 		}
 
-		const employeesWithScores: EmployeeWithScore[] = liveEmployees.map((employee) => {
-			const employeeTechSet = new Set(
-				(employee.search_techs ?? [])
+		const talentsWithScores: TalentWithScore[] = liveTalents.map((talent) => {
+			const talentTechSet = new Set(
+				(talent.search_techs ?? [])
 					.filter((tech): tech is string => typeof tech === 'string')
 					.map((tech) => normalize(tech))
 					.filter((tech) => tech.length > 0)
@@ -42,7 +42,7 @@
 
 			// Use original selectedTechs to preserve casing for display
 			for (const tech of selectedTechs) {
-				if (employeeTechSet.has(normalize(tech))) {
+				if (talentTechSet.has(normalize(tech))) {
 					matchedTechs.push(tech);
 				} else {
 					unmatchedTechs.push(tech);
@@ -50,13 +50,13 @@
 			}
 
 			const matchCount = matchedTechs.length;
-			return { ...employee, matchCount, matchedTechs, unmatchedTechs };
+			return { ...talent, matchCount, matchedTechs, unmatchedTechs };
 		});
 
 		// Group by match count, sorted descending
-		const groups = new Map<number, EmployeeWithScore[]>();
-		for (const emp of employeesWithScores) {
-			if (emp.matchCount === 0) continue; // Skip employees with no matches
+		const groups = new Map<number, TalentWithScore[]>();
+		for (const emp of talentsWithScores) {
+			if (emp.matchCount === 0) continue; // Skip talents with no matches
 			const existing = groups.get(emp.matchCount) ?? [];
 			existing.push(emp);
 			groups.set(emp.matchCount, existing);
@@ -65,15 +65,15 @@
 		// Convert to array sorted by match count descending
 		return Array.from(groups.entries())
 			.sort((a, b) => b[0] - a[0])
-			.map(([matchCount, employees]) => ({
+			.map(([matchCount, talents]) => ({
 				matchCount,
 				total: selectedTechFilters.length,
-				employees
+				talents
 			}));
 	});
 
 	const totalMatches = $derived(
-		groupedEmployees.reduce((sum, group) => sum + group.employees.length, 0)
+		groupedTalents.reduce((sum, group) => sum + group.talents.length, 0)
 	);
 
 	function toggleSearch() {
@@ -86,7 +86,7 @@
 		<div>
 			<h1 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Resumes</h1>
 			<p class="mt-4 text-lg text-slate-500">
-				Manage and view profiles and resumes for all Pixel&Code consultants.
+				Manage and view talents and resumes for all Pixel&Code consultants.
 			</p>
 		</div>
 		<Button
@@ -103,7 +103,7 @@
 				Search
 				{#if selectedTechs.length > 0}
 					<span
-						class="ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-xs text-white"
+						class="bg-primary ml-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-xs text-white"
 					>
 						{selectedTechs.length}
 					</span>
@@ -118,34 +118,31 @@
 			class="mb-8 rounded-none border border-slate-200 bg-white p-6"
 		>
 			<div class="mb-3 flex items-center justify-between gap-4">
-				<h2 class="text-xs font-semibold tracking-wide text-slate-700 uppercase">Search by tech</h2>
+				<h2 class="text-xs font-semibold uppercase tracking-wide text-slate-700">Search by tech</h2>
 				{#if selectedTechs.length > 0}
 					<Button variant="ghost" size="sm" onclick={() => (selectedTechs = [])}>Clear</Button>
 				{/if}
 			</div>
 			<TechStackSelector bind:value={selectedTechs} />
 			<p class="mt-3 text-sm text-slate-500">
-				{totalMatches} of {liveEmployees.length} consultants match.
+				{totalMatches} of {liveTalents.length} consultants match.
 			</p>
 		</div>
 	{/if}
 
 	{#if selectedTechFilters.length === 0}
-		<!-- No search active - show all employees -->
+		<!-- No search active - show all talents -->
 		<div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-			{#each liveEmployees as employee (employee.id)}
-				<a
-					href={`/resumes/${encodeURIComponent(employee.id)}`}
-					class="block h-full"
-				>
+			{#each liveTalents as talent (talent.id)}
+				<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
 					<Card
 						class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
 					>
 						<div class="aspect-square w-full overflow-hidden bg-slate-100">
-							{#if employee.avatar_url}
+							{#if talent.avatar_url}
 								<img
-									src={employee.avatar_url}
-									alt={[employee.first_name, employee.last_name].filter(Boolean).join(' ')}
+									src={talent.avatar_url}
+									alt={[talent.first_name, talent.last_name].filter(Boolean).join(' ')}
 									class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
 								/>
 							{:else}
@@ -157,18 +154,18 @@
 
 						<div class="flex flex-1 flex-col p-5">
 							<h3 class="mb-2 text-lg font-semibold text-slate-900">
-								{[employee.first_name, employee.last_name].filter(Boolean).join(' ') || 'Unnamed'}
+								{[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 							</h3>
-							<ConsultantAvailabilityPills availability={employee.availability} compact />
+							<ConsultantAvailabilityPills compact availability={talent.availability ?? null} />
 						</div>
 					</Card>
 				</a>
 			{/each}
 		</div>
-	{:else if groupedEmployees.length > 0}
+	{:else if groupedTalents.length > 0}
 		<!-- Search active - show grouped by match count -->
 		<div class="space-y-10">
-			{#each groupedEmployees as group (group.matchCount)}
+			{#each groupedTalents as group (group.matchCount)}
 				<section>
 					<div class="mb-4 flex items-center gap-3">
 						<h2 class="text-lg font-semibold text-slate-900">
@@ -189,25 +186,22 @@
 							{group.matchCount}/{group.total} techs
 						</span>
 						<span class="text-sm text-slate-500">
-							({group.employees.length} consultant{group.employees.length === 1 ? '' : 's'})
+							({group.talents.length} consultant{group.talents.length === 1 ? '' : 's'})
 						</span>
 					</div>
 
 					<div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-						{#each group.employees as employee (employee.id)}
-							<a
-								href={`/resumes/${encodeURIComponent(employee.id)}`}
-								class="block h-full"
-							>
+						{#each group.talents as talent (talent.id)}
+							<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
 								<Card
 									class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md
 										{group.matchCount === group.total ? 'ring-2 ring-emerald-200' : ''}"
 								>
 									<div class="relative aspect-square w-full overflow-hidden bg-slate-100">
-										{#if employee.avatar_url}
+										{#if talent.avatar_url}
 											<img
-												src={employee.avatar_url}
-												alt={[employee.first_name, employee.last_name].filter(Boolean).join(' ')}
+												src={talent.avatar_url}
+												alt={[talent.first_name, talent.last_name].filter(Boolean).join(' ')}
 												class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
 											/>
 										{:else}
@@ -217,7 +211,7 @@
 										{/if}
 										<!-- Match badge on image -->
 										<span
-											class="group absolute top-2 right-2 inline-flex cursor-help items-center rounded-full px-2 py-1 text-xs font-bold shadow-sm
+											class="group absolute right-2 top-2 inline-flex cursor-help items-center rounded-full px-2 py-1 text-xs font-bold shadow-sm
 												{group.matchCount === group.total
 												? 'bg-emerald-500 text-white'
 												: group.matchCount >= group.total * 0.6
@@ -227,17 +221,17 @@
 											{group.matchCount}/{group.total}
 											<!-- Tooltip -->
 											<div
-												class="pointer-events-none invisible absolute top-full right-0 z-50 mt-2 w-56 rounded-sm border border-slate-200 bg-white p-3 text-left text-sm text-slate-700 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+												class="pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-56 rounded-sm border border-slate-200 bg-white p-3 text-left text-sm text-slate-700 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
 											>
 												<div class="flex flex-wrap gap-1">
-													{#each employee.matchedTechs as tech}
+													{#each talent.matchedTechs as tech}
 														<span
 															class="rounded-sm bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
 														>
 															{tech}
 														</span>
 													{/each}
-													{#each employee.unmatchedTechs as tech}
+													{#each talent.unmatchedTechs as tech}
 														<span
 															class="rounded-sm bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
 														>
@@ -251,10 +245,12 @@
 
 									<div class="flex flex-1 flex-col p-5">
 										<h3 class="mb-2 text-lg font-semibold text-slate-900">
-											{[employee.first_name, employee.last_name].filter(Boolean).join(' ') ||
-												'Unnamed'}
+											{[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 										</h3>
-										<ConsultantAvailabilityPills availability={employee.availability} compact />
+										<ConsultantAvailabilityPills
+											compact
+											availability={talent.availability ?? null}
+										/>
 									</div>
 								</Card>
 							</a>

@@ -33,7 +33,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	}
 
 	let payload: {
-		person_id?: unknown;
+		talent_id?: unknown;
 		filename?: unknown;
 		size_bytes?: unknown;
 	};
@@ -44,12 +44,12 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ message: 'Invalid request payload.' }, { status: 400 });
 	}
 
-	const personId = typeof payload.person_id === 'string' ? payload.person_id.trim() : '';
+	const talentId = typeof payload.talent_id === 'string' ? payload.talent_id.trim() : '';
 	const filename = sanitizeFilename(payload.filename);
 	const sizeBytes = parseSizeBytes(payload.size_bytes);
 
-	if (!personId) {
-		return json({ message: 'Invalid person id.' }, { status: 400 });
+	if (!talentId) {
+		return json({ message: 'Invalid talent id.' }, { status: 400 });
 	}
 
 	if (!filename) {
@@ -64,17 +64,17 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ message: 'Invalid file size. Max size is 10MB.' }, { status: 400 });
 	}
 
-	const [{ data: profile, error: profileError }, permissions] = await Promise.all([
-		adminClient.from('profiles').select('id').eq('id', personId).maybeSingle(),
-		getResumeEditPermissions(supabase, adminClient, personId)
+	const [{ data: talent, error: talentError }, permissions] = await Promise.all([
+		adminClient.from('talents').select('id').eq('id', talentId).maybeSingle(),
+		getResumeEditPermissions(supabase, adminClient, talentId)
 	]);
 
-	if (profileError || !profile?.id) {
-		return json({ message: 'Profile not found.' }, { status: 404 });
+	if (talentError || !talent?.id) {
+		return json({ message: 'Talent not found.' }, { status: 404 });
 	}
 
 	if (!permissions.canEdit || !permissions.userId) {
-		return json({ message: 'Not authorized to create resumes for this user.' }, { status: 403 });
+		return json({ message: 'Not authorized to create resumes for this talent.' }, { status: 403 });
 	}
 
 	const now = new Date().toISOString();
@@ -82,7 +82,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const { data: created, error: createError } = await adminClient
 		.from('resume_import_jobs')
 		.insert({
-			person_id: personId,
+			talent_id: talentId,
 			requested_by_user_id: permissions.userId,
 			status: 'queued',
 			source_filename: filename,

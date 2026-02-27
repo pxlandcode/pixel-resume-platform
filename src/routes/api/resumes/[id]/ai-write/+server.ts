@@ -175,15 +175,15 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 
 	const { data: resumeRow, error: resumeError } = await adminClient
 		.from('resumes')
-		.select('id, user_id')
+		.select('id, talent_id')
 		.eq('id', resumeId)
 		.maybeSingle();
 
-	if (resumeError || !resumeRow?.user_id) {
+	if (resumeError || !resumeRow?.talent_id) {
 		return json({ message: 'Resume not found.' }, { status: 404 });
 	}
 
-	const permissions = await getResumeEditPermissions(supabase, adminClient, resumeRow.user_id);
+	const permissions = await getResumeEditPermissions(supabase, adminClient, resumeRow.talent_id);
 	if (!permissions.canEdit) {
 		return json({ message: 'Not authorized to generate resume text.' }, { status: 403 });
 	}

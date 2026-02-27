@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export type AdminRole = 'admin' | 'cms_admin' | 'employee' | 'employer';
+	export type AdminRole = 'admin' | 'broker' | 'talent' | 'employer';
 </script>
 
 <script lang="ts">
@@ -32,7 +32,7 @@
 		{
 			label: 'Dashboard',
 			href: '/',
-			allowed: ['admin', 'cms_admin', 'employee', 'employer'],
+			allowed: ['admin', 'broker', 'talent', 'employer'],
 			match: 'exact'
 		},
 		{
@@ -42,15 +42,15 @@
 			match: 'prefix'
 		},
 		{
-			label: 'Employees',
-			href: '/employees',
-			allowed: ['admin', 'employer', 'employee'],
+			label: 'Talents',
+			href: '/talents',
+			allowed: ['admin', 'broker', 'employer', 'talent'],
 			match: 'prefix'
 		},
 		{
 			label: 'Resumes',
 			href: '/resumes',
-			allowed: ['admin', 'cms_admin', 'employee'],
+			allowed: ['admin', 'broker', 'talent', 'employer'],
 			match: 'prefix'
 		}
 	];
@@ -120,7 +120,7 @@
 		<header class="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
 			<div>
 				<h2 class="text-lg font-semibold text-slate-900">Build & manage resumes</h2>
-				<p class="text-sm text-slate-500">Create professional consultant profiles</p>
+				<p class="text-sm text-slate-500">Create professional talent profiles</p>
 			</div>
 
 			<div class="flex items-center gap-4">

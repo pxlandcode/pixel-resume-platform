@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Button } from '@pixelcode_/blocks/components';
+	import { Button, Checkbox, Datepicker, Input, Radio } from '@pixelcode_/blocks/components';
 	import {
 		ArrowLeft,
 		Calendar,
+		Camera,
 		CheckCircle2,
 		Copy,
 		FileText,
@@ -16,8 +17,8 @@
 	import { goto, replaceState } from '$app/navigation';
 	import { page } from '$app/stores';
 	import TechStackEditor from '$lib/components/tech-stack-editor/tech-stack-editor.svelte';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
-	import PixelDrawer from '$lib/components/PixelDrawer.svelte';
 	import { confirm } from '$lib/utils/confirm';
 	import { loading } from '$lib/stores/loading';
 	import { pdfImportStore } from '$lib/stores/pdfImportStore';
@@ -30,8 +31,8 @@
 	const { data, form } = $props();
 
 	const profile = data.profile;
-	const availability = data.availability ?? null;
 	const resumes = data.resumes ?? [];
+	const availability = data.availability ?? null;
 	const canEdit = data.canEdit ?? false;
 	type ResumeListItem = (typeof resumes)[number];
 	type TechCategory = { name?: string; skills?: string[] };
@@ -40,54 +41,29 @@
 		(techStack ?? []).filter((cat) => Array.isArray(cat?.skills) && cat.skills.length > 0)
 	);
 
-	const deriveHasAssignment = (value: typeof availability) => {
-		if (!value) return true;
-		if (value.noticePeriodDays != null || value.plannedFromDate) return true;
-		if (value.nowPercent === 100) return false;
-		return true;
-	};
-
-	const deriveUsesCustomAvailabilityPercentages = (value: typeof availability) => {
-		const hasAssignment = deriveHasAssignment(value);
-		const hasFutureTiming = Boolean(value?.noticePeriodDays != null || value?.plannedFromDate);
-		const defaultNowPercent = hasAssignment ? null : 100;
-		const defaultFuturePercent = hasFutureTiming ? 100 : null;
-
-		return (
-			(value?.nowPercent ?? null) !== defaultNowPercent ||
-			(value?.futurePercent ?? null) !== defaultFuturePercent
-		);
-	};
-
 	let isEditing = $state(false);
 	let editingBio = $state(profile?.bio ?? '');
+	let editingAvatarUrl = $state(profile?.avatar_url ?? '');
+	let avatarUploadError = $state<string | null>(null);
+	let avatarUploading = $state(false);
+	let avatarFileInput = $state<HTMLInputElement | null>(null);
 	let editingTechStack = $state(structuredClone(techStack));
-	let editingAvailabilityNowPercent = $state(
-		availability?.nowPercent != null ? String(availability.nowPercent) : ''
-	);
-	let editingAvailabilityFuturePercent = $state(
-		availability?.futurePercent != null ? String(availability.futurePercent) : ''
-	);
-	let editingAvailabilityNoticePeriodDays = $state(
-		availability?.noticePeriodDays != null ? String(availability.noticePeriodDays) : ''
-	);
-	let editingAvailabilityPlannedFromDate = $state(availability?.plannedFromDate ?? '');
-	let editingHasAssignment = $state(deriveHasAssignment(availability));
-	let editingOpenToSwitchEarly = $state(availability?.noticePeriodDays != null);
-	let editingUseCustomAvailabilityPercentages = $state(
-		deriveUsesCustomAvailabilityPercentages(availability)
-	);
+	let editingHasAssignment = $state(true);
+	let availabilityStatus = $state<'available-now' | 'on-assignment'>('on-assignment');
+	let editingUseCustomAvailabilityPercentages = $state(false);
+	let editingOpenToSwitchEarly = $state(false);
+	let editingAvailabilityNowPercent = $state('');
+	let editingAvailabilityFuturePercent = $state('');
+	let editingAvailabilityNoticePeriodDays = $state('');
+	let editingAvailabilityPlannedFromDate = $state('');
 	const techStackJson = $derived(JSON.stringify(editingTechStack ?? []));
 
-	const hasNoticePeriodInput = $derived(
-		editingHasAssignment &&
-			editingOpenToSwitchEarly &&
-			editingAvailabilityNoticePeriodDays.trim().length > 0
-	);
-	const hasPlannedAvailabilityDate = $derived(
-		editingHasAssignment && editingAvailabilityPlannedFromDate.trim().length > 0
-	);
-	const hasFutureAvailabilityTiming = $derived(hasNoticePeriodInput || hasPlannedAvailabilityDate);
+	const hasFutureAvailabilityTiming = $derived.by(() => {
+		if (!editingHasAssignment) return false;
+		if (editingAvailabilityPlannedFromDate.trim().length > 0) return true;
+		if (!editingOpenToSwitchEarly) return false;
+		return editingAvailabilityNoticePeriodDays.trim().length > 0;
+	});
 
 	const submittedAvailabilityNowPercent = $derived.by(() => {
 		const defaultValue = editingHasAssignment ? '' : '100';
@@ -99,7 +75,6 @@
 	const submittedAvailabilityFuturePercent = $derived.by(() => {
 		if (!editingHasAssignment) return '';
 		if (!hasFutureAvailabilityTiming) return '';
-
 		const defaultValue = '100';
 		if (!editingUseCustomAvailabilityPercentages) return defaultValue;
 		const customValue = editingAvailabilityFuturePercent.trim();
@@ -115,27 +90,93 @@
 		if (!editingHasAssignment) return '';
 		return editingAvailabilityPlannedFromDate.trim();
 	});
+	const availabilityDatepickerOptions = {
+		dateFormat: 'yyyy-MM-dd',
+		clearButton: true
+	};
+
+	const resetAvailabilityEditor = () => {
+		const nowPercent = availability?.nowPercent ?? null;
+		const futurePercent = availability?.futurePercent ?? null;
+		const noticePeriodDays = availability?.noticePeriodDays ?? null;
+		const plannedFromDate = availability?.plannedFromDate ?? null;
+		const hasFutureTiming = noticePeriodDays !== null || Boolean(plannedFromDate);
+		const hasAssignment = !(nowPercent === 100 && noticePeriodDays === null && !plannedFromDate);
+
+		editingHasAssignment = hasAssignment;
+		availabilityStatus = hasAssignment ? 'on-assignment' : 'available-now';
+		editingOpenToSwitchEarly = noticePeriodDays !== null;
+		editingAvailabilityNowPercent = nowPercent === null ? '' : String(nowPercent);
+		editingAvailabilityFuturePercent = futurePercent === null ? '' : String(futurePercent);
+		editingAvailabilityNoticePeriodDays = noticePeriodDays === null ? '' : String(noticePeriodDays);
+		editingAvailabilityPlannedFromDate = plannedFromDate ?? '';
+
+		editingUseCustomAvailabilityPercentages = hasAssignment
+			? nowPercent !== null || (hasFutureTiming && futurePercent !== null && futurePercent !== 100)
+			: nowPercent !== null && nowPercent !== 100;
+	};
 
 	const resetProfileEditor = () => {
 		editingBio = profile?.bio ?? '';
+		editingAvatarUrl = profile?.avatar_url ?? '';
+		avatarUploadError = null;
+		avatarUploading = false;
 		editingTechStack = structuredClone(techStack);
-		editingAvailabilityNowPercent =
-			availability?.nowPercent != null ? String(availability.nowPercent) : '';
-		editingAvailabilityFuturePercent =
-			availability?.futurePercent != null ? String(availability.futurePercent) : '';
-		editingAvailabilityNoticePeriodDays =
-			availability?.noticePeriodDays != null ? String(availability.noticePeriodDays) : '';
-		editingAvailabilityPlannedFromDate = availability?.plannedFromDate ?? '';
-		editingHasAssignment = deriveHasAssignment(availability);
-		editingOpenToSwitchEarly = availability?.noticePeriodDays != null;
-		editingUseCustomAvailabilityPercentages = deriveUsesCustomAvailabilityPercentages(availability);
+		resetAvailabilityEditor();
 	};
 
-	const handlePercentInput =
-		(setter: (value: string) => void) =>
-		(event: Event & { currentTarget: EventTarget & HTMLInputElement }) => {
-			setter(event.currentTarget.value);
-		};
+	const displayedAvatarUrl = $derived(isEditing ? editingAvatarUrl : (profile?.avatar_url ?? ''));
+
+	const handleAvatarUpload = async (
+		event: Event & { currentTarget: EventTarget & HTMLInputElement }
+	) => {
+		const inputEl = event.currentTarget;
+		const file = inputEl.files?.[0];
+		if (!file) return;
+		if (!file.type.startsWith('image/')) {
+			avatarUploadError = 'Please choose an image file.';
+			inputEl.value = '';
+			return;
+		}
+		if (file.size > 5 * 1024 * 1024) {
+			avatarUploadError = 'Image must be 5MB or smaller.';
+			inputEl.value = '';
+			return;
+		}
+
+		avatarUploadError = null;
+		avatarUploading = true;
+
+		try {
+			const payload = new FormData();
+			payload.set('file', file);
+
+			const response = await fetch('/internal/api/users/upload-avatar', {
+				method: 'POST',
+				body: payload
+			});
+			const result = await response.json().catch(() => null);
+
+			if (!response.ok || typeof result?.url !== 'string') {
+				const message =
+					typeof result?.message === 'string'
+						? result.message
+						: `Avatar upload failed (${response.status}).`;
+				throw new Error(message);
+			}
+
+			editingAvatarUrl = result.url;
+		} catch (error) {
+			avatarUploadError = error instanceof Error ? error.message : 'Avatar upload failed.';
+		} finally {
+			avatarUploading = false;
+			inputEl.value = '';
+		}
+	};
+
+	$effect(() => {
+		editingHasAssignment = availabilityStatus === 'on-assignment';
+	});
 
 	const cancelProfileEdit = () => {
 		resetProfileEditor();
@@ -285,7 +326,7 @@
 		try {
 			const order = resumeList.map((r) => r.id);
 			const formData = new FormData();
-			formData.set('person_id', profile.id);
+			formData.set('talent_id', profile.id);
 			formData.set('resume_order', JSON.stringify(order));
 			await fetch('?/updateResumeOrder', { method: 'POST', body: formData });
 		} finally {
@@ -307,7 +348,7 @@
 		loading(true, 'Creating resume...');
 		try {
 			const formData = new FormData();
-			formData.set('person_id', profile.id);
+			formData.set('talent_id', profile.id);
 			const res = await fetch('?/createResume', { method: 'POST', body: formData });
 			if (res.ok) {
 				// Refresh list
@@ -418,7 +459,7 @@
 				'content-type': 'application/json'
 			},
 			body: JSON.stringify({
-				person_id: profile.id,
+				talent_id: profile.id,
 				filename: file.name,
 				size_bytes: file.size
 			}),
@@ -456,7 +497,7 @@
 		importAbortController = controller;
 
 		const formData = new FormData();
-		formData.set('person_id', profile.id);
+		formData.set('talent_id', profile.id);
 		formData.set('file', file);
 
 		const response = await fetch(
@@ -779,9 +820,9 @@
 		if (!profile || !canEdit) return;
 		if (importJobId) return;
 
-		// Check if store has a persisted job for this person
+		// Check if store has a persisted job for this talent
 		const storeState = get(pdfImportStore);
-		if (storeState.personId === profile.id && storeState.jobId && storeState.status !== 'idle') {
+		if (storeState.talentId === profile.id && storeState.jobId && storeState.status !== 'idle') {
 			importError = storeState.error;
 			importJobId = storeState.jobId;
 			importSourceFilename = storeState.sourceFilename;
@@ -804,7 +845,7 @@
 	});
 </script>
 
-<div class="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
+<div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
 	<div class="mb-8">
 		<div class="mb-6 flex items-center justify-between">
 			<Button
@@ -813,14 +854,16 @@
 				class="pl-0 hover:bg-transparent hover:text-indigo-600"
 			>
 				<ArrowLeft size={16} class="mr-2" />
-				Back to all people
+				Back to all talents
 			</Button>
 
 			{#if profile && canEdit}
 				<div class="flex gap-2">
 					{#if isEditing}
 						<Button type="button" variant="ghost" onclick={cancelProfileEdit}>Cancel</Button>
-						<Button form="profile-form" type="submit" variant="primary">Save profile</Button>
+						<Button form="profile-form" type="submit" variant="primary" disabled={avatarUploading}>
+							Save profile
+						</Button>
 					{:else}
 						<Button type="button" onclick={() => (isEditing = true)}>Edit profile</Button>
 					{/if}
@@ -830,19 +873,78 @@
 
 		{#if profile}
 			<div class="flex flex-col gap-8 md:flex-row md:items-start">
-				<div
-					class="h-32 w-32 flex-shrink-0 overflow-hidden border-4 border-white shadow-lg md:h-48 md:w-48"
-				>
-					{#if profile.avatar_url}
-						<img
-							src={profile.avatar_url}
-							alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
-							class="h-full w-full object-cover"
-						/>
-					{:else}
-						<div class="flex h-full w-full items-center justify-center bg-slate-100 text-slate-300">
-							<User size={48} />
-						</div>
+				<div class="relative h-32 w-32 flex-shrink-0 md:h-48 md:w-48">
+					<!-- Hidden file input for avatar upload -->
+					<input
+						bind:this={avatarFileInput}
+						type="file"
+						accept="image/*"
+						class="hidden"
+						onchange={handleAvatarUpload}
+						disabled={avatarUploading}
+					/>
+
+					<!-- Avatar container -->
+					<button
+						type="button"
+						class="group relative h-full w-full overflow-hidden border-4 border-white shadow-lg {isEditing &&
+						canEdit
+							? 'cursor-pointer'
+							: 'cursor-default'}"
+						onclick={() => isEditing && canEdit && !avatarUploading && avatarFileInput?.click()}
+						disabled={!isEditing || !canEdit || avatarUploading}
+					>
+						{#if displayedAvatarUrl}
+							<img
+								src={displayedAvatarUrl}
+								alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
+								class="h-full w-full object-cover"
+							/>
+						{:else}
+							<div
+								class="flex h-full w-full items-center justify-center bg-slate-100 text-slate-300"
+							>
+								<User size={48} />
+							</div>
+						{/if}
+
+						<!-- Hover overlay when editing -->
+						{#if isEditing && canEdit}
+							<div
+								class="absolute inset-0 flex flex-col items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 {avatarUploading
+									? '!opacity-100'
+									: ''}"
+							>
+								{#if avatarUploading}
+									<Loader2 size={32} class="animate-spin text-white" />
+									<span class="mt-2 text-xs font-medium text-white">Uploading...</span>
+								{:else}
+									<Camera size={32} class="text-white" />
+									<span class="mt-2 text-xs font-medium text-white">
+										{editingAvatarUrl ? 'Change photo' : 'Add photo'}
+									</span>
+								{/if}
+							</div>
+						{/if}
+					</button>
+
+					<!-- Remove avatar link -->
+					{#if isEditing && canEdit && editingAvatarUrl && !avatarUploading}
+						<button
+							type="button"
+							class="mt-2 w-full text-center text-xs text-red-400 transition-colors hover:text-red-500"
+							onclick={() => {
+								editingAvatarUrl = '';
+								avatarUploadError = null;
+							}}
+						>
+							Remove image
+						</button>
+					{/if}
+
+					<!-- Avatar upload error -->
+					{#if avatarUploadError}
+						<p class="mt-2 text-center text-xs text-red-600">{avatarUploadError}</p>
 					{/if}
 				</div>
 
@@ -856,8 +958,29 @@
 							// keep editing values
 						}}
 					>
-						<input type="hidden" name="person_id" value={profile.id} />
+						<input type="hidden" name="talent_id" value={profile.id} />
 						<input type="hidden" name="tech_stack" value={techStackJson} />
+						<input type="hidden" name="avatar_url" value={editingAvatarUrl} />
+						<input
+							type="hidden"
+							name="availability_now_percent"
+							value={submittedAvailabilityNowPercent}
+						/>
+						<input
+							type="hidden"
+							name="availability_future_percent"
+							value={submittedAvailabilityFuturePercent}
+						/>
+						<input
+							type="hidden"
+							name="availability_notice_period_days"
+							value={submittedAvailabilityNoticePeriodDays}
+						/>
+						<input
+							type="hidden"
+							name="availability_planned_from_date"
+							value={submittedAvailabilityPlannedFromDate}
+						/>
 
 						{#if form?.message}
 							<div
@@ -875,7 +998,7 @@
 								{[profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 							</h1>
 							{#if profile.title}
-								<p class="mt-2 text-xl font-medium text-primary">{profile.title}</p>
+								<p class="text-primary mt-2 text-xl font-medium">{profile.title}</p>
 							{/if}
 						</div>
 
@@ -887,10 +1010,10 @@
 									bind:value={editingBio}
 									class="w-full rounded border border-slate-200 p-3 text-sm text-slate-900"
 									rows="4"
-									placeholder="Tell us about this person"
+									placeholder="Tell us about this talent"
 								/>
 							{:else if profile.bio}
-								<p class="mt-1 max-w-2xl text-sm leading-6 whitespace-pre-wrap text-slate-700">
+								<p class="mt-1 max-w-2xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
 									{profile.bio}
 								</p>
 							{:else}
@@ -900,6 +1023,7 @@
 
 						<div class="pt-2">
 							<h3 class="mb-2 text-lg font-semibold text-slate-900">Availability</h3>
+
 							{#if isEditing && canEdit}
 								<div class="space-y-4">
 									<input
@@ -926,38 +1050,54 @@
 									<!-- Current status -->
 									<div class="rounded-lg border border-slate-200 bg-white p-5">
 										<p class="mb-3 text-sm font-medium text-slate-900">Current status</p>
-										<div class="flex flex-col gap-2">
-											<label
+										<div class="flex flex-col gap-2" role="radiogroup" aria-label="Current status">
+											<div
 												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-slate-50"
+												role="radio"
+												tabindex="0"
+												aria-checked={availabilityStatus === 'available-now'}
+												onclick={() => (availabilityStatus = 'available-now')}
+												onkeydown={(event) => {
+													if (event.key === 'Enter' || event.key === ' ') {
+														event.preventDefault();
+														availabilityStatus = 'available-now';
+													}
+												}}
 											>
-												<input
-													type="radio"
+												<Radio
 													name="availability-status"
-													checked={!editingHasAssignment}
-													onchange={() => (editingHasAssignment = false)}
-													class="h-4 w-4 border-slate-300 text-primary focus:ring-primary"
+													value="available-now"
+													bind:group={availabilityStatus}
 												/>
 												<div>
 													<span class="text-sm font-medium text-slate-800">Available now</span>
 													<span class="ml-2 text-xs text-slate-500">100% available immediately</span
 													>
 												</div>
-											</label>
-											<label
+											</div>
+											<div
 												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-slate-50"
+												role="radio"
+												tabindex="0"
+												aria-checked={availabilityStatus === 'on-assignment'}
+												onclick={() => (availabilityStatus = 'on-assignment')}
+												onkeydown={(event) => {
+													if (event.key === 'Enter' || event.key === ' ') {
+														event.preventDefault();
+														availabilityStatus = 'on-assignment';
+													}
+												}}
 											>
-												<input
-													type="radio"
+												<Radio
 													name="availability-status"
-													checked={editingHasAssignment}
-													onchange={() => (editingHasAssignment = true)}
-													class="h-4 w-4 border-slate-300 text-primary focus:ring-primary"
+													value="on-assignment"
+													bind:group={availabilityStatus}
 												/>
 												<div>
 													<span class="text-sm font-medium text-slate-800">On assignment</span>
 													<span class="ml-2 text-xs text-slate-500">Currently busy</span>
 												</div>
-											</label>
+											</div>
 										</div>
 									</div>
 
@@ -973,11 +1113,12 @@
 													>
 														Assignment end date
 													</label>
-													<input
+													<Datepicker
 														id="availability-planned-date"
-														type="date"
 														bind:value={editingAvailabilityPlannedFromDate}
-														class="w-full max-w-xs rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+														options={availabilityDatepickerOptions}
+														class="w-full max-w-xs bg-white !pl-11 text-slate-900"
+														placeholder="YYYY-MM-DD"
 													/>
 													<p class="mt-1 text-xs text-slate-500">
 														When will the current assignment end?
@@ -985,36 +1126,26 @@
 												</div>
 
 												<div class="border-t border-slate-100 pt-4">
-													<label class="flex cursor-pointer items-center gap-3">
-														<input
-															type="checkbox"
-															bind:checked={editingOpenToSwitchEarly}
-															class="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-														/>
-														<span class="text-sm font-medium text-slate-800"
-															>Open to switching early</span
-														>
-													</label>
+													<Checkbox bind:checked={editingOpenToSwitchEarly}>
+														<span class="text-sm font-medium text-slate-800">
+															Open to switching early
+														</span>
+													</Checkbox>
 
 													{#if editingOpenToSwitchEarly}
-														<div class="mt-3 ml-7">
+														<div class="ml-7 mt-3">
 															<label
 																for="availability-notice-period-days"
 																class="mb-1.5 block text-sm font-medium text-slate-700"
 															>
 																Notice period (days)
 															</label>
-															<input
+															<Input
 																id="availability-notice-period-days"
-																type="number"
-																min="0"
-																step="1"
+																type="text"
 																inputmode="numeric"
-																value={editingAvailabilityNoticePeriodDays}
-																oninput={handlePercentInput(
-																	(value) => (editingAvailabilityNoticePeriodDays = value)
-																)}
-																class="w-full max-w-[120px] rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+																bind:value={editingAvailabilityNoticePeriodDays}
+																class="w-full max-w-[120px] bg-white text-sm text-slate-900"
 																placeholder="e.g. 30"
 															/>
 														</div>
@@ -1060,22 +1191,16 @@
 														Available now
 													</label>
 													<div class="relative max-w-[120px]">
-														<input
+														<Input
 															id="availability-now-percent"
-															type="number"
-															min="0"
-															max="100"
-															step="1"
+															type="text"
 															inputmode="numeric"
-															value={editingAvailabilityNowPercent}
-															oninput={handlePercentInput(
-																(value) => (editingAvailabilityNowPercent = value)
-															)}
-															class="w-full rounded-md border border-slate-200 bg-white py-2 pr-8 pl-3 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+															bind:value={editingAvailabilityNowPercent}
+															class="w-full bg-white py-2 pr-8 text-sm text-slate-900"
 															placeholder={editingHasAssignment ? '0' : '100'}
 														/>
 														<span
-															class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-400"
+															class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400"
 															>%</span
 														>
 													</div>
@@ -1089,22 +1214,16 @@
 															Future availability
 														</label>
 														<div class="relative max-w-[120px]">
-															<input
+															<Input
 																id="availability-future-percent"
-																type="number"
-																min="0"
-																max="100"
-																step="1"
+																type="text"
 																inputmode="numeric"
-																value={editingAvailabilityFuturePercent}
-																oninput={handlePercentInput(
-																	(value) => (editingAvailabilityFuturePercent = value)
-																)}
-																class="w-full rounded-md border border-slate-200 bg-white py-2 pr-8 pl-3 text-sm text-slate-900 focus:border-primary focus:ring-1 focus:ring-primary"
+																bind:value={editingAvailabilityFuturePercent}
+																class="w-full bg-white py-2 pr-8 text-sm text-slate-900"
 																placeholder="100"
 															/>
 															<span
-																class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-slate-400"
+																class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400"
 																>%</span
 															>
 														</div>
@@ -1132,13 +1251,13 @@
 								<div class="space-y-3">
 									{#each viewCategories as cat (cat.name ?? '')}
 										<div class="space-y-1">
-											<p class="text-xs font-semibold tracking-wide text-slate-800 uppercase">
+											<p class="text-xs font-semibold uppercase tracking-wide text-slate-800">
 												{cat.name}
 											</p>
 											<div class="flex flex-wrap gap-2">
 												{#each cat.skills as skill, skillIndex (`${cat.name ?? 'cat'}-${skill}-${skillIndex}`)}
 													<span
-														class="inline-flex min-h-[28px] min-w-[28px] items-center justify-center border border-primary bg-transparent px-2 py-1 text-xs font-semibold text-primary"
+														class="border-primary text-primary inline-flex min-h-[28px] min-w-[28px] items-center justify-center border bg-transparent px-2 py-1 text-xs font-semibold"
 													>
 														{skill}
 													</span>
@@ -1153,7 +1272,7 @@
 				</div>
 			</div>
 		{:else}
-			<div class="rounded-lg bg-red-50 p-4 text-red-800">Person not found.</div>
+			<div class="rounded-lg bg-red-50 p-4 text-red-800">Talent not found.</div>
 		{/if}
 	</div>
 
@@ -1205,7 +1324,7 @@
 									</h3>
 									{#if resume.is_main}
 										<span
-											class="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-green-600/20 ring-inset"
+											class="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20"
 										>
 											<CheckCircle2 size={12} />
 											Main Resume
@@ -1264,7 +1383,7 @@
 </div>
 
 {#if profile && canEdit}
-	<PixelDrawer
+	<Drawer
 		bind:open={importDrawerOpen}
 		variant="bottom"
 		title="Import from PDF"
@@ -1275,8 +1394,8 @@
 			{#if isBackgroundImporting}
 				<!-- Importing state -->
 				<div class="flex flex-1 flex-col items-center justify-center py-8">
-					<div class="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
-						<Loader2 size={32} class="animate-spin text-primary" />
+					<div class="bg-primary/10 mb-4 flex h-16 w-16 items-center justify-center rounded-full">
+						<Loader2 size={32} class="text-primary animate-spin" />
 					</div>
 					<p class="mb-1 text-lg font-medium text-slate-900">{importStatusLabel}</p>
 					{#if importSourceFilename}
@@ -1288,7 +1407,7 @@
 				</div>
 			{:else}
 				<!-- Upload state -->
-				<div bind:this={uppyContainer} class="uppy-container w-full flex-1 rounded-xs" />
+				<div bind:this={uppyContainer} class="uppy-container rounded-xs w-full flex-1" />
 
 				{#if importError}
 					<div class="mt-4 flex items-start gap-2 rounded-lg bg-red-50 p-3">
@@ -1317,7 +1436,7 @@
 				</div>
 			{/if}
 		</div>
-	</PixelDrawer>
+	</Drawer>
 
 	<!-- Close confirmation dialog -->
 	{#if showCloseConfirm}

@@ -4,7 +4,7 @@
 	import LockOpen from 'lucide-svelte/icons/lock-open';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { QuillEditor, TechStackSelector } from '$lib/components';
-	import PixelDrawer from '$lib/components/PixelDrawer.svelte';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { confirm } from '$lib/utils/confirm';
 	import type {
 		Language,
@@ -629,17 +629,11 @@
 	<Sparkles size={16} />
 </Button>
 
-<PixelDrawer
-	bind:open
-	variant="bottom"
-	title={rowTitle}
-	subtitle="AI writer"
-	beforeClose={requestClose}
->
+<Drawer bind:open variant="bottom" title={rowTitle} subtitle="AI writer" beforeClose={requestClose}>
 	<div class="relative flex min-h-0 flex-1 flex-col gap-4">
 		<button
 			type="button"
-			class="pointer-events-none absolute top-0 right-0 h-0 w-0 opacity-0"
+			class="pointer-events-none absolute right-0 top-0 h-0 w-0 opacity-0"
 			aria-hidden="true"
 			bind:this={closeConfirmTrigger}
 			use:confirm={{
@@ -696,7 +690,7 @@
 					bind:value={prompt}
 					rows="5"
 					placeholder="Describe the project, ownership, solution, and outcomes..."
-					class="w-full resize-y rounded-xs border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-indigo-400"
+					class="rounded-xs w-full resize-y border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-indigo-400"
 				></textarea>
 			</FormControl>
 
@@ -740,7 +734,7 @@
 			{/if}
 
 			{#if showFieldPanel}
-				<div class="grid gap-3 rounded-xs border border-slate-200 bg-slate-50 p-3">
+				<div class="rounded-xs grid gap-3 border border-slate-200 bg-slate-50 p-3">
 					<div class="flex items-center justify-between gap-3">
 						<p class="text-sm font-medium text-slate-700">Fields</p>
 						<div class="flex gap-2">
@@ -761,7 +755,7 @@
 							<label class="text-xs font-medium text-slate-700">Company</label>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
 								onclick={() => toggleFieldLock('company')}
 							>
 								{#if isLocked('company')}
@@ -788,7 +782,7 @@
 							>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
 								onclick={() => toggleFieldLock('role')}
 							>
 								{#if isLocked('role')}
@@ -817,7 +811,7 @@
 								>
 								<button
 									type="button"
-									class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+									class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
 									onclick={() => toggleFieldLock('location')}
 								>
 									{#if isLocked('location')}
@@ -844,7 +838,7 @@
 									<label class="text-xs font-medium text-slate-700">Start Date (YYYY-MM-DD)</label>
 									<button
 										type="button"
-										class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
 										onclick={() => toggleFieldLock('startDate')}
 									>
 										{#if isLocked('startDate')}
@@ -870,7 +864,7 @@
 									>
 									<button
 										type="button"
-										class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
 										onclick={() => toggleFieldLock('endDate')}
 									>
 										{#if isLocked('endDate')}
@@ -904,7 +898,7 @@
 							>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
 								onclick={() => (descriptionLocked = !descriptionLocked)}
 							>
 								{#if descriptionLocked}
@@ -948,7 +942,7 @@
 							<label class="text-xs font-medium text-slate-700">Key Technologies</label>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
 								onclick={() => toggleFieldLock('technologies')}
 							>
 								{#if isLocked('technologies')}
@@ -985,4 +979,4 @@
 			>
 		</div>
 	</div>
-</PixelDrawer>
+</Drawer>

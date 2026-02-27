@@ -10,16 +10,17 @@
 		Cell,
 		type SuperTableHead
 	} from '@pixelcode_/blocks/components';
-	type Role = 'admin' | 'cms_admin' | 'employee' | 'employer';
+	type Role = 'admin' | 'broker' | 'talent' | 'employer' | string;
 
-	export type UserRow = {
+	type UserRow = {
 		id: string;
 		first_name: string | null;
 		last_name: string | null;
-		email?: string | null;
-		avatar_url?: string | null;
+		email: string | null;
+		avatar_url: string | null;
 		active: boolean;
 		roles: Role[];
+		linked_talent_id?: string | null;
 	};
 
 	type UserTableFormData = {
@@ -52,7 +53,7 @@
 				[user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'Unknown';
 
 			const emailText = user.email ?? 'Email not provided';
-			const roleLabel = user.roles?.length ? user.roles.join(', ') : 'employee';
+			const roleLabel = user.roles?.length ? user.roles.join(', ') : 'talent';
 
 			return {
 				...user,
@@ -76,10 +77,10 @@
 	);
 </script>
 
-<Card class="space-y-4 border-border/20 bg-white p-4">
+<Card class="border-border/20 space-y-4 bg-white p-4">
 	<SuperTable instance={tableInstance} selectable={false} class="user-table w-full">
 		{#each tableInstance.data as row (row.id)}
-			<Row.Root class="border-b border-slate-200 last:border-b-0">
+			<Row.Root>
 				<Cell.Value class="py-4 align-top">
 					<div class="flex gap-3">
 						{#if row.avatar_url}
@@ -103,12 +104,12 @@
 
 				<Cell.Value class="py-4 align-top">
 					<div class="flex flex-wrap gap-2">
-						{#each row.roles as role}
-							<Badge variant="default" size="xs" class="tracking-wide uppercase">
+						{#each row.roles as role (role)}
+							<Badge variant="default" size="xs" class="uppercase tracking-wide">
 								{role.replace('_', ' ')}
 							</Badge>
 						{:else}
-							<Badge variant="default" size="xs" class="uppercase tracking-wide">employee</Badge>
+							<Badge variant="default" size="xs" class="uppercase tracking-wide">talent</Badge>
 						{/each}
 					</div>
 				</Cell.Value>
