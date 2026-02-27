@@ -19,12 +19,7 @@
 			<p class="mt-3 text-lg text-slate-500">Browse all talents and open their resume workspace.</p>
 		</div>
 		{#if canManageTalents}
-			<Button
-				type="button"
-				variant="primary"
-				size="md"
-				onclick={() => (isCreateDrawerOpen = true)}
-			>
+			<Button type="button" variant="primary" size="md" onclick={() => (isCreateDrawerOpen = true)}>
 				Create talent
 			</Button>
 		{/if}

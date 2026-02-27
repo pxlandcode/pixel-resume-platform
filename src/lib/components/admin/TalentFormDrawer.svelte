@@ -152,15 +152,16 @@
 			Provide first name, last name, or both. User linking is managed under user edit.
 		</p>
 
-		<div
-			class="sticky bottom-0 flex flex-wrap justify-end gap-3 pt-4"
-		>
-			<Button variant="outline" type="button" onclick={() => (open = false)} class="bg-white hover:bg-slate-50">
+		<div class="sticky bottom-0 flex flex-wrap justify-end gap-3 pt-4">
+			<Button
+				variant="outline"
+				type="button"
+				onclick={() => (open = false)}
+				class="bg-white hover:bg-slate-50"
+			>
 				Cancel
 			</Button>
-			<Button variant="primary" type="submit">
-				Create talent
-			</Button>
+			<Button variant="primary" type="submit">Create talent</Button>
 		</div>
 	</form>
 </Drawer>
