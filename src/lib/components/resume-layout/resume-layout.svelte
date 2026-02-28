@@ -3,9 +3,12 @@
 </script>
 
 <script lang="ts">
+	import { browser } from '$app/environment';
 	import { Badge, Button, Mode } from '@pixelcode_/blocks/components';
+	import { Menu, X } from 'lucide-svelte';
 	import { mode } from 'mode-watcher';
 	import { page } from '$app/stores';
+	import { onDestroy } from 'svelte';
 	import type { Snippet } from 'svelte';
 	import pixelcodeLogoDark from '$lib/assets/pixelcodelogodark.svg';
 	import pixelcodeLogoLight from '$lib/assets/pixelcodelogolight.svg';
@@ -94,7 +97,75 @@
 		if (item.match === 'exact') return currentPath === item.href;
 		return currentPath === item.href || currentPath.startsWith(`${item.href}/`);
 	};
+
+	const CURTAIN_BODY_CLASS = 'mobile-curtain-open';
+
+	let isMobileMenuOpen = $state(false);
+	let previousPath = '';
+
+	const visibleNavItems = $derived(navItems.filter((item) => canView(item.allowed)));
+
+	const closeMobileMenu = () => {
+		isMobileMenuOpen = false;
+	};
+
+	const toggleMobileMenu = () => {
+		isMobileMenuOpen = !isMobileMenuOpen;
+	};
+
+	const handleMenuKeydown = (event: KeyboardEvent) => {
+		if (event.key === 'Escape' && isMobileMenuOpen) {
+			closeMobileMenu();
+		}
+	};
+
+	const handleMenuNavClick = () => {
+		closeMobileMenu();
+	};
+
+	$effect(() => {
+		if (!browser) return;
+		document.body.classList.toggle('overflow-hidden', isMobileMenuOpen);
+		document.body.classList.toggle(CURTAIN_BODY_CLASS, isMobileMenuOpen);
+	});
+
+	$effect(() => {
+		const currentPath = activePath;
+		if (!previousPath) {
+			previousPath = currentPath;
+			return;
+		}
+
+		if (currentPath !== previousPath && isMobileMenuOpen) {
+			closeMobileMenu();
+		}
+		previousPath = currentPath;
+	});
+
+	$effect(() => {
+		if (!browser) return;
+
+		const mediaQuery = window.matchMedia('(min-width: 768px)');
+		const onMediaChange = (event: MediaQueryListEvent) => {
+			if (event.matches) closeMobileMenu();
+		};
+
+		if (mediaQuery.matches) closeMobileMenu();
+		mediaQuery.addEventListener('change', onMediaChange);
+
+		return () => {
+			mediaQuery.removeEventListener('change', onMediaChange);
+		};
+	});
+
+	onDestroy(() => {
+		if (browser) {
+			document.body.classList.remove('overflow-hidden', CURTAIN_BODY_CLASS);
+		}
+	});
 </script>
+
+<svelte:window on:keydown={handleMenuKeydown} />
 
 <div class="bg-background text-foreground flex min-h-screen">
 	<!-- Sidebar -->
@@ -102,7 +173,7 @@
 		<!-- Logo / Brand -->
 		<div class="border-border border-b px-6 py-5">
 			<h1 class="text-foreground text-xl font-bold tracking-tight">
-				<span class="text-primary">Resume</span>Builder
+				<span class="text-primary">Talent</span>Atlas
 			</h1>
 		</div>
 
@@ -143,12 +214,34 @@
 	<div class="flex flex-1 flex-col">
 		<!-- Header -->
 		<header class="border-border bg-card flex items-center justify-between border-b px-6 py-4">
-			<div>
+			<div class="md:hidden">
+				<h2 class="text-foreground text-lg font-semibold">
+					<span class="text-primary">Talent</span>Atlas
+				</h2>
+			</div>
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				class="inline-flex h-9 w-9 min-w-9 items-center justify-center p-0 md:hidden"
+				aria-controls="mobile-curtain-menu"
+				aria-expanded={isMobileMenuOpen ? 'true' : 'false'}
+				aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+				onclick={toggleMobileMenu}
+			>
+				{#if isMobileMenuOpen}
+					<X size={18} />
+				{:else}
+					<Menu size={18} />
+				{/if}
+			</Button>
+
+			<div class="hidden md:block">
 				<h2 class="text-foreground text-lg font-semibold">Build & manage resumes</h2>
 				<p class="text-muted-fg text-sm">Create professional talent profiles</p>
 			</div>
 
-			<div class="flex items-center gap-4">
+			<div class="hidden items-center gap-4 md:flex">
 				<div class="text-right">
 					<p class="text-foreground text-sm font-medium">{displayName}</p>
 					{#if (roles?.length ?? 0) > 0}
@@ -166,9 +259,9 @@
 					{/if}
 				</div>
 				<Mode.Switch
-					class="border-border bg-input text-foreground hover:bg-muted/70 focus:ring-primary/40 h-9 w-9 rounded-full border shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1"
+					class="border-border bg-input text-foreground hover:bg-muted/70 focus:ring-primary/40 hidden h-9 w-9 rounded-full border shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1 md:inline-flex"
 				/>
-				<form method="POST" action="/logout">
+				<form method="POST" action="/logout" class="hidden md:block">
 					<Button type="submit" variant="outline" size="sm" onclick={() => onlogout?.()}>
 						Log out
 					</Button>
@@ -186,5 +279,101 @@
 		<main class="flex-1 p-6">
 			{@render children()}
 		</main>
+	</div>
+
+	<div
+		id="mobile-curtain-menu"
+		class={`bg-background/95 text-foreground fixed inset-0 z-[80] flex h-screen flex-col backdrop-blur-sm transition-transform duration-[600ms] ease-[cubic-bezier(.16,1,.3,1)] md:hidden ${
+			isMobileMenuOpen
+				? 'pointer-events-auto translate-y-0'
+				: 'pointer-events-none -translate-y-full'
+		}`}
+		role="dialog"
+		aria-modal="true"
+		aria-label="Main menu"
+		aria-hidden={isMobileMenuOpen ? 'false' : 'true'}
+	>
+		<div class="flex h-full flex-col px-6 py-8">
+			<div class="flex items-start justify-between">
+				<div>
+					<p class="text-primary text-xs font-semibold uppercase tracking-[0.28em]">TalentAtlas</p>
+					<p class="text-muted-fg mt-2 text-xs uppercase tracking-[0.18em]">Menu</p>
+				</div>
+				<Button type="button" variant="outline" size="sm" class="gap-2" onclick={closeMobileMenu}>
+					<X size={16} />
+					Close
+				</Button>
+			</div>
+
+			<div class="border-border bg-card/50 mt-6 rounded-sm border p-4">
+				<p class="text-muted-fg text-[11px] font-semibold uppercase tracking-[0.16em]">
+					Signed in as
+				</p>
+				<p class="text-foreground mt-2 text-sm font-semibold">{displayName}</p>
+				{#if (roles?.length ?? 0) > 0}
+					<div class="mt-2 flex flex-wrap gap-1">
+						{#each roles as r}
+							<Badge variant="info" size="xs" class="uppercase tracking-wide">
+								{r.replace('_', ' ')}
+							</Badge>
+						{/each}
+					</div>
+				{:else if role}
+					<div class="mt-2">
+						<Badge variant="info" size="xs" class="uppercase tracking-wide">
+							{role.replace('_', ' ')}
+						</Badge>
+					</div>
+				{/if}
+			</div>
+
+			<nav class="mt-10 flex-1 overflow-y-auto">
+				<ul class="space-y-3">
+					{#each visibleNavItems as item, index}
+						<li
+							class={`transition-all duration-500 ease-out ${
+								isMobileMenuOpen ? 'translate-y-0 opacity-100' : 'translate-y-6 opacity-0'
+							}`}
+							style={`transition-delay: ${isMobileMenuOpen ? 160 + index * 80 : 0}ms`}
+						>
+							<a
+								href={item.href}
+								onclick={handleMenuNavClick}
+								class={`inline-flex w-full items-center rounded-sm px-4 py-3 text-2xl font-semibold uppercase tracking-[0.08em] transition-colors ${
+									isActive(item, activePath)
+										? 'bg-primary/15 text-primary'
+										: 'hover:bg-muted/40 text-foreground'
+								}`}
+							>
+								{item.label}
+							</a>
+						</li>
+					{/each}
+				</ul>
+			</nav>
+
+			<div class="border-border mt-6 border-t pt-6">
+				<div class="mb-4 flex items-center justify-between">
+					<p class="text-muted-fg text-xs font-semibold uppercase tracking-[0.18em]">Appearance</p>
+					<Mode.Switch
+						class="border-border bg-input text-foreground hover:bg-muted/70 focus:ring-primary/40 h-9 w-9 rounded-full border shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1"
+					/>
+				</div>
+				<form method="POST" action="/logout">
+					<Button
+						type="submit"
+						variant="outline"
+						size="sm"
+						class="w-full justify-center"
+						onclick={() => {
+							closeMobileMenu();
+							onlogout?.();
+						}}
+					>
+						Log out
+					</Button>
+				</form>
+			</div>
+		</div>
 	</div>
 </div>
