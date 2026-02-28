@@ -9,6 +9,24 @@ import {
 	PROFILE_AVAILABILITY_SELECT,
 	normalizeAvailabilityRow
 } from '$lib/server/consultantAvailability';
+import { getActorAccessContext, getAccessibleTalentIds } from '$lib/server/access';
+
+const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
+
+const resolveStoragePublicUrl = (
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+	value: string | null | undefined
+) => {
+	if (!value || typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	const normalizedPath = trimmed.replace(/^\/+/, '').replace(/^organisation-images\//, '');
+	const { data } = adminClient.storage
+		.from(ORGANISATION_IMAGES_BUCKET)
+		.getPublicUrl(normalizedPath);
+	return data.publicUrl ?? null;
+};
 
 const toStringArray = (value: unknown): string[] => {
 	if (!Array.isArray(value)) return [];
@@ -56,11 +74,36 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		return { talents: [], meta: null };
 	}
 
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId) {
+		return { talents: [], meta: null };
+	}
+
+	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
+
 	const [{ data: talents }, authUsersResult] = await Promise.all([
-		adminClient
-			.from('talents')
-			.select('id, user_id, first_name, last_name, avatar_url, tech_stack')
-			.order('last_name', { ascending: true }),
+		accessibleTalentIds === null
+			? adminClient
+					.from('talents')
+					.select('id, user_id, first_name, last_name, avatar_url, tech_stack')
+					.order('last_name', { ascending: true })
+			: accessibleTalentIds.length === 0
+				? Promise.resolve({
+						data: [] as Array<{
+							id: string;
+							user_id: string | null;
+							first_name: string | null;
+							last_name: string | null;
+							avatar_url: string | null;
+							tech_stack: unknown;
+						}>,
+						error: null
+					})
+				: adminClient
+						.from('talents')
+						.select('id, user_id, first_name, last_name, avatar_url, tech_stack')
+						.in('id', accessibleTalentIds)
+						.order('last_name', { ascending: true }),
 		adminClient.auth.admin.listUsers()
 	]);
 
@@ -82,6 +125,62 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			const profileId = (row as { profile_id?: unknown }).profile_id;
 			if (typeof profileId !== 'string' || profileId.length === 0) continue;
 			availabilityByTalentId.set(profileId, normalizeAvailabilityRow(row));
+		}
+	}
+
+	// Fetch organisation memberships for talents
+	const orgMembershipsResult =
+		talentIds.length === 0
+			? { data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
+			: await adminClient
+					.from('organisation_talents')
+					.select('talent_id, organisation_id')
+					.in('talent_id', talentIds);
+
+	if (orgMembershipsResult.error) {
+		console.warn('[resumes index] organisation_talents error', orgMembershipsResult.error);
+	}
+
+	const orgIdByTalentId = new Map<string, string>();
+	for (const row of orgMembershipsResult.data ?? []) {
+		orgIdByTalentId.set(row.talent_id, row.organisation_id);
+	}
+
+	const orgIds = Array.from(new Set(orgIdByTalentId.values()));
+
+	// Fetch organisations and templates for logos
+	const [orgsResult, templatesResult] =
+		orgIds.length === 0
+			? [
+					{ data: [] as Array<{ id: string; name: string }>, error: null },
+					{
+						data: [] as Array<{ organisation_id: string; main_logotype_path: string | null }>,
+						error: null
+					}
+				]
+			: await Promise.all([
+					adminClient.from('organisations').select('id, name').in('id', orgIds),
+					adminClient
+						.from('organisation_templates')
+						.select('organisation_id, main_logotype_path')
+						.in('organisation_id', orgIds)
+				]);
+
+	if (orgsResult.error) {
+		console.warn('[resumes index] organisations error', orgsResult.error);
+	}
+	if (templatesResult.error) {
+		console.warn('[resumes index] organisation_templates error', templatesResult.error);
+	}
+
+	const orgById = new Map<string, { name: string; logoUrl: string | null }>();
+	for (const org of orgsResult.data ?? []) {
+		orgById.set(org.id, { name: org.name, logoUrl: null });
+	}
+	for (const template of templatesResult.data ?? []) {
+		const existing = orgById.get(template.organisation_id);
+		if (existing) {
+			existing.logoUrl = resolveStoragePublicUrl(adminClient, template.main_logotype_path);
 		}
 	}
 
@@ -272,6 +371,8 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const talentsWithSearch = talentRows.map((talent) => {
 		const profileTechs = extractTalentTechs(talent.tech_stack);
 		const resumeTechs = Array.from(resumeSearchByTalentId.get(talent.id) ?? []);
+		const orgId = orgIdByTalentId.get(talent.id);
+		const org = orgId ? orgById.get(orgId) : undefined;
 
 		return {
 			id: talent.id,
@@ -280,7 +381,9 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			avatar_url: talent.avatar_url ?? null,
 			email: talent.user_id ? (authMap.get(talent.user_id)?.email ?? null) : null,
 			availability: availabilityByTalentId.get(talent.id) ?? normalizeAvailabilityRow(null),
-			search_techs: uniq([...profileTechs, ...resumeTechs])
+			search_techs: uniq([...profileTechs, ...resumeTechs]),
+			organisation_name: org?.name ?? null,
+			organisation_logo_url: org?.logoUrl ?? null
 		};
 	});
 

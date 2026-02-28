@@ -38,7 +38,13 @@
 		{
 			label: 'Users',
 			href: '/users',
-			allowed: ['admin', 'employer'],
+			allowed: ['admin', 'broker', 'employer'],
+			match: 'prefix'
+		},
+		{
+			label: 'Organisations',
+			href: '/organisations',
+			allowed: ['admin'],
 			match: 'prefix'
 		},
 		{

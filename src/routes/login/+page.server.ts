@@ -18,7 +18,9 @@ const cookieOptions = {
 
 const isAllowedAppRedirect = (value: unknown): value is string =>
 	typeof value === 'string' &&
-	/^\/(?:$|users(?:\/.*)?$|talents(?:\/.*)?$|resumes(?:\/.*)?$)/.test(value);
+	/^\/(?:$|users(?:\/.*)?$|talents(?:\/.*)?$|resumes(?:\/.*)?$|organisations(?:\/.*)?$)/.test(
+		value
+	);
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;

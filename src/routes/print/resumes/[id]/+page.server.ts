@@ -1,11 +1,18 @@
 import type { PageServerLoad } from './$types';
-import { AUTH_COOKIE_NAMES, createSupabaseServerClient } from '$lib/server/supabase';
+import {
+	AUTH_COOKIE_NAMES,
+	createSupabaseServerClient,
+	getSupabaseAdminClient
+} from '$lib/server/supabase';
 import { ResumeService } from '$lib/services/resume';
 import { error } from '@sveltejs/kit';
+import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
+import { getActorAccessContext, resolvePrintTemplateContext } from '$lib/server/access';
 
 export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
-	if (!supabase) {
+	const adminClient = getSupabaseAdminClient();
+	if (!supabase || !adminClient) {
 		throw error(401, 'Unauthorized');
 	}
 
@@ -19,15 +26,24 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	}
 
 	const resume = await ResumeService.getResume(resumeId);
-	const resumePerson = await ResumeService.getPerson(resume?.personId ?? '');
 
 	if (!resume) {
 		throw error(404, 'Resume not found');
 	}
 
+	const permissions = await getResumeEditPermissions(supabase, adminClient, resume.personId);
+	if (!permissions.canView) {
+		throw error(403, 'Not authorized to view this resume.');
+	}
+
+	const actor = await getActorAccessContext(supabase, adminClient);
+	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId);
+	const resumePerson = await ResumeService.getPerson(resume.personId);
+
 	return {
 		resume,
 		resumePerson,
+		templateContext,
 		language,
 		meta: {
 			title: `Resume ${resume.title}`,

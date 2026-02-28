@@ -32,6 +32,7 @@
 	export let users: UserRow[] = [];
 	export let form: UserTableFormData | null = null;
 	export let onEdit: (user: UserRow) => void;
+	export let showEdit = true;
 
 	type TableRow = UserRow & {
 		source: UserRow;
@@ -123,11 +124,13 @@
 				</Cell.Value>
 
 				<Cell.Value class="py-4 align-top">
-					<div class="flex justify-end">
-						<Button variant="primary" size="sm" type="button" onclick={() => onEdit?.(row.source)}>
-							Edit
-						</Button>
-					</div>
+					{#if showEdit}
+						<div class="flex justify-end">
+							<Button variant="primary" size="sm" type="button" onclick={() => onEdit?.(row.source)}>
+								Edit
+							</Button>
+						</div>
+					{/if}
 				</Cell.Value>
 			</Row.Root>
 		{/each}

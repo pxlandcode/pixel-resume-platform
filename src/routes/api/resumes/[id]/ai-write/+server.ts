@@ -184,6 +184,9 @@ export const POST: RequestHandler = async ({ params, request, cookies }) => {
 	}
 
 	const permissions = await getResumeEditPermissions(supabase, adminClient, resumeRow.talent_id);
+	if (!permissions.canView) {
+		return json({ message: 'Not authorized to view this resume.' }, { status: 403 });
+	}
 	if (!permissions.canEdit) {
 		return json({ message: 'Not authorized to generate resume text.' }, { status: 403 });
 	}

@@ -4,7 +4,7 @@ import {
 	createSupabaseServerClient,
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
-import { fail } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 import { cloneResumeData, initResumeData, loadResumeData } from '$lib/server/resumes/store';
 import {
@@ -13,6 +13,23 @@ import {
 	parseAvailabilityForm,
 	validateAvailability
 } from '$lib/server/consultantAvailability';
+
+const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
+
+const resolveStoragePublicUrl = (
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+	value: string | null | undefined
+) => {
+	if (!value || typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	const normalizedPath = trimmed.replace(/^\/+/, '').replace(/^organisation-images\//, '');
+	const { data } = adminClient.storage
+		.from(ORGANISATION_IMAGES_BUCKET)
+		.getPublicUrl(normalizedPath);
+	return data.publicUrl ?? null;
+};
 
 const getTargetTalentId = (formData: FormData, fallbackTalentId: string): string | null => {
 	const fromTalent = formData.get('talent_id');
@@ -38,32 +55,44 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 	}
 
 	const talentId = params.personId;
-	const { canEdit, canEditAll, isOwnProfile } = await getResumeEditPermissions(
+	const { canView, canEdit, canEditAll, isOwnProfile } = await getResumeEditPermissions(
 		supabase,
 		adminClient,
 		talentId
 	);
+	if (!canView) {
+		throw error(403, 'Not authorized to view this talent.');
+	}
 
-	const [{ data: profile, error: profileError }, resumesResult, availabilityResult] =
-		await Promise.all([
-			adminClient
-				.from('talents')
-				.select('id, first_name, last_name, avatar_url, title, bio, tech_stack')
-				.eq('id', talentId)
-				.maybeSingle(),
-			adminClient
-				.from('resumes')
-				.select(
-					'id, talent_id, version_name, is_main, is_active, allow_word_export, preview_html, created_at, updated_at'
-				)
-				.eq('talent_id', talentId)
-				.order('created_at', { ascending: false }),
-			adminClient
-				.from('profile_availability')
-				.select(PROFILE_AVAILABILITY_SELECT)
-				.eq('profile_id', talentId)
-				.maybeSingle()
-		]);
+	const [
+		{ data: profile, error: profileError },
+		resumesResult,
+		availabilityResult,
+		orgMembershipResult
+	] = await Promise.all([
+		adminClient
+			.from('talents')
+			.select('id, first_name, last_name, avatar_url, title, bio, tech_stack')
+			.eq('id', talentId)
+			.maybeSingle(),
+		adminClient
+			.from('resumes')
+			.select(
+				'id, talent_id, version_name, is_main, is_active, allow_word_export, preview_html, created_at, updated_at'
+			)
+			.eq('talent_id', talentId)
+			.order('created_at', { ascending: false }),
+		adminClient
+			.from('profile_availability')
+			.select(PROFILE_AVAILABILITY_SELECT)
+			.eq('profile_id', talentId)
+			.maybeSingle(),
+		adminClient
+			.from('organisation_talents')
+			.select('organisation_id')
+			.eq('talent_id', talentId)
+			.maybeSingle()
+	]);
 
 	if (profileError) {
 		console.warn('[resumes detail] talent error', profileError);
@@ -73,6 +102,35 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 	}
 	if (availabilityResult.error) {
 		console.warn('[resumes detail] profile_availability error', availabilityResult.error);
+	}
+	if (orgMembershipResult.error) {
+		console.warn('[resumes detail] organisation_talents error', orgMembershipResult.error);
+	}
+
+	// Fetch organisation details if the talent belongs to one
+	let organisationName: string | null = null;
+	let organisationLogoUrl: string | null = null;
+	const organisationId = orgMembershipResult.data?.organisation_id;
+	if (organisationId) {
+		const [orgResult, templateResult] = await Promise.all([
+			adminClient.from('organisations').select('name').eq('id', organisationId).maybeSingle(),
+			adminClient
+				.from('organisation_templates')
+				.select('main_logotype_path')
+				.eq('organisation_id', organisationId)
+				.maybeSingle()
+		]);
+		if (orgResult.error) {
+			console.warn('[resumes detail] organisations error', orgResult.error);
+		}
+		if (templateResult.error) {
+			console.warn('[resumes detail] organisation_templates error', templateResult.error);
+		}
+		organisationName = orgResult.data?.name ?? null;
+		organisationLogoUrl = resolveStoragePublicUrl(
+			adminClient,
+			templateResult.data?.main_logotype_path
+		);
 	}
 
 	const resumeRows = resumesResult.data ?? [];
@@ -130,9 +188,12 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 		availability: normalizeAvailabilityRow(availabilityResult.data),
 		resumes,
 		fromDb: Boolean(profile),
+		canView,
 		canEdit,
 		canEditAll,
-		isOwnProfile
+		isOwnProfile,
+		organisation_name: organisationName,
+		organisation_logo_url: organisationLogoUrl
 	};
 };
 

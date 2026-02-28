@@ -27,6 +27,9 @@
 	};
 
 	let { data, form } = $props();
+	const canCreateUsers = $derived(Boolean(data.canCreateUsers));
+	const canEditUsers = $derived(Boolean(data.canEditUsers));
+	const allowedCreateRoles = $derived((data.allowedCreateRoles as Role[] | undefined) ?? ['talent']);
 	const normalizeRoles = (roles: string[] | null | undefined): Role[] => {
 		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
 		const normalized =
@@ -76,28 +79,30 @@
 		<h1 class="text-2xl font-semibold text-gray-900">Users</h1>
 		<p class="text-sm text-gray-700">Invite teammates and adjust their permissions.</p>
 	</div>
-	<Button
-		variant="primary"
-		size="md"
-		type="button"
-		onclick={() => {
-			feedback = null;
-			editMode = 'create';
-			editUser = {
-				id: '',
-				first_name: '',
-				last_name: '',
-				email: '',
-				roles: ['talent'],
-				avatar_url: null,
-				active: true,
-				linked_talent_id: null
-			};
-			isModalOpen = true;
-		}}
-	>
-		Create user
-	</Button>
+	{#if canCreateUsers}
+		<Button
+			variant="primary"
+			size="md"
+			type="button"
+			onclick={() => {
+				feedback = null;
+				editMode = 'create';
+				editUser = {
+					id: '',
+					first_name: '',
+					last_name: '',
+					email: '',
+					roles: ['talent'],
+					avatar_url: null,
+					active: true,
+					linked_talent_id: null
+				};
+				isModalOpen = true;
+			}}
+		>
+			Create user
+		</Button>
+	{/if}
 </div>
 
 {#if feedback}
@@ -110,6 +115,7 @@
 	<UserTable
 		users={data.users}
 		{form}
+		showEdit={canEditUsers}
 		onEdit={(u) => {
 			editMode = 'edit';
 			editUser = toEditableUser(u as LoadUser);
@@ -122,6 +128,8 @@
 	bind:open={isModalOpen}
 	mode={editMode}
 	talentOptions={data.talents ?? []}
+	allowedRoles={allowedCreateRoles}
+	canEditUsers={canEditUsers}
 	initial={editUser ?? undefined}
 	on:success={handleUserCreated}
 	on:error={handleCreateError}

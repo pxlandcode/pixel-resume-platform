@@ -1,27 +1,17 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getActorAccessContext, getTalentAccess, type AppRole } from '$lib/server/access';
 
 export type ResumeEditPermissions = {
+	canView: boolean;
 	canEdit: boolean;
 	canEditAll: boolean;
 	isOwnProfile: boolean;
 	userId: string | null;
+	roles: AppRole[];
+	homeOrganisationId: string | null;
+	accessibleOrganisationIds: string[];
+	talentOrganisationId: string | null;
 };
-
-const EDIT_ROLES = new Set(['admin', 'broker', 'employer']);
-
-const extractRoleKeys = (
-	rows: Array<{ roles?: { key?: string | null } | Array<{ key?: string | null }> | null }>
-): string[] =>
-	rows
-		.flatMap((row) => {
-			if (Array.isArray(row.roles)) {
-				return row.roles
-					.map((roleRow) => (typeof roleRow?.key === 'string' ? roleRow.key : null))
-					.filter((role): role is string => role !== null);
-			}
-			return typeof row.roles?.key === 'string' ? [row.roles.key] : [];
-		})
-		.filter((value, index, all) => all.indexOf(value) === index);
 
 export const getResumeEditPermissions = async (
 	supabase: SupabaseClient | null,
@@ -29,41 +19,45 @@ export const getResumeEditPermissions = async (
 	targetTalentId: string
 ): Promise<ResumeEditPermissions> => {
 	if (!supabase || !adminClient) {
-		return { canEdit: false, canEditAll: false, isOwnProfile: false, userId: null };
+		return {
+			canView: false,
+			canEdit: false,
+			canEditAll: false,
+			isOwnProfile: false,
+			userId: null,
+			roles: [],
+			homeOrganisationId: null,
+			accessibleOrganisationIds: [],
+			talentOrganisationId: null
+		};
 	}
 
-	const {
-		data: { user }
-	} = await supabase.auth.getUser();
-
-	const currentUserId = user?.id ?? null;
-
-	if (!currentUserId) {
-		return { canEdit: false, canEditAll: false, isOwnProfile: false, userId: null };
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId) {
+		return {
+			canView: false,
+			canEdit: false,
+			canEditAll: false,
+			isOwnProfile: false,
+			userId: null,
+			roles: [],
+			homeOrganisationId: null,
+			accessibleOrganisationIds: [],
+			talentOrganisationId: null
+		};
 	}
 
-	const [{ data: userRoles }, ownTalentResult] = await Promise.all([
-		adminClient.from('user_roles').select('roles(key)').eq('user_id', currentUserId),
-		adminClient
-			.from('talents')
-			.select('id')
-			.eq('id', targetTalentId)
-			.eq('user_id', currentUserId)
-			.maybeSingle()
-	]);
-
-	const roles = extractRoleKeys(
-		(userRoles as Array<{
-			roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
-		}>) ?? []
-	);
-	const canEditAll = roles.some((role) => EDIT_ROLES.has(role));
-	const isOwnProfile = Boolean(ownTalentResult.data?.id);
+	const talentAccess = await getTalentAccess(adminClient, actor, targetTalentId);
 
 	return {
-		canEdit: canEditAll || isOwnProfile,
-		canEditAll,
-		isOwnProfile,
-		userId: currentUserId
+		canView: talentAccess.canView,
+		canEdit: talentAccess.canEdit,
+		canEditAll: talentAccess.canEditAll,
+		isOwnProfile: talentAccess.isOwnProfile,
+		userId: actor.userId,
+		roles: actor.roles,
+		homeOrganisationId: actor.homeOrganisationId,
+		accessibleOrganisationIds: actor.accessibleOrganisationIds,
+		talentOrganisationId: talentAccess.talentOrganisationId
 	};
 };

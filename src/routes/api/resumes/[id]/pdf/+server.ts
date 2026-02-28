@@ -2,11 +2,18 @@ import type { RequestHandler } from './$types';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { error } from '@sveltejs/kit';
-import { AUTH_COOKIE_NAMES, getSupabasePublishableKey, getSupabaseUrl } from '$lib/server/supabase';
+import {
+	AUTH_COOKIE_NAMES,
+	createSupabaseServerClient,
+	getSupabaseAdminClient,
+	getSupabasePublishableKey,
+	getSupabaseUrl
+} from '$lib/server/supabase';
 import { ResumeService } from '$lib/services/resume';
 import { createClient } from '@supabase/supabase-js';
 import chromium from '@sparticuz/chromium';
 import { chromium as playwrightChromium } from 'playwright-core';
+import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 
 const isServerless =
 	Boolean(process.env.NETLIFY) ||
@@ -126,6 +133,25 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		throw error(400, 'Invalid resume id');
 	}
 	const lang = url.searchParams.get('lang') ?? 'sv';
+	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+	const adminClient = getSupabaseAdminClient();
+	if (!supabase || !adminClient) {
+		throw error(401, 'Unauthorized');
+	}
+
+	const { data: resumeOwner } = await adminClient
+		.from('resumes')
+		.select('talent_id')
+		.eq('id', resumeId)
+		.maybeSingle();
+	if (!resumeOwner?.talent_id) {
+		throw error(404, 'Resume not found');
+	}
+
+	const permissions = await getResumeEditPermissions(supabase, adminClient, resumeOwner.talent_id);
+	if (!permissions.canView) {
+		throw error(403, 'Not authorized to view this resume.');
+	}
 
 	let browser: import('playwright-core').Browser | null = null;
 

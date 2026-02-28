@@ -998,12 +998,24 @@
 								{[profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 							</h1>
 							{#if profile.title}
-								<p class="text-primary mt-2 text-xl font-medium">{profile.title}</p>
+								<p class="text-primary mt-1 text-xl font-medium">{profile.title}</p>
+							{/if}
+							{#if data.organisation_logo_url || data.organisation_name}
+								<div class="mt-3">
+									{#if data.organisation_logo_url}
+										<img
+											src={data.organisation_logo_url}
+											alt={data.organisation_name ?? 'Organisation'}
+											class="h-5 w-auto object-contain"
+										/>
+									{:else}
+										<span class="text-xs font-medium text-slate-400">{data.organisation_name}</span>
+									{/if}
+								</div>
 							{/if}
 						</div>
 
 						<div>
-							<h3 class="mb-2 text-lg font-semibold text-slate-900">Bio</h3>
 							{#if isEditing && canEdit}
 								<textarea
 									name="bio"
@@ -1013,7 +1025,7 @@
 									placeholder="Tell us about this talent"
 								/>
 							{:else if profile.bio}
-								<p class="mt-1 max-w-2xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
+								<p class="max-w-2xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
 									{profile.bio}
 								</p>
 							{:else}

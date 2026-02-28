@@ -153,10 +153,27 @@
 						</div>
 
 						<div class="flex flex-1 flex-col p-5">
-							<h3 class="mb-2 text-lg font-semibold text-slate-900">
+							<h3 class="text-lg font-semibold text-slate-900">
 								{[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 							</h3>
-							<ConsultantAvailabilityPills compact availability={talent.availability ?? null} />
+							<div class="mt-2">
+								<ConsultantAvailabilityPills compact availability={talent.availability ?? null} />
+							</div>
+							{#if talent.organisation_logo_url || talent.organisation_name}
+								<div class="mt-auto pt-3">
+									{#if talent.organisation_logo_url}
+										<img
+											src={talent.organisation_logo_url}
+											alt={talent.organisation_name ?? 'Organisation'}
+											class="h-5 w-auto object-contain"
+										/>
+									{:else}
+										<span class="text-xs font-medium text-slate-400"
+											>{talent.organisation_name}</span
+										>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					</Card>
 				</a>
@@ -244,13 +261,30 @@
 									</div>
 
 									<div class="flex flex-1 flex-col p-5">
-										<h3 class="mb-2 text-lg font-semibold text-slate-900">
+										<h3 class="text-lg font-semibold text-slate-900">
 											{[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 										</h3>
-										<ConsultantAvailabilityPills
-											compact
-											availability={talent.availability ?? null}
-										/>
+										<div class="mt-2">
+											<ConsultantAvailabilityPills
+												compact
+												availability={talent.availability ?? null}
+											/>
+										</div>
+										{#if talent.organisation_logo_url || talent.organisation_name}
+											<div class="mt-auto pt-3">
+												{#if talent.organisation_logo_url}
+													<img
+														src={talent.organisation_logo_url}
+														alt={talent.organisation_name ?? 'Organisation'}
+														class="h-5 w-auto object-contain"
+													/>
+												{:else}
+													<span class="text-xs font-medium text-slate-400"
+														>{talent.organisation_name}</span
+													>
+												{/if}
+											</div>
+										{/if}
 									</div>
 								</Card>
 							</a>

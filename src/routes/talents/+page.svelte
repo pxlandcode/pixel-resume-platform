@@ -73,6 +73,21 @@
 							{#if talent.email}
 								<p class="mt-2 text-xs text-slate-400">{talent.email}</p>
 							{/if}
+							{#if talent.organisation_logo_url || talent.organisation_name}
+								<div class="mt-auto pt-3">
+									{#if talent.organisation_logo_url}
+										<img
+											src={talent.organisation_logo_url}
+											alt={talent.organisation_name ?? 'Organisation'}
+											class="h-5 w-auto object-contain"
+										/>
+									{:else}
+										<span class="text-xs font-medium text-slate-400"
+											>{talent.organisation_name}</span
+										>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					</Card>
 				</a>

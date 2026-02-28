@@ -5,6 +5,7 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import type { Actions, PageServerLoad } from './$types';
+import { getActorAccessContext } from '$lib/server/access';
 
 type Role = 'admin' | 'broker' | 'talent' | 'employer';
 
@@ -19,6 +20,16 @@ const normalizeRoles = (roles: string[]): Role[] => {
 		}
 	}
 	return Array.from(unique);
+};
+
+const getAllowedCreateRoles = (
+	actor: Awaited<ReturnType<typeof getActorAccessContext>>
+): Role[] => {
+	if (actor.isAdmin) return ['admin', 'broker', 'talent', 'employer'];
+	const roles: Role[] = ['talent'];
+	if (actor.isBroker) roles.push('broker');
+	if (actor.isEmployer) roles.push('employer');
+	return normalizeRoles(roles);
 };
 
 const normalizeOptionalUuid = (value: FormDataEntryValue | null) => {
@@ -80,13 +91,53 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 
 	if (!supabase) {
-		return { users: [], talents: [] };
+		return {
+			users: [],
+			talents: [],
+			canCreateUsers: false,
+			canEditUsers: false,
+			allowedCreateRoles: ['talent'] as Role[]
+		};
 	}
 
 	const adminClient = getSupabaseAdminClient();
 
 	if (!adminClient) {
-		return { users: [], talents: [] };
+		return {
+			users: [],
+			talents: [],
+			canCreateUsers: false,
+			canEditUsers: false,
+			allowedCreateRoles: ['talent'] as Role[]
+		};
+	}
+
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId || (!actor.isAdmin && !actor.isBroker && !actor.isEmployer)) {
+		return {
+			users: [],
+			talents: [],
+			canCreateUsers: false,
+			canEditUsers: false,
+			allowedCreateRoles: ['talent'] as Role[]
+		};
+	}
+
+	const canCreateUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
+	const canEditUsers = actor.isAdmin;
+	const allowedCreateRoles = getAllowedCreateRoles(actor);
+
+	const visibleUserIdsForNonAdmin = new Set<string>([actor.userId]);
+	if (!actor.isAdmin && actor.accessibleOrganisationIds.length > 0) {
+		const { data: scopedMembershipRows } = await adminClient
+			.from('organisation_users')
+			.select('user_id')
+			.in('organisation_id', actor.accessibleOrganisationIds);
+		for (const row of scopedMembershipRows ?? []) {
+			if (typeof row.user_id === 'string' && row.user_id.length > 0) {
+				visibleUserIdsForNonAdmin.add(row.user_id);
+			}
+		}
 	}
 
 	const [profilesResult, rolesResult, authUsersResult, talentsResult] = await Promise.all([
@@ -164,6 +215,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	for (const user of authUsers) userIds.add(user.id);
 
 	const users = Array.from(userIds)
+		.filter((userId) => actor.isAdmin || visibleUserIdsForNonAdmin.has(userId))
 		.map((userId) => {
 			const profile = profileMap.get(userId);
 			const rolesFromDb = roleMap.get(userId) ?? [];
@@ -187,14 +239,16 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			return nameA.localeCompare(nameB);
 		});
 
-	const talents = talentRows.map((talent) => ({
-		id: talent.id,
-		user_id: talent.user_id ?? null,
-		first_name: talent.first_name ?? '',
-		last_name: talent.last_name ?? ''
-	}));
+	const talents = actor.isAdmin
+		? talentRows.map((talent) => ({
+				id: talent.id,
+				user_id: talent.user_id ?? null,
+				first_name: talent.first_name ?? '',
+				last_name: talent.last_name ?? ''
+			}))
+		: [];
 
-	return { users, talents };
+	return { users, talents, canCreateUsers, canEditUsers, allowedCreateRoles };
 };
 
 export const actions: Actions = {
@@ -224,6 +278,11 @@ export const actions: Actions = {
 				ok: false,
 				message: 'Server configuration missing Supabase service role key.'
 			});
+		}
+
+		const actor = await getActorAccessContext(supabase, adminClient);
+		if (!actor.isAdmin) {
+			return fail(403, { type: 'updateRole', ok: false, message: 'Only admins can update roles.' });
 		}
 
 		await adminClient.from('user_roles').delete().eq('user_id', userId);
@@ -297,6 +356,15 @@ export const actions: Actions = {
 			});
 		}
 
+		const actor = await getActorAccessContext(supabase, adminClient);
+		if (!actor.isAdmin) {
+			return fail(403, {
+				type: 'updateActive',
+				ok: false,
+				message: 'Only admins can update account status.'
+			});
+		}
+
 		const active = activeValue === 'true';
 
 		const { error } = await adminClient.auth.admin.updateUserById(userId, {
@@ -355,6 +423,15 @@ export const actions: Actions = {
 				type: 'updateUser',
 				ok: false,
 				message: 'Server configuration missing Supabase service role key.'
+			});
+		}
+
+		const actor = await getActorAccessContext(supabase, adminClient);
+		if (!actor.isAdmin) {
+			return fail(403, {
+				type: 'updateUser',
+				ok: false,
+				message: 'Only admins can edit existing users.'
 			});
 		}
 

@@ -56,6 +56,8 @@
 		error = $bindable<string | null>(null),
 		mode = $bindable<'create' | 'edit'>('create'),
 		talentOptions = $bindable<TalentOption[]>([]),
+		allowedRoles = $bindable<UserRole[]>(['admin', 'broker', 'talent', 'employer']),
+		canEditUsers = $bindable(true),
 		initial = $bindable<InitialUser>({
 			id: '',
 			first_name: '',
@@ -90,7 +92,7 @@
 
 	const showUploader = $derived(!previewUrl);
 	const availableTalentOptions = $derived.by(() => {
-		if (mode !== 'edit') return [] as TalentOption[];
+		if (mode !== 'edit' || !canEditUsers) return [] as TalentOption[];
 
 		const filtered = talentOptions.filter(
 			(talent) => !talent.user_id || talent.user_id === initial.id
@@ -109,6 +111,9 @@
 		const name = [talent.first_name, talent.last_name].filter(Boolean).join(' ').trim();
 		return name || talent.id;
 	};
+
+	const allowedRoleSet = $derived(new Set(allowedRoles));
+	const visibleRoleOptions = $derived(roleOptions.filter((option) => allowedRoleSet.has(option.value)));
 
 	const revokeTempObjectUrl = () => {
 		if (tempObjectUrl) {
@@ -300,6 +305,7 @@
 	};
 
 	const toggleRole = (role: UserRole) => {
+		if (!allowedRoleSet.has(role)) return;
 		selectedRoles = selectedRoles.includes(role)
 			? selectedRoles.filter((r) => r !== role)
 			: [...selectedRoles, role];
@@ -314,6 +320,10 @@
 
 		if (selectedRoles.length === 0) {
 			dispatch('error', { message: 'Select at least one role.' });
+			return;
+		}
+		if (selectedRoles.some((role) => !allowedRoleSet.has(role))) {
+			dispatch('error', { message: 'Selected roles are not allowed for your account.' });
 			return;
 		}
 
@@ -437,7 +447,7 @@
 			/>
 		</FormControl>
 
-		{#if mode === 'edit'}
+		{#if mode === 'edit' && canEditUsers}
 			<FormControl
 				label="Linked talent"
 				class="gap-2 text-sm"
@@ -558,7 +568,10 @@
 				type="button"
 				role="switch"
 				aria-checked={isActive}
-				onclick={() => (isActive = !isActive)}
+				onclick={() => {
+					if (!canEditUsers) return;
+					isActive = !isActive;
+				}}
 				class="group relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 {isActive
 					? 'bg-emerald-500'
 					: 'bg-gray-300'}"
@@ -575,7 +588,7 @@
 						? 'text-emerald-700'
 						: 'text-gray-500'}"
 				>
-					{#if isActive}
+				{#if isActive}
 						<svg
 							class="h-4 w-4"
 							fill="none"
@@ -666,6 +679,9 @@
 					</p>
 				{/if}
 			</div>
+			{#if !canEditUsers}
+				<p class="text-xs text-gray-500">Account activation is managed by admins.</p>
+			{/if}
 		</FormControl>
 
 		<div class="rounded-lg border border-slate-200 bg-white p-4">
@@ -674,7 +690,7 @@
 				Users can hold multiple roles. Talent records are separate and must be linked explicitly.
 			</p>
 			<div class="grid gap-2 sm:grid-cols-2">
-				{#each roleOptions as option}
+				{#each visibleRoleOptions as option (option.value)}
 					<label
 						class="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 px-3 py-2 hover:border-slate-300"
 					>

@@ -6,96 +6,157 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import { siteMeta } from '$lib/seo';
+import { getActorAccessContext, getAccessibleTalentIds } from '$lib/server/access';
 
-type Role = 'admin' | 'broker' | 'talent' | 'employer';
-
-const KNOWN_ROLES = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
-
-const normalizeRolesFromJoinRows = (
-	rows: Array<{ roles?: { key?: string | null } | Array<{ key?: string | null }> | null }>
-): Role[] =>
-	rows
-		.flatMap((row) => {
-			if (Array.isArray(row.roles)) {
-				return row.roles
-					.map((roleRow) => (typeof roleRow?.key === 'string' ? roleRow.key : null))
-					.filter((key): key is string => key !== null);
-			}
-			return typeof row.roles?.key === 'string' ? [row.roles.key] : [];
-		})
-		.filter((key, index, all) => all.indexOf(key) === index)
-		.filter((key): key is Role => KNOWN_ROLES.has(key as Role));
-
-const canManageTalents = (roles: Role[]) => roles.includes('admin') || roles.includes('broker');
+const canManageTalents = (actor: Awaited<ReturnType<typeof getActorAccessContext>>) =>
+	actor.isAdmin || actor.isBroker || actor.isEmployer;
 
 const getActorContext = async (cookies: { get(name: string): string | undefined }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 	const adminClient = getSupabaseAdminClient();
+	const actor = await getActorAccessContext(supabase, adminClient);
+	return { supabase, adminClient, actor };
+};
 
-	if (!supabase || !adminClient) {
-		return { supabase: null, adminClient: null, userId: null, roles: [] as Role[] };
-	}
+const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 
-	const { data: userData } = await supabase.auth.getUser();
-	const userId = userData.user?.id ?? null;
-	if (!userId) {
-		return { supabase, adminClient, userId: null, roles: [] as Role[] };
-	}
-
-	const { data: roleRows } = await adminClient
-		.from('user_roles')
-		.select('roles(key)')
-		.eq('user_id', userId);
-
-	const roles = normalizeRolesFromJoinRows(
-		(roleRows as Array<{
-			roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
-		}> | null) ?? []
-	);
-
-	return { supabase, adminClient, userId, roles };
+const resolveStoragePublicUrl = (
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+	value: string | null | undefined
+) => {
+	if (!value || typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	const normalizedPath = trimmed.replace(/^\/+/, '').replace(/^organisation-images\//, '');
+	const { data } = adminClient.storage
+		.from(ORGANISATION_IMAGES_BUCKET)
+		.getPublicUrl(normalizedPath);
+	return data.publicUrl ?? null;
 };
 
 export const load: PageServerLoad = async ({ cookies }) => {
-	const actor = await getActorContext(cookies);
-	const supabase = actor.supabase;
-	const adminClient = actor.adminClient;
+	const { supabase, adminClient, actor } = await getActorContext(cookies);
 
-	if (!supabase || !adminClient) {
+	if (!supabase || !adminClient || !actor.userId) {
 		return { talents: [], canManageTalents: false, meta: null };
 	}
 
+	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
+
 	const [talentsResult, authUsersResult] = await Promise.all([
-		adminClient
-			.from('talents')
-			.select('id, user_id, first_name, last_name, avatar_url, title')
-			.order('last_name', { ascending: true })
-			.order('first_name', { ascending: true }),
+		accessibleTalentIds === null
+			? adminClient
+					.from('talents')
+					.select('id, user_id, first_name, last_name, avatar_url, title')
+					.order('last_name', { ascending: true })
+					.order('first_name', { ascending: true })
+			: accessibleTalentIds.length === 0
+				? Promise.resolve({
+						data: [] as Array<{
+							id: string;
+							user_id: string | null;
+							first_name: string | null;
+							last_name: string | null;
+							avatar_url: string | null;
+							title: string | null;
+						}>,
+						error: null
+					})
+				: adminClient
+						.from('talents')
+						.select('id, user_id, first_name, last_name, avatar_url, title')
+						.in('id', accessibleTalentIds)
+						.order('last_name', { ascending: true })
+						.order('first_name', { ascending: true }),
 		adminClient.auth.admin.listUsers()
 	]);
-
-	const canManage = canManageTalents(actor.roles);
 
 	if (talentsResult.error) {
 		console.warn('[talents index] talents error', talentsResult.error);
 	}
 
+	const talentRows = talentsResult.data ?? [];
+	const talentIds = talentRows.map((t) => t.id);
+
+	// Fetch organisation memberships for talents
+	const orgMembershipsResult =
+		talentIds.length === 0
+			? { data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
+			: await adminClient
+					.from('organisation_talents')
+					.select('talent_id, organisation_id')
+					.in('talent_id', talentIds);
+
+	if (orgMembershipsResult.error) {
+		console.warn('[talents index] organisation_talents error', orgMembershipsResult.error);
+	}
+
+	const orgIdByTalentId = new Map<string, string>();
+	for (const row of orgMembershipsResult.data ?? []) {
+		orgIdByTalentId.set(row.talent_id, row.organisation_id);
+	}
+
+	const orgIds = Array.from(new Set(orgIdByTalentId.values()));
+
+	// Fetch organisations and templates
+	const [orgsResult, templatesResult] =
+		orgIds.length === 0
+			? [
+					{ data: [] as Array<{ id: string; name: string }>, error: null },
+					{
+						data: [] as Array<{ organisation_id: string; main_logotype_path: string | null }>,
+						error: null
+					}
+				]
+			: await Promise.all([
+					adminClient.from('organisations').select('id, name').in('id', orgIds),
+					adminClient
+						.from('organisation_templates')
+						.select('organisation_id, main_logotype_path')
+						.in('organisation_id', orgIds)
+				]);
+
+	if (orgsResult.error) {
+		console.warn('[talents index] organisations error', orgsResult.error);
+	}
+	if (templatesResult.error) {
+		console.warn('[talents index] organisation_templates error', templatesResult.error);
+	}
+
+	const orgById = new Map<string, { name: string; logoUrl: string | null }>();
+	for (const org of orgsResult.data ?? []) {
+		orgById.set(org.id, { name: org.name, logoUrl: null });
+	}
+	for (const template of templatesResult.data ?? []) {
+		const existing = orgById.get(template.organisation_id);
+		if (existing) {
+			existing.logoUrl = resolveStoragePublicUrl(adminClient, template.main_logotype_path);
+		}
+	}
+
 	const authUsers = authUsersResult.data?.users ?? [];
 	const emailByUserId = new Map(authUsers.map((user) => [user.id, user.email ?? null]));
 
-	const talents = (talentsResult.data ?? []).map((talent) => ({
-		id: talent.id,
-		user_id: talent.user_id,
-		first_name: talent.first_name ?? '',
-		last_name: talent.last_name ?? '',
-		avatar_url: talent.avatar_url ?? null,
-		title: talent.title ?? '',
-		email: talent.user_id ? (emailByUserId.get(talent.user_id) ?? null) : null
-	}));
+	const talents = talentRows.map((talent) => {
+		const orgId = orgIdByTalentId.get(talent.id);
+		const org = orgId ? orgById.get(orgId) : undefined;
+		return {
+			id: talent.id,
+			user_id: talent.user_id,
+			first_name: talent.first_name ?? '',
+			last_name: talent.last_name ?? '',
+			avatar_url: talent.avatar_url ?? null,
+			title: talent.title ?? '',
+			email: talent.user_id ? (emailByUserId.get(talent.user_id) ?? null) : null,
+			organisation_name: org?.name ?? null,
+			organisation_logo_url: org?.logoUrl ?? null
+		};
+	});
 
 	return {
 		talents,
-		canManageTalents: canManage,
+		canManageTalents: canManageTalents(actor),
 		meta: {
 			title: `${siteMeta.name} — Talents`,
 			description: 'Browse and manage talents.',
@@ -107,15 +168,23 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 export const actions: Actions = {
 	createTalent: async ({ request, cookies }) => {
-		const { adminClient, userId, roles } = await getActorContext(cookies);
-		if (!adminClient || !userId) {
+		const { adminClient, actor } = await getActorContext(cookies);
+		if (!adminClient || !actor.userId) {
 			return fail(401, { type: 'createTalent', ok: false, message: 'You are not authenticated.' });
 		}
-		if (!canManageTalents(roles)) {
+		if (!canManageTalents(actor)) {
 			return fail(403, {
 				type: 'createTalent',
 				ok: false,
 				message: 'Not authorized to manage talents.'
+			});
+		}
+
+		if ((actor.isBroker || actor.isEmployer) && !actor.homeOrganisationId) {
+			return fail(400, {
+				type: 'createTalent',
+				ok: false,
+				message: 'Connect your account to a home organisation before creating talents.'
 			});
 		}
 
@@ -139,23 +208,43 @@ export const actions: Actions = {
 			});
 		}
 
-		const { error: insertError } = await adminClient.from('talents').insert({
-			user_id: null,
-			first_name,
-			last_name,
-			title,
-			bio: '',
-			avatar_url
-		});
+		const { data: insertedTalent, error: insertError } = await adminClient
+			.from('talents')
+			.insert({
+				user_id: null,
+				first_name,
+				last_name,
+				title,
+				bio: '',
+				avatar_url
+			})
+			.select('id')
+			.single();
 
-		if (insertError) {
-			return fail(500, { type: 'createTalent', ok: false, message: insertError.message });
+		if (insertError || !insertedTalent?.id) {
+			return fail(500, { type: 'createTalent', ok: false, message: insertError?.message });
+		}
+
+		if ((actor.isBroker || actor.isEmployer) && actor.homeOrganisationId) {
+			const { error: membershipError } = await adminClient.from('organisation_talents').insert({
+				organisation_id: actor.homeOrganisationId,
+				talent_id: insertedTalent.id
+			});
+
+			if (membershipError) {
+				await adminClient.from('talents').delete().eq('id', insertedTalent.id);
+				return fail(500, {
+					type: 'createTalent',
+					ok: false,
+					message: 'Talent creation was rolled back because home organisation linking failed.'
+				});
+			}
 		}
 
 		return {
 			type: 'createTalent',
 			ok: true,
-			message: 'Talent created. Link it to a user under Users > Edit user.'
+			message: 'Talent created successfully.'
 		};
 	}
 };

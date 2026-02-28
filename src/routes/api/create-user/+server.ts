@@ -1,6 +1,11 @@
 import type { RequestHandler } from './$types';
 import { error, json } from '@sveltejs/kit';
-import { getSupabaseAdminClient } from '$lib/server/supabase';
+import {
+	AUTH_COOKIE_NAMES,
+	createSupabaseServerClient,
+	getSupabaseAdminClient
+} from '$lib/server/supabase';
+import { getActorAccessContext } from '$lib/server/access';
 
 type Role = 'admin' | 'broker' | 'talent' | 'employer';
 const KNOWN_ROLES = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
@@ -44,10 +49,28 @@ const resolveRoleIds = async (
 	return roleIdMap;
 };
 
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, cookies }) => {
+	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
+	const supabase = createSupabaseServerClient(accessToken);
 	const admin = getSupabaseAdminClient();
-	if (!admin) {
+	if (!admin || !supabase) {
 		throw error(500, 'Supabase service role client not available');
+	}
+
+	const actor = await getActorAccessContext(supabase, admin);
+	if (!actor.userId) {
+		throw error(401, 'You are not authenticated.');
+	}
+
+	if (!actor.isAdmin && !actor.isBroker && !actor.isEmployer) {
+		throw error(403, 'Not authorized to create users.');
+	}
+
+	if ((actor.isBroker || actor.isEmployer) && !actor.homeOrganisationId) {
+		throw error(
+			400,
+			'You must be connected to a home organisation before creating users.'
+		);
 	}
 
 	const body = await request.json().catch(() => ({}));
@@ -61,7 +84,22 @@ export const POST: RequestHandler = async ({ request }) => {
 			? [body.role as Role]
 			: [];
 	const normalizedRoles: Role[] = roles.length > 0 ? normalizeRoles(roles) : ['talent'];
-	const active = body.active !== false;
+
+	if (!actor.isAdmin) {
+		const allowedRoles = new Set<Role>([
+			'talent',
+			...(actor.isBroker ? (['broker'] as const) : []),
+			...(actor.isEmployer ? (['employer'] as const) : [])
+		]);
+		const disallowed = normalizedRoles.filter((role) => !allowedRoles.has(role));
+		if (disallowed.length > 0) {
+			throw error(
+				403,
+				`You can only assign roles: ${Array.from(allowedRoles).join(', ')}.`
+			);
+		}
+	}
+	const active = body.active !== false && body.active !== 'false';
 	const avatar_url_raw = (body.avatar_url as string | undefined) ?? null;
 	const avatar_url =
 		avatar_url_raw && typeof avatar_url_raw === 'string' && avatar_url_raw.trim().length > 0
@@ -132,6 +170,22 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (insertRoleError) {
 		console.error('[create-user] role insert error', insertRoleError);
 		throw error(500, 'User created but role assignment failed.');
+	}
+
+	if ((actor.isBroker || actor.isEmployer) && actor.homeOrganisationId) {
+		const { error: membershipError } = await admin.from('organisation_users').insert({
+			organisation_id: actor.homeOrganisationId,
+			user_id: userId
+		});
+
+		if (membershipError) {
+			console.error('[create-user] organisation membership insert error', membershipError);
+			await admin.auth.admin.deleteUser(userId);
+			throw error(
+				500,
+				'User creation was rolled back because home organisation linking failed.'
+			);
+		}
 	}
 
 	return json({ ok: true, user_id: userId });

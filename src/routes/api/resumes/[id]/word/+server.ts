@@ -2,6 +2,12 @@ import type { RequestHandler } from './$types';
 import { error } from '@sveltejs/kit';
 import { ResumeService, getText } from '$lib/services/resume';
 import type { LocalizedText, ResumeData, TechCategory } from '$lib/types/resume';
+import {
+	AUTH_COOKIE_NAMES,
+	createSupabaseServerClient,
+	getSupabaseAdminClient
+} from '$lib/server/supabase';
+import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 
 const toSafeFilename = (value: string) =>
 	value
@@ -219,7 +225,7 @@ const DOC_STYLES = `
 </style>
 `;
 
-export const GET: RequestHandler = async ({ params, url }) => {
+export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	const resumeId = params.id;
 	if (!resumeId) {
 		throw error(400, 'Invalid resume id');
@@ -227,6 +233,26 @@ export const GET: RequestHandler = async ({ params, url }) => {
 
 	const langParam = url.searchParams.get('lang');
 	const lang: 'sv' | 'en' = langParam === 'en' ? 'en' : 'sv';
+
+	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+	const adminClient = getSupabaseAdminClient();
+	if (!supabase || !adminClient) {
+		throw error(401, 'Unauthorized');
+	}
+
+	const { data: resumeOwner } = await adminClient
+		.from('resumes')
+		.select('talent_id')
+		.eq('id', resumeId)
+		.maybeSingle();
+	if (!resumeOwner?.talent_id) {
+		throw error(404, 'Resume not found');
+	}
+
+	const permissions = await getResumeEditPermissions(supabase, adminClient, resumeOwner.talent_id);
+	if (!permissions.canView) {
+		throw error(403, 'Not authorized to view this resume.');
+	}
 
 	const resume = await ResumeService.getResume(resumeId);
 	if (!resume) {

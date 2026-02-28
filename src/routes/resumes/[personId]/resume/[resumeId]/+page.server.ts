@@ -30,11 +30,14 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		throw error(404, 'Resume not found');
 	}
 
-	const { canEdit, canEditAll, isOwnProfile } = await getResumeEditPermissions(
+	const { canView, canEdit, canEditAll, isOwnProfile } = await getResumeEditPermissions(
 		supabase,
 		adminClient,
 		resume.personId
 	);
+	if (!canView) {
+		throw error(403, 'Not authorized to view this resume.');
+	}
 
 	const experienceLibrary =
 		adminClient && canEdit
@@ -51,6 +54,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		avatarUrl: resumePerson?.avatar_url ?? null,
 		language,
 		isPdf: url.searchParams.get('pdf') === '1',
+		canView,
 		canEdit,
 		canEditAll,
 		isOwnProfile,

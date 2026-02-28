@@ -31,7 +31,8 @@ const isPublicPagePath = (pathname: string) =>
 
 const roleGuards: Array<{ pattern: RegExp; roles: Role[] }> = [
 	{ pattern: /^\/$/, roles: ['admin', 'broker', 'talent', 'employer'] },
-	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'employer'] },
+	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'broker', 'employer'] },
+	{ pattern: /^\/organisations(\/.*)?$/, roles: ['admin'] },
 	{ pattern: /^\/talents(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] }
 ];

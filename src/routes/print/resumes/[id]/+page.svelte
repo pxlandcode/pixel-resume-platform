@@ -17,5 +17,10 @@
 		{language}
 		person={person ?? undefined}
 		profileTechStack={person?.techStack}
+		templateKey={data.templateContext?.templateKey}
+		templateMainLogotypeUrl={data.templateContext?.mainLogotypeUrl}
+		templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
+		templateEndLogoUrl={data.templateContext?.endLogoUrl}
+		templateHomepageUrl={data.templateContext?.homepageUrl}
 	/>
 </div>
