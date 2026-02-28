@@ -300,9 +300,9 @@
 		<div class="flex flex-wrap gap-2">
 			{#each value as tech, index (tech.toLowerCase())}
 				<span
-					class={`inline-flex cursor-move items-center gap-2 rounded-xs bg-slate-100 px-3 py-1 text-xs text-slate-800 ${
+					class={`bg-muted text-foreground inline-flex cursor-move items-center gap-2 rounded-xs px-3 py-1 text-xs ${
 						dragOverIndex === index
-							? 'bg-primary/10 ring-2 ring-primary/60 ring-offset-1 ring-offset-white'
+							? 'bg-primary/10 ring-2 ring-primary/60 ring-offset-1 ring-offset-background'
 							: ''
 					}`}
 					role="listitem"
@@ -320,7 +320,7 @@
 					<button
 						type="button"
 						aria-label={`Remove ${tech}`}
-						class="rounded-xs p-1 text-slate-500 transition hover:bg-slate-200 hover:text-slate-900"
+						class="text-muted-fg hover:bg-muted hover:text-foreground rounded-xs p-1 transition"
 						onclick={() => removeTechnology(tech)}
 					>
 						<X class="h-3 w-3" />
@@ -335,7 +335,7 @@
 			bind:node={inputRef}
 			bind:value={searchTerm}
 			placeholder="Search or add technologies"
-			class="border-slate-300 bg-white pr-10 text-slate-900"
+			class="border-border bg-input text-foreground pr-10"
 			onclick={() => (isOpen = true)}
 		/>
 		<button

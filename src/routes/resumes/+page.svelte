@@ -84,16 +84,16 @@
 <div class="">
 	<div class="mb-12 flex items-start justify-between gap-4">
 		<div>
-			<h1 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Resumes</h1>
-			<p class="mt-4 text-lg text-slate-500">
+			<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Resumes</h1>
+			<p class="text-muted-fg mt-4 text-lg">
 				Manage and view talents and resumes for all Pixel&Code consultants.
 			</p>
 		</div>
 		<Button
-			variant={searchOpen ? 'secondary' : 'outline'}
+			variant="outline"
 			size="sm"
 			onclick={toggleSearch}
-			class="flex shrink-0 items-center gap-2"
+			class="flex shrink-0 items-center gap-2 {searchOpen ? 'bg-muted text-foreground' : ''}"
 		>
 			{#if searchOpen}
 				<X size={16} />
@@ -115,16 +115,16 @@
 	{#if searchOpen}
 		<div
 			transition:slide={{ duration: 300, easing: cubicOut }}
-			class="mb-8 rounded-none border border-slate-200 bg-white p-6"
+			class="border-border bg-card mb-8 rounded-none border p-6"
 		>
 			<div class="mb-3 flex items-center justify-between gap-4">
-				<h2 class="text-xs font-semibold uppercase tracking-wide text-slate-700">Search by tech</h2>
+				<h2 class="text-muted-fg text-xs font-semibold uppercase tracking-wide">Search by tech</h2>
 				{#if selectedTechs.length > 0}
 					<Button variant="ghost" size="sm" onclick={() => (selectedTechs = [])}>Clear</Button>
 				{/if}
 			</div>
 			<TechStackSelector bind:value={selectedTechs} />
-			<p class="mt-3 text-sm text-slate-500">
+			<p class="text-muted-fg mt-3 text-sm">
 				{totalMatches} of {liveTalents.length} consultants match.
 			</p>
 		</div>
@@ -138,7 +138,7 @@
 					<Card
 						class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
 					>
-						<div class="aspect-square w-full overflow-hidden bg-slate-100">
+						<div class="bg-muted aspect-square w-full overflow-hidden">
 							{#if talent.avatar_url}
 								<img
 									src={talent.avatar_url}
@@ -146,14 +146,14 @@
 									class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
 								/>
 							{:else}
-								<div class="flex h-full w-full items-center justify-center text-slate-300">
+								<div class="text-muted-fg flex h-full w-full items-center justify-center">
 									<User size={48} />
 								</div>
 							{/if}
 						</div>
 
 						<div class="flex flex-1 flex-col p-5">
-							<h3 class="text-lg font-semibold text-slate-900">
+							<h3 class="text-foreground text-lg font-semibold">
 								{[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 							</h3>
 							<div class="mt-2">
@@ -168,7 +168,7 @@
 											class="h-5 w-auto object-contain"
 										/>
 									{:else}
-										<span class="text-xs font-medium text-slate-400"
+										<span class="text-muted-fg text-xs font-medium"
 											>{talent.organisation_name}</span
 										>
 									{/if}
@@ -185,7 +185,7 @@
 			{#each groupedTalents as group (group.matchCount)}
 				<section>
 					<div class="mb-4 flex items-center gap-3">
-						<h2 class="text-lg font-semibold text-slate-900">
+						<h2 class="text-foreground text-lg font-semibold">
 							{#if group.matchCount === group.total}
 								<span class="text-emerald-600">Perfect match</span>
 							{:else}
@@ -198,11 +198,11 @@
 								? 'bg-emerald-100 text-emerald-700'
 								: group.matchCount >= group.total * 0.6
 									? 'bg-amber-100 text-amber-700'
-									: 'bg-slate-100 text-slate-700'}"
+								: 'bg-muted text-muted-fg'}"
 						>
 							{group.matchCount}/{group.total} techs
 						</span>
-						<span class="text-sm text-slate-500">
+						<span class="text-muted-fg text-sm">
 							({group.talents.length} consultant{group.talents.length === 1 ? '' : 's'})
 						</span>
 					</div>
@@ -214,7 +214,7 @@
 									class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md
 										{group.matchCount === group.total ? 'ring-2 ring-emerald-200' : ''}"
 								>
-									<div class="relative aspect-square w-full overflow-hidden bg-slate-100">
+									<div class="bg-muted relative aspect-square w-full overflow-hidden">
 										{#if talent.avatar_url}
 											<img
 												src={talent.avatar_url}
@@ -222,7 +222,7 @@
 												class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
 											/>
 										{:else}
-											<div class="flex h-full w-full items-center justify-center text-slate-300">
+											<div class="text-muted-fg flex h-full w-full items-center justify-center">
 												<User size={48} />
 											</div>
 										{/if}
@@ -233,12 +233,12 @@
 												? 'bg-emerald-500 text-white'
 												: group.matchCount >= group.total * 0.6
 													? 'bg-amber-500 text-white'
-													: 'bg-slate-500 text-white'}"
+												: 'bg-muted-fg text-white'}"
 										>
 											{group.matchCount}/{group.total}
 											<!-- Tooltip -->
 											<div
-												class="pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-56 rounded-sm border border-slate-200 bg-white p-3 text-left text-sm text-slate-700 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+												class="border-border bg-card text-foreground pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-56 rounded-sm border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
 											>
 												<div class="flex flex-wrap gap-1">
 													{#each talent.matchedTechs as tech}
@@ -261,7 +261,7 @@
 									</div>
 
 									<div class="flex flex-1 flex-col p-5">
-										<h3 class="text-lg font-semibold text-slate-900">
+										<h3 class="text-foreground text-lg font-semibold">
 											{[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 										</h3>
 										<div class="mt-2">
@@ -279,7 +279,7 @@
 														class="h-5 w-auto object-contain"
 													/>
 												{:else}
-													<span class="text-xs font-medium text-slate-400"
+													<span class="text-muted-fg text-xs font-medium"
 														>{talent.organisation_name}</span
 													>
 												{/if}
@@ -294,9 +294,9 @@
 			{/each}
 		</div>
 	{:else}
-		<div class="rounded-none border-2 border-dashed border-slate-200 p-10 text-center">
-			<h3 class="text-lg font-medium text-slate-900">No consultants found</h3>
-			<p class="mt-2 text-sm text-slate-500">
+		<div class="border-border rounded-none border-2 border-dashed p-10 text-center">
+			<h3 class="text-foreground text-lg font-medium">No consultants found</h3>
+			<p class="text-muted-fg mt-2 text-sm">
 				No consultant matched any of the selected technologies.
 			</p>
 		</div>

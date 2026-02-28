@@ -30,7 +30,7 @@
 				name="name"
 				placeholder="Organisation name"
 				required
-				class="bg-white text-gray-900"
+				class="bg-input text-foreground"
 			/>
 		</FormControl>
 
@@ -39,9 +39,9 @@
 				id="slug"
 				name="slug"
 				placeholder="optional-auto-generated"
-				class="bg-white text-gray-900"
+				class="bg-input text-foreground"
 			/>
-			<p class="text-xs text-gray-500">Leave empty to auto-generate from name.</p>
+			<p class="text-muted-fg text-xs">Leave empty to auto-generate from name.</p>
 		</FormControl>
 
 		<FormControl label="Homepage URL" class="gap-2 text-sm">
@@ -49,7 +49,7 @@
 				id="homepage_url"
 				name="homepage_url"
 				placeholder="https://example.com"
-				class="bg-white text-gray-900"
+				class="bg-input text-foreground"
 			/>
 		</FormControl>
 
@@ -58,7 +58,7 @@
 				variant="outline"
 				type="button"
 				onclick={() => (open = false)}
-				class="bg-white hover:bg-slate-50"
+				class="bg-input hover:bg-muted/70"
 			>
 				Cancel
 			</Button>

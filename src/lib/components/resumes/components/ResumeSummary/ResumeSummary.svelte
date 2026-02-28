@@ -40,7 +40,7 @@
 {#if isEditing}
 	<div class="space-y-3">
 		<div class="flex items-center justify-between">
-			<p class="text-sm font-semibold text-slate-700">Summary</p>
+			<p class="text-sm font-semibold text-muted-fg">Summary</p>
 			{#if onGenerateDescription}
 				<ResumeSummaryAiWriterDrawer
 					rowTitle="Summary"
@@ -59,8 +59,8 @@
 				/>
 			{/if}
 		</div>
-		<div class="rounded-xs border border-slate-200 bg-white p-2">
-			<p class="mb-1 text-sm font-medium text-slate-700">Summary (SV)</p>
+		<div class="rounded-xs border border-border bg-card p-2">
+			<p class="mb-1 text-sm font-medium text-muted-fg">Summary (SV)</p>
 			{#key `sv-${summaryRevisionByLanguage.sv}`}
 				<QuillEditor
 					content={getLocalizedValue(summary, 'sv')}
@@ -69,8 +69,8 @@
 				/>
 			{/key}
 		</div>
-		<div class="rounded-xs border border-slate-200 bg-white p-2">
-			<p class="mb-1 text-sm font-medium text-slate-700">Summary (EN)</p>
+		<div class="rounded-xs border border-border bg-card p-2">
+			<p class="mb-1 text-sm font-medium text-muted-fg">Summary (EN)</p>
 			{#key `en-${summaryRevisionByLanguage.en}`}
 				<QuillEditor
 					content={getLocalizedValue(summary, 'en')}
@@ -81,7 +81,7 @@
 		</div>
 	</div>
 {:else}
-	<div class="text-sm leading-relaxed text-slate-700">
+	<div class="text-sm leading-relaxed text-muted-fg">
 		<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 		{@html t(summary, language)}
 	</div>

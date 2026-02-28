@@ -154,28 +154,39 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			.order('first_name', { ascending: true })
 	]);
 
+	const organisationMembershipsResult = await adminClient
+		.from('organisation_users')
+		.select('user_id, organisations(name)');
+
+	const [profiles, roleRows, authUsers, talentRows, organisationMembershipRows] = [
+		profilesResult.data ?? [],
+		((rolesResult.data as Array<{
+			user_id: string;
+			roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
+		}> | null) ?? []),
+		authUsersResult.data?.users ?? [],
+		((talentsResult.data as Array<{
+			id: string;
+			user_id: string | null;
+			first_name: string | null;
+			last_name: string | null;
+			avatar_url: string | null;
+		}> | null) ?? []),
+		((organisationMembershipsResult.data as Array<{
+			user_id: string;
+			organisations?: { name?: string | null } | Array<{ name?: string | null }> | null;
+		}> | null) ?? [])
+	];
+
 	if (rolesResult.error) {
 		console.error('[users load] role fetch error', rolesResult.error);
 	}
 	if (talentsResult.error) {
 		console.error('[users load] talent fetch error', talentsResult.error);
 	}
-
-	const profiles = profilesResult.data ?? [];
-	const roleRows =
-		(rolesResult.data as Array<{
-			user_id: string;
-			roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
-		}> | null) ?? [];
-	const authUsers = authUsersResult.data?.users ?? [];
-	const talentRows =
-		(talentsResult.data as Array<{
-			id: string;
-			user_id: string | null;
-			first_name: string | null;
-			last_name: string | null;
-			avatar_url: string | null;
-		}> | null) ?? [];
+	if (organisationMembershipsResult.error) {
+		console.error('[users load] organisation membership fetch error', organisationMembershipsResult.error);
+	}
 
 	const roleMap = new Map<string, Role[]>();
 	for (const row of roleRows) {
@@ -208,6 +219,16 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			linkedTalentAvatarByUserId.set(talent.user_id, talent.avatar_url ?? null);
 		}
 	}
+	const organisationNameByUserId = new Map<string, string>();
+	for (const membership of organisationMembershipRows) {
+		const joined = membership.organisations;
+		const orgName = Array.isArray(joined)
+			? (joined[0]?.name ?? null)
+			: (joined?.name ?? null);
+		if (typeof membership.user_id === 'string' && typeof orgName === 'string' && orgName.length > 0) {
+			organisationNameByUserId.set(membership.user_id, orgName);
+		}
+	}
 
 	const userIds = new Set<string>();
 	for (const profile of profiles) userIds.add(profile.user_id);
@@ -230,6 +251,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 				avatar_url: profile?.avatar_url ?? linkedTalentAvatarByUserId.get(userId) ?? null,
 				active: authMap.get(userId)?.active ?? true,
 				linked_talent_id: linkedTalentByUserId.get(userId) ?? null,
+				organisation_name: organisationNameByUserId.get(userId) ?? null,
 				roles: mergedRoles.length > 0 ? mergedRoles : ['talent']
 			};
 		})

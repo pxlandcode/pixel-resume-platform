@@ -95,7 +95,7 @@
 					? 'bg-amber-100 text-amber-700'
 					: statusColor === 'sky'
 						? 'bg-sky-100 text-sky-700'
-						: 'bg-slate-100 text-slate-600'}"
+						: 'bg-muted text-muted-fg'}"
 		>
 			<Circle
 				size={6}
@@ -105,12 +105,12 @@
 						? 'text-amber-500'
 						: statusColor === 'sky'
 							? 'text-sky-500'
-							: 'text-slate-400'}"
+							: 'text-muted-fg'}"
 			/>
 			{statusLabel}
 		</span>
 		{#if secondaryInfo}
-			<span class="text-[11px] text-slate-500">{secondaryInfo}</span>
+			<span class="text-muted-fg text-[11px]">{secondaryInfo}</span>
 		{/if}
 	</div>
 {:else}
@@ -124,7 +124,7 @@
 					? 'bg-amber-100 text-amber-700'
 					: statusColor === 'sky'
 						? 'bg-sky-100 text-sky-700'
-						: 'bg-slate-100 text-slate-600'}"
+						: 'bg-muted text-muted-fg'}"
 		>
 			<Circle
 				size={8}
@@ -134,22 +134,22 @@
 						? 'text-amber-500'
 						: statusColor === 'sky'
 							? 'text-sky-500'
-							: 'text-slate-400'}"
+							: 'text-muted-fg'}"
 			/>
 			{statusLabel}
 		</span>
 		{#if secondaryInfo}
-			<span class="flex items-center gap-1.5 text-sm text-slate-600">
+			<span class="text-muted-fg flex items-center gap-1.5 text-sm">
 				{#if availability?.plannedFromDate}
-					<Calendar size={14} class="text-slate-400" />
+					<Calendar size={14} class="text-muted-fg" />
 				{:else}
-					<Clock size={14} class="text-slate-400" />
+					<Clock size={14} class="text-muted-fg" />
 				{/if}
 				{secondaryInfo}
 			</span>
 		{/if}
 		{#if !hasData}
-			<span class="text-sm text-slate-500">No availability set</span>
+			<span class="text-muted-fg text-sm">No availability set</span>
 		{/if}
 	</div>
 {/if}

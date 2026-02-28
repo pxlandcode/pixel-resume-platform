@@ -851,7 +851,7 @@
 			<Button
 				variant="ghost"
 				href="/resumes"
-				class="pl-0 hover:bg-transparent hover:text-indigo-600"
+				class="pl-0 hover:bg-transparent hover:text-primary"
 			>
 				<ArrowLeft size={16} class="mr-2" />
 				Back to all talents
@@ -887,7 +887,7 @@
 					<!-- Avatar container -->
 					<button
 						type="button"
-						class="group relative h-full w-full overflow-hidden border-4 border-white shadow-lg {isEditing &&
+						class="group relative h-full w-full overflow-hidden border-4 border-border shadow-lg {isEditing &&
 						canEdit
 							? 'cursor-pointer'
 							: 'cursor-default'}"
@@ -902,7 +902,7 @@
 							/>
 						{:else}
 							<div
-								class="flex h-full w-full items-center justify-center bg-slate-100 text-slate-300"
+								class="flex h-full w-full items-center justify-center bg-muted text-muted-fg"
 							>
 								<User size={48} />
 							</div>
@@ -994,7 +994,7 @@
 						{/if}
 
 						<div>
-							<h1 class="text-3xl font-bold text-slate-900 sm:text-4xl">
+							<h1 class="text-3xl font-bold text-foreground sm:text-4xl">
 								{[profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Unnamed'}
 							</h1>
 							{#if profile.title}
@@ -1009,7 +1009,7 @@
 											class="h-5 w-auto object-contain"
 										/>
 									{:else}
-										<span class="text-xs font-medium text-slate-400">{data.organisation_name}</span>
+										<span class="text-xs font-medium text-muted-fg">{data.organisation_name}</span>
 									{/if}
 								</div>
 							{/if}
@@ -1020,21 +1020,21 @@
 								<textarea
 									name="bio"
 									bind:value={editingBio}
-									class="w-full rounded border border-slate-200 p-3 text-sm text-slate-900"
+									class="w-full rounded border border-border p-3 text-sm text-foreground"
 									rows="4"
 									placeholder="Tell us about this talent"
 								/>
 							{:else if profile.bio}
-								<p class="max-w-2xl whitespace-pre-wrap text-sm leading-6 text-slate-700">
+								<p class="max-w-2xl whitespace-pre-wrap text-sm leading-6 text-muted-fg">
 									{profile.bio}
 								</p>
 							{:else}
-								<p class="text-sm text-slate-500">No bio yet.</p>
+								<p class="text-sm text-muted-fg">No bio yet.</p>
 							{/if}
 						</div>
 
 						<div class="pt-2">
-							<h3 class="mb-2 text-lg font-semibold text-slate-900">Availability</h3>
+							<h3 class="mb-2 text-lg font-semibold text-foreground">Availability</h3>
 
 							{#if isEditing && canEdit}
 								<div class="space-y-4">
@@ -1060,11 +1060,11 @@
 									/>
 
 									<!-- Current status -->
-									<div class="rounded-lg border border-slate-200 bg-white p-5">
-										<p class="mb-3 text-sm font-medium text-slate-900">Current status</p>
+									<div class="rounded-lg border border-border bg-card p-5">
+										<p class="mb-3 text-sm font-medium text-foreground">Current status</p>
 										<div class="flex flex-col gap-2" role="radiogroup" aria-label="Current status">
 											<div
-												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-slate-50"
+												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-muted"
 												role="radio"
 												tabindex="0"
 												aria-checked={availabilityStatus === 'available-now'}
@@ -1082,13 +1082,13 @@
 													bind:group={availabilityStatus}
 												/>
 												<div>
-													<span class="text-sm font-medium text-slate-800">Available now</span>
-													<span class="ml-2 text-xs text-slate-500">100% available immediately</span
+													<span class="text-sm font-medium text-foreground">Available now</span>
+													<span class="ml-2 text-xs text-muted-fg">100% available immediately</span
 													>
 												</div>
 											</div>
 											<div
-												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-slate-50"
+												class="flex cursor-pointer items-center gap-3 rounded-md p-2 hover:bg-muted"
 												role="radio"
 												tabindex="0"
 												aria-checked={availabilityStatus === 'on-assignment'}
@@ -1106,8 +1106,8 @@
 													bind:group={availabilityStatus}
 												/>
 												<div>
-													<span class="text-sm font-medium text-slate-800">On assignment</span>
-													<span class="ml-2 text-xs text-slate-500">Currently busy</span>
+													<span class="text-sm font-medium text-foreground">On assignment</span>
+													<span class="ml-2 text-xs text-muted-fg">Currently busy</span>
 												</div>
 											</div>
 										</div>
@@ -1115,13 +1115,13 @@
 
 									<!-- Assignment details (only when on assignment) -->
 									{#if editingHasAssignment}
-										<div class="rounded-lg border border-slate-200 bg-white p-5">
-											<p class="mb-4 text-sm font-medium text-slate-900">Assignment details</p>
+										<div class="rounded-lg border border-border bg-card p-5">
+											<p class="mb-4 text-sm font-medium text-foreground">Assignment details</p>
 											<div class="space-y-4">
 												<div>
 													<label
 														for="availability-planned-date"
-														class="mb-1.5 block text-sm font-medium text-slate-700"
+														class="mb-1.5 block text-sm font-medium text-muted-fg"
 													>
 														Assignment end date
 													</label>
@@ -1129,17 +1129,17 @@
 														id="availability-planned-date"
 														bind:value={editingAvailabilityPlannedFromDate}
 														options={availabilityDatepickerOptions}
-														class="w-full max-w-xs bg-white !pl-11 text-slate-900"
+														class="w-full max-w-xs bg-card !pl-11 text-foreground"
 														placeholder="YYYY-MM-DD"
 													/>
-													<p class="mt-1 text-xs text-slate-500">
+													<p class="mt-1 text-xs text-muted-fg">
 														When will the current assignment end?
 													</p>
 												</div>
 
-												<div class="border-t border-slate-100 pt-4">
+												<div class="border-t border-border/70 pt-4">
 													<Checkbox bind:checked={editingOpenToSwitchEarly}>
-														<span class="text-sm font-medium text-slate-800">
+														<span class="text-sm font-medium text-foreground">
 															Open to switching early
 														</span>
 													</Checkbox>
@@ -1148,7 +1148,7 @@
 														<div class="ml-7 mt-3">
 															<label
 																for="availability-notice-period-days"
-																class="mb-1.5 block text-sm font-medium text-slate-700"
+																class="mb-1.5 block text-sm font-medium text-muted-fg"
 															>
 																Notice period (days)
 															</label>
@@ -1157,7 +1157,7 @@
 																type="text"
 																inputmode="numeric"
 																bind:value={editingAvailabilityNoticePeriodDays}
-																class="w-full max-w-[120px] bg-white text-sm text-slate-900"
+																class="w-full max-w-[120px] bg-card text-sm text-foreground"
 																placeholder="e.g. 30"
 															/>
 														</div>
@@ -1171,20 +1171,20 @@
 									{#if !editingUseCustomAvailabilityPercentages}
 										<button
 											type="button"
-											class="text-sm font-medium text-slate-500 hover:text-slate-700"
+											class="text-sm font-medium text-muted-fg hover:text-foreground"
 											onclick={() => (editingUseCustomAvailabilityPercentages = true)}
 										>
 											+ Advanced options
 										</button>
 									{:else}
-										<div class="rounded-lg border border-slate-200 bg-slate-50 p-5">
+										<div class="rounded-lg border border-border bg-muted p-5">
 											<div class="mb-4 flex items-center justify-between">
-												<p class="text-sm font-medium text-slate-900">
+												<p class="text-sm font-medium text-foreground">
 													Custom availability percentages
 												</p>
 												<button
 													type="button"
-													class="text-xs font-medium text-slate-500 hover:text-slate-700"
+													class="text-xs font-medium text-muted-fg hover:text-foreground"
 													onclick={() => {
 														editingUseCustomAvailabilityPercentages = false;
 														editingAvailabilityNowPercent = '';
@@ -1198,7 +1198,7 @@
 												<div>
 													<label
 														for="availability-now-percent"
-														class="mb-1.5 block text-sm font-medium text-slate-700"
+														class="mb-1.5 block text-sm font-medium text-muted-fg"
 													>
 														Available now
 													</label>
@@ -1208,11 +1208,11 @@
 															type="text"
 															inputmode="numeric"
 															bind:value={editingAvailabilityNowPercent}
-															class="w-full bg-white py-2 pr-8 text-sm text-slate-900"
+															class="w-full bg-card py-2 pr-8 text-sm text-foreground"
 															placeholder={editingHasAssignment ? '0' : '100'}
 														/>
 														<span
-															class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400"
+															class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-fg"
 															>%</span
 														>
 													</div>
@@ -1221,7 +1221,7 @@
 													<div>
 														<label
 															for="availability-future-percent"
-															class="mb-1.5 block text-sm font-medium text-slate-700"
+															class="mb-1.5 block text-sm font-medium text-muted-fg"
 														>
 															Future availability
 														</label>
@@ -1231,18 +1231,18 @@
 																type="text"
 																inputmode="numeric"
 																bind:value={editingAvailabilityFuturePercent}
-																class="w-full bg-white py-2 pr-8 text-sm text-slate-900"
+																class="w-full bg-card py-2 pr-8 text-sm text-foreground"
 																placeholder="100"
 															/>
 															<span
-																class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400"
+																class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-fg"
 																>%</span
 															>
 														</div>
 													</div>
 												{/if}
 											</div>
-											<p class="mt-3 text-xs text-slate-500">
+											<p class="mt-3 text-xs text-muted-fg">
 												Override default percentages for part-time or partial availability.
 											</p>
 										</div>
@@ -1254,16 +1254,16 @@
 						</div>
 
 						<div class="pt-2">
-							<h3 class="mb-2 text-lg font-semibold text-slate-900">Tech Stack</h3>
+							<h3 class="mb-2 text-lg font-semibold text-foreground">Tech Stack</h3>
 							{#if isEditing && canEdit}
 								<TechStackEditor bind:categories={editingTechStack} isEditing />
 							{:else if viewCategories.length === 0}
-								<p class="text-sm text-slate-600">No tech stack recorded yet.</p>
+								<p class="text-sm text-muted-fg">No tech stack recorded yet.</p>
 							{:else}
 								<div class="space-y-3">
 									{#each viewCategories as cat (cat.name ?? '')}
 										<div class="space-y-1">
-											<p class="text-xs font-semibold uppercase tracking-wide text-slate-800">
+											<p class="text-xs font-semibold uppercase tracking-wide text-foreground">
 												{cat.name}
 											</p>
 											<div class="flex flex-wrap gap-2">
@@ -1289,9 +1289,9 @@
 	</div>
 
 	{#if profile}
-		<div class="mt-12 border-t border-slate-200 pt-12">
+		<div class="mt-12 border-t border-border pt-12">
 			<div class="mb-6 flex items-center justify-between">
-				<h2 class="text-2xl font-bold text-slate-900">Resumes</h2>
+				<h2 class="text-2xl font-bold text-foreground">Resumes</h2>
 				{#if canEdit}
 					<div class="flex items-center gap-2">
 						<Button size="sm" variant="outline" onclick={openImportDrawer}>
@@ -1320,18 +1320,18 @@
 								`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resume.id)}`
 							)}
 						class={`flex cursor-pointer items-center justify-between rounded-none border p-6 shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md ${
-							dragOverIndex === index ? 'border-primary' : 'border-slate-200'
+							dragOverIndex === index ? 'border-primary' : 'border-border'
 						} ${draggedResume?.id === resume.id ? 'opacity-50' : ''}`}
 					>
 						<div class="flex items-start gap-4">
 							<div
-								class="flex h-12 w-12 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600"
+								class="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary"
 							>
 								<FileText size={24} />
 							</div>
 							<div>
 								<div class="flex items-center gap-3">
-									<h3 class="text-lg font-semibold text-slate-900">
+									<h3 class="text-lg font-semibold text-foreground">
 										{resume.version_name ?? 'Main'}
 									</h3>
 									{#if resume.is_main}
@@ -1343,7 +1343,7 @@
 										</span>
 									{/if}
 								</div>
-								<div class="mt-1 flex items-center gap-4 text-sm text-slate-500">
+								<div class="mt-1 flex items-center gap-4 text-sm text-muted-fg">
 									<span class="flex items-center gap-1">
 										<Calendar size={14} />
 										Updated {resume.updated_at ?? resume.created_at ?? '—'}
@@ -1355,7 +1355,7 @@
 							<div class="flex items-center gap-1">
 								<button
 									type="button"
-									class="cursor-pointer rounded-md p-2 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
+									class="cursor-pointer rounded-md p-2 text-muted-fg transition-colors hover:bg-primary/10 hover:text-primary"
 									onclick={(e) => {
 										e.stopPropagation();
 										copyResume(resume.id);
@@ -1366,7 +1366,7 @@
 								</button>
 								<button
 									type="button"
-									class="cursor-pointer rounded-md p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
+									class="cursor-pointer rounded-md p-2 text-muted-fg transition-colors hover:bg-red-50 hover:text-red-600"
 									onclick={(e) => e.stopPropagation()}
 									title="Delete resume"
 									use:confirm={{
@@ -1383,10 +1383,10 @@
 					</div>
 				{/each}
 				{#if sortedResumeList.length === 0}
-					<div class="rounded-lg border-2 border-dashed border-slate-200 p-12 text-center">
-						<FileText size={48} class="mx-auto mb-4 text-slate-300" />
-						<h3 class="text-lg font-medium text-slate-900">No resumes found</h3>
-						<p class="mt-2 text-slate-500">Connect this profile to a resume to see it here.</p>
+					<div class="rounded-lg border-2 border-dashed border-border p-12 text-center">
+						<FileText size={48} class="mx-auto mb-4 text-muted-fg" />
+						<h3 class="text-lg font-medium text-foreground">No resumes found</h3>
+						<p class="mt-2 text-muted-fg">Connect this profile to a resume to see it here.</p>
 					</div>
 				{/if}
 			</div>
@@ -1409,11 +1409,11 @@
 					<div class="bg-primary/10 mb-4 flex h-16 w-16 items-center justify-center rounded-full">
 						<Loader2 size={32} class="text-primary animate-spin" />
 					</div>
-					<p class="mb-1 text-lg font-medium text-slate-900">{importStatusLabel}</p>
+					<p class="mb-1 text-lg font-medium text-foreground">{importStatusLabel}</p>
 					{#if importSourceFilename}
-						<p class="text-sm text-slate-500">{importSourceFilename}</p>
+						<p class="text-sm text-muted-fg">{importSourceFilename}</p>
 					{/if}
-					<p class="mt-4 text-xs text-slate-400">
+					<p class="mt-4 text-xs text-muted-fg">
 						You can close this drawer. The import will continue in the background.
 					</p>
 				</div>
@@ -1428,8 +1428,8 @@
 					</div>
 				{/if}
 
-				<div class="mt-4 flex items-center justify-between gap-4 border-t border-slate-200 pt-4">
-					<p class="text-xs text-slate-400">PDF only, max 10MB</p>
+				<div class="mt-4 flex items-center justify-between gap-4 border-t border-border pt-4">
+					<p class="text-xs text-muted-fg">PDF only, max 10MB</p>
 					<div class="flex gap-2">
 						<Button type="button" variant="ghost" size="sm" onclick={closeImportDrawer}>
 							Cancel
@@ -1461,12 +1461,12 @@
 			tabindex="-1"
 		>
 			<div
-				class="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl"
+				class="w-full max-w-sm rounded-lg bg-card p-6 shadow-xl"
 				onclick={(e) => e.stopPropagation()}
 				role="document"
 			>
-				<h3 class="mb-2 text-lg font-semibold text-slate-900">Cancel import?</h3>
-				<p class="mb-4 text-sm text-slate-600">
+				<h3 class="mb-2 text-lg font-semibold text-foreground">Cancel import?</h3>
+				<p class="mb-4 text-sm text-muted-fg">
 					The import is still starting. If you close now, it will be cancelled.
 				</p>
 				<div class="flex justify-end gap-2">
@@ -1484,9 +1484,9 @@
 
 <style>
 	:global(.uppy-container .uppy-Dashboard) {
-		border: 1px dashed var(--color-slate-300, #cbd5e1);
+		border: 1px dashed var(--color-border, #e2e8f0);
 		border-radius: 0.5rem;
-		background: var(--color-slate-50, #f8fafc);
+		background: var(--color-muted, #edf2f7);
 		min-height: 160px;
 	}
 	:global(.uppy-container .uppy-Dashboard-inner) {
@@ -1499,7 +1499,7 @@
 	}
 	:global(.uppy-container .uppy-Dashboard-AddFiles-title) {
 		font-size: 0.875rem;
-		color: var(--color-slate-600, #475569);
+		color: var(--color-muted-fg, #64748b);
 	}
 	:global(.uppy-container .uppy-Dashboard-note) {
 		display: none;

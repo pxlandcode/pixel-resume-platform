@@ -146,7 +146,7 @@
 							name="template_key"
 							value={template?.template_key ?? 'default'}
 							required
-							class="bg-white text-gray-900"
+							class="bg-input text-foreground"
 						/>
 					</FormControl>
 
@@ -156,7 +156,7 @@
 							type="number"
 							min="1"
 							value={template?.template_version ?? 1}
-							class="bg-white text-gray-900"
+							class="bg-input text-foreground"
 						/>
 					</FormControl>
 				</div>
@@ -165,7 +165,7 @@
 					<textarea
 						name="template_json"
 						rows="4"
-						class="w-full rounded border border-slate-300 bg-white p-2 font-mono text-sm text-slate-900"
+						class="border-border bg-input text-foreground w-full rounded border p-2 font-mono text-sm"
 						>{JSON.stringify(template?.template_json ?? {}, null, 2)}</textarea
 					>
 				</FormControl>
@@ -176,10 +176,10 @@
 			</form>
 
 			<!-- Template Branding Images -->
-			<div class="space-y-4 border-t border-slate-200 pt-6">
+			<div class="border-border space-y-4 border-t pt-6">
 				<div>
-					<h3 class="text-sm font-semibold text-slate-900">Branding images</h3>
-					<p class="text-xs text-slate-500">Upload logos and images for resume templates.</p>
+					<h3 class="text-foreground text-sm font-semibold">Branding images</h3>
+					<p class="text-muted-fg text-xs">Upload logos and images for resume templates.</p>
 				</div>
 				<div class="grid gap-4 sm:grid-cols-3">
 					{#each templateAssetLabels as asset (asset.slot)}

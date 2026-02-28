@@ -21,6 +21,7 @@
 		active: boolean;
 		roles: Role[];
 		linked_talent_id?: string | null;
+		organisation_name?: string | null;
 	};
 
 	type UserTableFormData = {
@@ -39,12 +40,14 @@
 		fullName: string;
 		roleLabel: string;
 		emailText: string;
+		organisationLabel: string;
 	};
 
 	const headings: SuperTableHead<TableRow>[] = [
 		{ heading: 'Name', sortable: 'fullName', width: 32 },
-		{ heading: 'Roles', sortable: 'roleLabel', width: 28 },
-		{ heading: 'Status', width: 12 },
+		{ heading: 'Organisation', sortable: 'organisationLabel', width: 22 },
+		{ heading: 'Roles', sortable: 'roleLabel', width: 22 },
+		{ heading: 'Status', width: 10 },
 		{ heading: 'Actions', width: 8 }
 	];
 
@@ -55,13 +58,15 @@
 
 			const emailText = user.email ?? 'Email not provided';
 			const roleLabel = user.roles?.length ? user.roles.join(', ') : 'talent';
+			const organisationLabel = user.organisation_name?.trim() || 'Unassigned';
 
 			return {
 				...user,
 				source: user,
 				fullName,
 				roleLabel,
-				emailText
+				emailText,
+				organisationLabel
 			};
 		});
 
@@ -78,7 +83,7 @@
 	);
 </script>
 
-<Card class="border-border/20 space-y-4 bg-white p-4">
+<Card class="border-border/20 bg-card space-y-4 p-4">
 	<SuperTable instance={tableInstance} selectable={false} class="user-table w-full">
 		{#each tableInstance.data as row (row.id)}
 			<Row.Root>
@@ -91,16 +96,19 @@
 								class="h-10 w-10 rounded-full object-cover"
 							/>
 						{:else}
-							<div class="h-10 w-10 rounded-full bg-slate-100" />
+							<div class="bg-muted h-10 w-10 rounded-full" />
 						{/if}
-						<div class="space-y-2">
+						<div class="space-y-1">
 							<div>
-								<p class="text-sm font-semibold text-gray-900">{row.fullName}</p>
-								<p class="text-xs font-medium text-gray-700">{row.emailText}</p>
+								<p class="text-foreground text-sm font-semibold">{row.fullName}</p>
+								<p class="text-muted-fg text-xs font-medium">{row.emailText}</p>
 							</div>
-							<p class="text-xs text-gray-600">ID: {row.id}</p>
 						</div>
 					</div>
+				</Cell.Value>
+
+				<Cell.Value class="py-4 align-top">
+					<p class="text-foreground text-sm font-medium">{row.organisationLabel}</p>
 				</Cell.Value>
 
 				<Cell.Value class="py-4 align-top">
@@ -137,7 +145,7 @@
 	</SuperTable>
 
 	{#if users.length === 0}
-		<p class="text-sm font-medium text-gray-700">
+		<p class="text-muted-fg text-sm font-medium">
 			No users yet. Invite your first teammate with Create user.
 		</p>
 	{/if}
@@ -145,7 +153,7 @@
 
 {#if form?.message && form?.type === 'updateRole'}
 	<Alert class="mt-4" variant={form.ok ? 'success' : 'destructive'} size="sm">
-		<p class="text-sm font-medium text-gray-900">{form.message}</p>
+		<p class="text-foreground text-sm font-medium">{form.message}</p>
 	</Alert>
 {/if}
 
@@ -155,7 +163,7 @@
 	}
 
 	.user-table :global(tr) {
-		border-bottom: 1px solid #e2e8f0;
+		border-bottom: 1px solid var(--color-border);
 		transition: background-color 0.15s ease;
 	}
 
@@ -164,7 +172,7 @@
 	}
 
 	.user-table :global(tr:hover) {
-		background-color: #f8fafc;
+		background-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
 	}
 
 	.user-table :global(td) {

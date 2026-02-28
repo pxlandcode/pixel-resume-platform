@@ -419,7 +419,7 @@
 					id="first_name"
 					name="first_name"
 					required
-					class="bg-white text-gray-900"
+					class="bg-input text-foreground"
 					value={initial.first_name}
 				/>
 			</FormControl>
@@ -429,7 +429,7 @@
 					id="last_name"
 					name="last_name"
 					required
-					class="bg-white text-gray-900"
+					class="bg-input text-foreground"
 					value={initial.last_name}
 				/>
 			</FormControl>
@@ -441,7 +441,7 @@
 				name="email"
 				type="email"
 				required
-				class="bg-white text-gray-900"
+				class="bg-input text-foreground"
 				value={initial.email}
 				readonly={mode === 'edit'}
 			/>
@@ -457,7 +457,7 @@
 					id="linked_talent_id"
 					name="linked_talent_id"
 					bind:value={linkedTalentId}
-					class="bg-white text-gray-900"
+					class="bg-input text-foreground"
 				>
 					<option value="">No linked talent</option>
 					{#each availableTalentOptions as talent (talent.id)}
@@ -465,7 +465,7 @@
 					{/each}
 				</Select>
 				{#if availableTalentOptions.length === 0 && !linkedTalentId}
-					<p class="text-xs text-gray-500">
+					<p class="text-muted-fg text-xs">
 						No unlinked talents are available right now. Create a talent first.
 					</p>
 				{/if}
@@ -482,7 +482,7 @@
 						minlength={6}
 						required
 						bind:value={password}
-						class="bg-white text-gray-900"
+						class="bg-input text-foreground"
 					/>
 				</FormControl>
 				<FormControl label="Confirm password" required class="gap-2 text-sm">
@@ -492,7 +492,7 @@
 						minlength={6}
 						required
 						bind:value={confirmPassword}
-						class="bg-white text-gray-900"
+						class="bg-input text-foreground"
 					/>
 				</FormControl>
 			</div>
@@ -500,11 +500,11 @@
 				<p class="-mt-2 text-sm text-red-600">{passwordError}</p>
 			{/if}
 		{:else}
-			<div class="rounded-lg border border-slate-200 bg-white p-4">
+			<div class="border-border bg-card rounded-lg border p-4">
 				<div class="flex items-center justify-between">
 					<div>
-						<p class="text-sm font-semibold text-gray-900">Password</p>
-						<p class="text-xs text-gray-600">
+						<p class="text-foreground text-sm font-semibold">Password</p>
+						<p class="text-muted-fg text-xs">
 							{passwordUnlocked
 								? 'Enter a new password to change it.'
 								: 'Unlock to change the password.'}
@@ -542,7 +542,7 @@
 								type="password"
 								minlength={6}
 								bind:value={password}
-								class="bg-white text-gray-900"
+								class="bg-input text-foreground"
 							/>
 						</FormControl>
 						<FormControl label="Confirm password" class="gap-2 text-sm">
@@ -551,7 +551,7 @@
 								type="password"
 								minlength={6}
 								bind:value={confirmPassword}
-								class="bg-white text-gray-900"
+								class="bg-input text-foreground"
 							/>
 						</FormControl>
 					</div>
@@ -572,9 +572,9 @@
 					if (!canEditUsers) return;
 					isActive = !isActive;
 				}}
-				class="group relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 {isActive
+				class="group relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 {isActive
 					? 'bg-emerald-500'
-					: 'bg-gray-300'}"
+					: 'bg-muted'}"
 			>
 				<span
 					class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out {isActive
@@ -586,7 +586,7 @@
 				<span
 					class="inline-flex items-center gap-1.5 text-sm {isActive
 						? 'text-emerald-700'
-						: 'text-gray-500'}"
+						: 'text-muted-fg'}"
 				>
 				{#if isActive}
 						<svg
@@ -633,7 +633,7 @@
 			<div class="flex flex-col gap-3">
 				{#if previewUrl}
 					<div class="flex flex-col gap-3">
-						<div class="w-32 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+						<div class="border-border bg-muted w-32 overflow-hidden rounded-lg border">
 							<img
 								src={previewUrl}
 								alt="Avatar preview"
@@ -646,7 +646,7 @@
 								type="button"
 								variant="outline"
 								size="sm"
-								class="border-gray-300 text-gray-700 hover:bg-gray-50"
+								class="border-border text-muted-fg hover:bg-muted/70"
 								onclick={handleReplaceImage}
 								disabled={isUploading}
 							>
@@ -658,41 +658,41 @@
 
 				<div
 					class:hidden={!showUploader}
-					class="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-1.5"
+					class="border-border bg-muted rounded-lg border border-dashed p-1.5"
 				>
 					<div bind:this={uppyContainer} class="uppy-container h-44 w-full" />
 				</div>
 
 				{#if avatarError}
 					<Alert variant="destructive" size="sm">
-						<p class="text-sm font-medium text-gray-900">{avatarError}</p>
+						<p class="text-foreground text-sm font-medium">{avatarError}</p>
 					</Alert>
 				{/if}
 
 				{#if isUploading}
-					<p class="text-xs font-medium text-gray-600">Uploading…</p>
+					<p class="text-muted-fg text-xs font-medium">Uploading…</p>
 				{/if}
 
 				{#if !previewUrl}
-					<p class="text-xs text-gray-500">
+					<p class="text-muted-fg text-xs">
 						Drag and drop an image or click to upload. PNG, JPG up to 5MB.
 					</p>
 				{/if}
 			</div>
 			{#if !canEditUsers}
-				<p class="text-xs text-gray-500">Account activation is managed by admins.</p>
+				<p class="text-muted-fg text-xs">Account activation is managed by admins.</p>
 			{/if}
 		</FormControl>
 
-		<div class="rounded-lg border border-slate-200 bg-white p-4">
-			<p class="text-sm font-semibold text-gray-900">Roles</p>
-			<p class="mb-3 text-xs text-gray-600">
+		<div class="border-border bg-card rounded-lg border p-4">
+			<p class="text-foreground text-sm font-semibold">Roles</p>
+			<p class="text-muted-fg mb-3 text-xs">
 				Users can hold multiple roles. Talent records are separate and must be linked explicitly.
 			</p>
 			<div class="grid gap-2 sm:grid-cols-2">
 				{#each visibleRoleOptions as option (option.value)}
 					<label
-						class="flex cursor-pointer items-start gap-3 rounded-md border border-slate-200 px-3 py-2 hover:border-slate-300"
+						class="border-border hover:border-border/80 flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2"
 					>
 						<input
 							type="checkbox"
@@ -700,11 +700,11 @@
 							value={option.value}
 							checked={selectedRoles.includes(option.value)}
 							onchange={() => toggleRole(option.value)}
-							class="mt-1 h-4 w-4 rounded border-slate-300 text-gray-900 focus:ring-2 focus:ring-orange-400"
+							class="border-border text-foreground mt-1 h-4 w-4 rounded focus:ring-2 focus:ring-primary/60"
 						/>
 						<div class="space-y-1">
-							<p class="text-sm font-medium text-gray-900">{option.label}</p>
-							<p class="text-xs text-gray-600">{option.description}</p>
+							<p class="text-foreground text-sm font-medium">{option.label}</p>
+							<p class="text-muted-fg text-xs">{option.description}</p>
 						</div>
 					</label>
 				{/each}
@@ -713,20 +713,20 @@
 
 		{#if error}
 			<Alert variant="destructive" size="sm">
-				<p class="text-sm font-medium text-gray-900">{error}</p>
+				<p class="text-foreground text-sm font-medium">{error}</p>
 			</Alert>
 		{/if}
 
 		<div
 			class="sticky bottom-0 flex flex-wrap justify-end gap-3 pt-4 {mode === 'edit'
 				? 'bg-transparent'
-				: 'border-t border-slate-200 bg-white'}"
+				: 'border-border bg-card border-t'}"
 		>
 			<Button
 				variant="outline"
 				type="button"
 				onclick={close}
-				class={mode === 'edit' ? 'bg-white hover:bg-slate-50' : ''}
+				class={mode === 'edit' ? 'bg-input hover:bg-muted/70' : ''}
 			>
 				Cancel
 			</Button>

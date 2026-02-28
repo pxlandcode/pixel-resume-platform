@@ -157,14 +157,13 @@
 			<div
 				class="flex flex-col gap-2 rounded-lg transition-colors"
 				class:p-4={isEditing}
-				class:bg-slate-50={isEditing}
-				class:bg-slate-100={dragOverCategory === category.id}
+				class:bg-muted={isEditing || dragOverCategory === category.id}
 				ondragover={(e) => handleDragOver(e, category.id)}
 				ondrop={(e) => handleDrop(e, category.id)}
 				role="region"
 				aria-label={category.name}
 			>
-				<h3 class="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+				<h3 class="text-xs font-semibold tracking-wide text-muted-fg uppercase">
 					{category.name}
 				</h3>
 
@@ -183,13 +182,13 @@
 						>
 							{#if isEditing}
 								<GripVertical
-									class="mr-1 h-3 w-3 text-slate-400 opacity-0 transition-opacity group-hover:opacity-100"
+									class="mr-1 h-3 w-3 text-muted-fg opacity-0 transition-opacity group-hover:opacity-100"
 								/>
 							{/if}
 							{skill}
 							{#if isEditing}
 								<button
-									class="ml-1 rounded-full p-0.5 text-slate-400 opacity-0 group-hover:opacity-100 hover:bg-slate-200 hover:text-red-500"
+									class="ml-1 rounded-full p-0.5 text-muted-fg opacity-0 group-hover:opacity-100 hover:bg-muted hover:text-red-500"
 									onclick={() => removeSkill(category.id, index)}
 								>
 									<X class="h-3 w-3" />
@@ -220,7 +219,7 @@
 								<Button
 									variant="ghost"
 									size="sm"
-									class="mt-1 h-6 text-xs text-slate-500"
+									class="mt-1 h-6 text-xs text-muted-fg"
 									onclick={() => (addingToCategory = null)}
 								>
 									Cancel
@@ -228,7 +227,7 @@
 							</div>
 						{:else}
 							<button
-								class="inline-flex items-center rounded-md border border-dashed border-slate-300 px-2.5 py-1 text-sm text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+								class="inline-flex items-center rounded-md border border-dashed border-border px-2.5 py-1 text-sm text-muted-fg hover:bg-muted hover:text-foreground"
 								onclick={() => (addingToCategory = category.id)}
 							>
 								<Plus class="mr-1 h-3 w-3" /> Add

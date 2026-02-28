@@ -231,7 +231,7 @@
 		<Button
 			variant="ghost"
 			href="/resumes"
-			class=" pl-0 hover:bg-transparent hover:text-indigo-600"
+			class=" pl-0 hover:bg-transparent hover:text-primary"
 		>
 			<ArrowLeft size={16} class="mr-2" />
 			Back to resumes
@@ -262,13 +262,13 @@
 				<div class="absolute bottom-14 right-0 flex flex-col items-end gap-2">
 					<div transition:fly={{ y: 12, duration: 120 }}>
 						<div
-							class="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium shadow-sm"
+							class="flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-xs font-medium shadow-sm"
 						>
 							<button
 								type="button"
 								class={downloadLanguage === 'sv'
-									? 'rounded-full bg-indigo-600 px-2 py-0.5 text-white'
-									: 'px-2 py-0.5 text-slate-500 hover:text-slate-700'}
+									? 'rounded-full bg-primary px-2 py-0.5 text-white'
+									: 'px-2 py-0.5 text-muted-fg hover:text-foreground'}
 								onclick={() => (downloadLanguageOverride = 'sv')}
 							>
 								SV
@@ -276,8 +276,8 @@
 							<button
 								type="button"
 								class={downloadLanguage === 'en'
-									? 'rounded-full bg-indigo-600 px-2 py-0.5 text-white'
-									: 'px-2 py-0.5 text-slate-500 hover:text-slate-700'}
+									? 'rounded-full bg-primary px-2 py-0.5 text-white'
+									: 'px-2 py-0.5 text-muted-fg hover:text-foreground'}
 								onclick={() => (downloadLanguageOverride = 'en')}
 							>
 								EN
@@ -327,7 +327,7 @@
 </div>
 
 <div class="mt-6 space-y-4">
-	<Card class="bg-white text-slate-900">
+	<Card class="bg-card text-foreground">
 		<div class="mt-4">
 			<ResumeView
 				data={data.resume.data}

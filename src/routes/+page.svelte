@@ -45,8 +45,8 @@
 
 <section class="space-y-8">
 	<header>
-		<h1 class="text-2xl font-bold text-slate-900">Welcome to ResumeBuilder</h1>
-		<p class="mt-1 text-slate-600">
+		<h1 class="text-foreground text-2xl font-bold">Welcome to ResumeBuilder</h1>
+		<p class="text-muted-fg mt-1">
 			Create and manage professional consultant resumes for your team.
 		</p>
 	</header>
@@ -56,7 +56,7 @@
 		{#each quickActions as action}
 			<a
 				href={action.href}
-				class="group relative flex items-start gap-4 rounded-sm border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+				class="border-border bg-card hover:border-border/80 group relative flex items-start gap-4 rounded-sm border p-5 shadow-sm transition-all hover:shadow-md"
 			>
 				<div
 					class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm {action.color} text-white"
@@ -64,14 +64,14 @@
 					<action.icon size={24} />
 				</div>
 				<div class="flex-1">
-					<h3 class="font-semibold text-slate-900 group-hover:text-primary">
+					<h3 class="text-foreground group-hover:text-primary font-semibold">
 						{action.title}
 					</h3>
-					<p class="mt-1 text-sm text-slate-500">{action.description}</p>
+					<p class="text-muted-fg mt-1 text-sm">{action.description}</p>
 				</div>
 				<ArrowRight
 					size={20}
-					class="absolute top-1/2 right-5 -translate-y-1/2 text-slate-300 transition-transform group-hover:translate-x-1 group-hover:text-primary"
+					class="text-muted-fg absolute right-5 top-1/2 -translate-y-1/2 transition-transform group-hover:translate-x-1 group-hover:text-primary"
 				/>
 			</a>
 		{/each}
@@ -81,19 +81,19 @@
 	<Card class="p-6">
 		<div class="flex items-start justify-between">
 			<div>
-				<h2 class="text-lg font-semibold text-slate-900">Your Profile</h2>
-				<div class="mt-3 space-y-1.5 text-sm text-slate-600">
+				<h2 class="text-foreground text-lg font-semibold">Your Profile</h2>
+				<div class="text-muted-fg mt-3 space-y-1.5 text-sm">
 					<p>
-						<span class="font-medium text-slate-700">Name:</span>
+						<span class="text-foreground font-medium">Name:</span>
 						{[data.profile?.first_name, data.profile?.last_name].filter(Boolean).join(' ') ||
 							'Not set'}
 					</p>
 					<p>
-						<span class="font-medium text-slate-700">Email:</span>
+						<span class="text-foreground font-medium">Email:</span>
 						{data.user?.email ?? 'Unknown'}
 					</p>
 					<p>
-						<span class="font-medium text-slate-700"
+						<span class="text-foreground font-medium"
 							>Role{(data.roles?.length ?? 0) > 1 ? 's' : ''}:</span
 						>
 						{(data.roles ?? [data.role])
@@ -115,17 +115,17 @@
 
 	<!-- Tips Section -->
 	<div>
-		<h2 class="mb-4 text-lg font-semibold text-slate-900">Tips for better resumes</h2>
+		<h2 class="text-foreground mb-4 text-lg font-semibold">Tips for better resumes</h2>
 		<div class="grid gap-4 sm:grid-cols-3">
 			{#each tips as tip}
-				<div class="rounded-sm border border-slate-100 bg-slate-50 p-4">
+				<div class="border-border bg-muted rounded-sm border p-4">
 					<div
-						class="mb-3 flex h-10 w-10 items-center justify-center rounded-sm bg-white text-primary shadow-sm"
+						class="bg-card mb-3 flex h-10 w-10 items-center justify-center rounded-sm text-primary shadow-sm"
 					>
 						<tip.icon size={20} />
 					</div>
-					<h3 class="font-medium text-slate-900">{tip.title}</h3>
-					<p class="mt-1 text-sm text-slate-500">{tip.description}</p>
+					<h3 class="text-foreground font-medium">{tip.title}</h3>
+					<p class="text-muted-fg mt-1 text-sm">{tip.description}</p>
 				</div>
 			{/each}
 		</div>

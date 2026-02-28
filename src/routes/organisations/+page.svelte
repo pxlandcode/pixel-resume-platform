@@ -132,8 +132,8 @@
 
 <div class="flex items-center justify-between">
 	<div>
-		<h1 class="text-2xl font-semibold text-gray-900">Organisations</h1>
-		<p class="text-sm text-gray-700">
+		<h1 class="text-foreground text-2xl font-semibold">Organisations</h1>
+		<p class="text-muted-fg text-sm">
 			Manage organisation templates, home memberships, and cross-organisation access grants.
 		</p>
 	</div>
@@ -144,7 +144,7 @@
 
 {#if actionMessage}
 	<Alert class="mt-4" variant={actionFailed ? 'destructive' : 'success'} size="sm">
-		<p class="text-sm font-medium text-gray-900">{actionMessage}</p>
+		<p class="text-foreground text-sm font-medium">{actionMessage}</p>
 	</Alert>
 {/if}
 

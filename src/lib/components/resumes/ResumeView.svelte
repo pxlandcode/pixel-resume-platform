@@ -589,7 +589,7 @@
 	export const getEditedData = () => editingData;
 </script>
 
-<div class="resume-print-page relative bg-white p-10 text-slate-900 shadow-sm">
+<div class="resume-print-page bg-card text-foreground relative p-10 shadow-sm">
 	<!-- Language Toggle -->
 	{#if !isEditing}
 		<ResumeLanguageToggle {language} onToggle={toggleLanguage} />
@@ -610,7 +610,7 @@
 					</div>
 					<div class="flex-1">
 						<!-- Name fixed from profile; allow title editing -->
-						<h1 class="mb-2 text-4xl font-bold text-slate-900">{displayName}</h1>
+						<h1 class="mb-2 text-4xl font-bold text-foreground">{displayName}</h1>
 						<ResumeNameTitle
 							bind:title={editingData.title}
 							{isEditing}
@@ -767,7 +767,7 @@
 	<ResumeFooter bind:footerNote={editingData.footerNote} {isEditing} language={componentLanguage} />
 
 	<!-- Worldclass Image -->
-	<div class="mt-8 flex justify-center border-t border-slate-200 pt-6">
+	<div class="mt-8 flex justify-center border-t border-border pt-6">
 		<img
 			src={worldclassUrl}
 			alt="Worldclass Tech, Worldclass People"

@@ -350,8 +350,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'sv'
-							? 'rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600'}
+							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
 						disabled={generating || translating || creatingFromResume}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -363,8 +363,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'en'
-							? 'rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600'}
+							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
 						disabled={generating || translating || creatingFromResume}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -381,7 +381,7 @@
 					bind:value={prompt}
 					rows="5"
 					placeholder="Describe the summary you want..."
-					class="rounded-xs w-full resize-y border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-indigo-400"
+					class="rounded-xs w-full resize-y border border-border bg-card p-3 text-sm text-foreground outline-none focus:border-primary"
 				></textarea>
 			</FormControl>
 
@@ -436,10 +436,10 @@
 
 			{#if showSummaryPanel}
 				<div class="space-y-1">
-					<label class="text-xs font-medium text-slate-700"
+					<label class="text-xs font-medium text-muted-fg"
 						>Summary ({activeLanguage.toUpperCase()})</label
 					>
-					<div class="rounded-xs border border-slate-300 bg-white">
+					<div class="rounded-xs border border-border bg-card">
 						{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}`}
 							<QuillEditor
 								content={draftByLanguage[activeLanguage]}
@@ -452,7 +452,7 @@
 			{/if}
 		</div>
 
-		<div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+		<div class="flex justify-end gap-2 border-t border-border pt-4">
 			<Button type="button" variant="ghost" onclick={closeDrawer}>Close</Button>
 			<Button
 				type="button"

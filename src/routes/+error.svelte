@@ -9,13 +9,13 @@
 	);
 </script>
 
-<div class="flex min-h-screen items-center justify-center bg-slate-100 px-6 py-12">
-	<div class="w-full max-w-xl rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
+<div class="bg-background text-foreground flex min-h-screen items-center justify-center px-6 py-12">
+	<div class="border-border bg-card w-full max-w-xl rounded-lg border p-8 shadow-sm">
 		<p class="text-sm font-medium tracking-wide text-primary uppercase">Resume Platform</p>
-		<h1 class="mt-2 text-2xl font-semibold text-slate-900">
+		<h1 class="text-foreground mt-2 text-2xl font-semibold">
 			{status === 404 ? 'Page not found' : 'Something went wrong'}
 		</h1>
-		<p class="mt-3 text-sm text-slate-600">
+		<p class="text-muted-fg mt-3 text-sm">
 			{errorMessage || 'The page could not be loaded. Please try again or go back to the dashboard.'}
 		</p>
 
@@ -28,7 +28,7 @@
 			</a>
 			<a
 				href="/resumes"
-				class="inline-flex items-center rounded-sm border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+				class="border-border text-muted-fg hover:bg-muted/70 inline-flex items-center rounded-sm border px-4 py-2 text-sm font-medium transition"
 			>
 				Open resumes
 			</a>

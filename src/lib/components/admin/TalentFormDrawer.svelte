@@ -80,7 +80,7 @@
 					id="first_name"
 					name="first_name"
 					placeholder="First name"
-					class="bg-white text-gray-900"
+					class="bg-input text-foreground"
 				/>
 			</FormControl>
 			<FormControl label="Last name" class="gap-2 text-sm">
@@ -88,7 +88,7 @@
 					id="last_name"
 					name="last_name"
 					placeholder="Last name"
-					class="bg-white text-gray-900"
+					class="bg-input text-foreground"
 				/>
 			</FormControl>
 		</div>
@@ -98,13 +98,13 @@
 				id="title"
 				name="title"
 				placeholder="Title (optional)"
-				class="bg-white text-gray-900"
+				class="bg-input text-foreground"
 			/>
 		</FormControl>
 
 		<FormControl label="Avatar" class="gap-2 text-sm" tag="div">
 			{#if avatarUrl}
-				<div class="w-24 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+				<div class="border-border bg-muted w-24 overflow-hidden rounded-lg border">
 					<img
 						src={avatarUrl}
 						alt="Talent avatar preview"
@@ -115,7 +115,7 @@
 
 			<div class="flex flex-wrap items-center gap-2">
 				<label
-					class="inline-flex cursor-pointer items-center rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+					class="border-border bg-input text-foreground hover:bg-muted/70 inline-flex cursor-pointer items-center rounded border px-3 py-2 text-sm"
 				>
 					<input
 						type="file"
@@ -145,10 +145,10 @@
 				<p class="text-xs text-red-600">{avatarUploadError}</p>
 			{/if}
 
-			<p class="text-xs text-gray-500">PNG, JPG up to 5MB.</p>
+			<p class="text-muted-fg text-xs">PNG, JPG up to 5MB.</p>
 		</FormControl>
 
-		<p class="text-xs text-gray-500">
+		<p class="text-muted-fg text-xs">
 			Provide first name, last name, or both. User linking is managed under user edit.
 		</p>
 
@@ -157,7 +157,7 @@
 				variant="outline"
 				type="button"
 				onclick={() => (open = false)}
-				class="bg-white hover:bg-slate-50"
+				class="bg-input hover:bg-muted/70"
 			>
 				Cancel
 			</Button>

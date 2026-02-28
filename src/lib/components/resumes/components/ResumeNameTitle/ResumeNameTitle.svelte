@@ -21,7 +21,7 @@
 				value={getLocalizedValue(title, 'sv')}
 				oninput={(e) => (title = setLocalizedValue(title, 'sv', e.currentTarget.value))}
 				placeholder="Title (SV)"
-				class="border-slate-300 bg-white text-slate-900"
+				class="border-border bg-card text-foreground"
 			/>
 		</FormControl>
 		<FormControl label="Title (EN)">
@@ -29,12 +29,12 @@
 				value={getLocalizedValue(title, 'en')}
 				oninput={(e) => (title = setLocalizedValue(title, 'en', e.currentTarget.value))}
 				placeholder="Title (EN)"
-				class="border-slate-300 bg-white text-slate-900"
+				class="border-border bg-card text-foreground"
 			/>
 		</FormControl>
 	</div>
 {:else}
 	<div>
-		<h2 class="text-xl font-medium text-slate-700">{t(title, language)}</h2>
+		<h2 class="text-xl font-medium text-muted-fg">{t(title, language)}</h2>
 	</div>
 {/if}

@@ -57,16 +57,16 @@
 	);
 </script>
 
-<Card class="border-border/20 space-y-4 bg-white p-4">
+<Card class="border-border/20 bg-card space-y-4 p-4">
 	<SuperTable instance={tableInstance} selectable={false} class="organisation-table w-full">
 		{#each tableInstance.data as row (row.id)}
 			<Row.Root>
 				<Cell.Value class="py-4 align-top">
-					<p class="text-sm font-semibold text-gray-900">{row.displayName}</p>
+					<p class="text-foreground text-sm font-semibold">{row.displayName}</p>
 				</Cell.Value>
 
 				<Cell.Value class="py-4 align-top">
-					<span class="font-mono text-sm text-gray-600">{row.slug}</span>
+					<span class="text-muted-fg font-mono text-sm">{row.slug}</span>
 				</Cell.Value>
 
 				<Cell.Value class="py-4 align-top">
@@ -75,13 +75,13 @@
 							href={row.homepage_url}
 							target="_blank"
 							rel="noopener noreferrer"
-							class="inline-flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+							class="inline-flex items-center gap-1 text-sm text-primary hover:text-primary/80 hover:underline"
 						>
 							<Globe size={14} />
 							<span class="max-w-[180px] truncate">{row.homepage_url}</span>
 						</a>
 					{:else}
-						<span class="text-xs text-gray-400">Not set</span>
+						<span class="text-muted-fg text-xs">Not set</span>
 					{/if}
 				</Cell.Value>
 
@@ -124,7 +124,7 @@
 	</SuperTable>
 
 	{#if organisations.length === 0}
-		<p class="text-sm font-medium text-gray-700">
+		<p class="text-muted-fg text-sm font-medium">
 			No organisations yet. Create your first organisation to get started.
 		</p>
 	{/if}
@@ -136,7 +136,7 @@
 	}
 
 	.organisation-table :global(tr) {
-		border-bottom: 1px solid #e2e8f0;
+		border-bottom: 1px solid var(--color-border);
 		transition: background-color 0.15s ease;
 	}
 
@@ -145,7 +145,7 @@
 	}
 
 	.organisation-table :global(tr:hover) {
-		background-color: #f8fafc;
+		background-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
 	}
 
 	.organisation-table :global(td) {

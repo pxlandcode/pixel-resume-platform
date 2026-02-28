@@ -15,8 +15,8 @@
 <div class="space-y-6">
 	<header class="flex items-center justify-between">
 		<div>
-			<h1 class="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Talents</h1>
-			<p class="mt-3 text-lg text-slate-500">Browse all talents and open their resume workspace.</p>
+			<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Talents</h1>
+			<p class="text-muted-fg mt-3 text-lg">Browse all talents and open their resume workspace.</p>
 		</div>
 		{#if canManageTalents}
 			<Button type="button" variant="primary" size="md" onclick={() => (isCreateDrawerOpen = true)}>
@@ -27,7 +27,7 @@
 
 	{#if canManageTalents && actionMessage}
 		<Alert variant={actionFailed ? 'destructive' : 'success'} size="sm">
-			<p class="text-sm font-medium text-gray-900">{actionMessage}</p>
+			<p class="text-foreground text-sm font-medium">{actionMessage}</p>
 		</Alert>
 	{/if}
 
@@ -36,9 +36,9 @@
 	{/if}
 
 	{#if talents.length === 0}
-		<div class="rounded-sm border border-slate-200 bg-white p-6">
-			<h2 class="text-lg font-semibold text-slate-900">No talents yet</h2>
-			<p class="mt-2 text-sm text-slate-500">
+		<div class="border-border bg-card rounded-sm border p-6">
+			<h2 class="text-foreground text-lg font-semibold">No talents yet</h2>
+			<p class="text-muted-fg mt-2 text-sm">
 				Talents will appear here once created. User linkage is optional.
 			</p>
 		</div>
@@ -49,7 +49,7 @@
 					<Card
 						class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
 					>
-						<div class="aspect-square w-full overflow-hidden bg-slate-100">
+						<div class="bg-muted aspect-square w-full overflow-hidden">
 							{#if talent.avatar_url}
 								<img
 									src={talent.avatar_url}
@@ -57,21 +57,21 @@
 									class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
 								/>
 							{:else}
-								<div class="flex h-full w-full items-center justify-center text-slate-300">
+								<div class="text-muted-fg flex h-full w-full items-center justify-center">
 									<User size={48} />
 								</div>
 							{/if}
 						</div>
 						<div class="flex flex-1 flex-col p-5">
-							<h3 class="text-lg font-semibold text-slate-900">
+							<h3 class="text-foreground text-lg font-semibold">
 								{[talent.first_name, talent.last_name].filter(Boolean).join(' ') ||
 									'Unnamed Talent'}
 							</h3>
 							{#if talent.title}
-								<p class="mt-1 text-sm text-slate-500">{talent.title}</p>
+								<p class="text-muted-fg mt-1 text-sm">{talent.title}</p>
 							{/if}
 							{#if talent.email}
-								<p class="mt-2 text-xs text-slate-400">{talent.email}</p>
+								<p class="text-muted-fg mt-2 text-xs">{talent.email}</p>
 							{/if}
 							{#if talent.organisation_logo_url || talent.organisation_name}
 								<div class="mt-auto pt-3">
@@ -82,7 +82,7 @@
 											class="h-5 w-auto object-contain"
 										/>
 									{:else}
-										<span class="text-xs font-medium text-slate-400"
+										<span class="text-muted-fg text-xs font-medium"
 											>{talent.organisation_name}</span
 										>
 									{/if}

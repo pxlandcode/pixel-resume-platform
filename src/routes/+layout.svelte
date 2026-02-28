@@ -339,29 +339,29 @@
 					{/if}
 				</a>
 
-				<div
-					class="pointer-events-none invisible absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-slate-200 bg-white p-3 text-left text-sm text-slate-700 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
-				>
-					<p class="mb-1 font-semibold text-slate-900">
-						{#if importHasError}
-							Import Failed
-						{:else}
-							Importing PDF
+					<div
+						class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-56 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+					>
+						<p class="text-foreground mb-1 font-semibold">
+							{#if importHasError}
+								Import Failed
+							{:else}
+								Importing PDF
+							{/if}
+						</p>
+						{#if importFilename}
+							<p class="text-muted-fg mb-1 truncate text-xs">{importFilename}</p>
 						{/if}
-					</p>
-					{#if importFilename}
-						<p class="mb-1 truncate text-xs text-slate-500">{importFilename}</p>
-					{/if}
-					{#if importError}
-						<p class="text-xs text-red-600">{importError}</p>
-					{:else}
-						<p class="text-xs text-slate-500">{statusLabel || 'Processing...'}</p>
-					{/if}
-					<p class="mt-2 text-[11px] text-slate-400">Click to view details</p>
+						{#if importError}
+							<p class="text-xs text-red-600">{importError}</p>
+						{:else}
+							<p class="text-muted-fg text-xs">{statusLabel || 'Processing...'}</p>
+						{/if}
+						<p class="text-muted-fg mt-2 text-[11px]">Click to view details</p>
+					</div>
 				</div>
-			</div>
-		{/if}
-	</div>
+			{/if}
+		</div>
 {/if}
 
 {#if useAppShell && barVisible}

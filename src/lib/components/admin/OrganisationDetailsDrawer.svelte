@@ -41,11 +41,11 @@
 			<input type="hidden" name="organisation_id" value={organisation.id} />
 
 			<FormControl label="Name" required class="gap-2 text-sm">
-				<Input name="name" value={organisation.name} required class="bg-white text-gray-900" />
+				<Input name="name" value={organisation.name} required class="bg-input text-foreground" />
 			</FormControl>
 
 			<FormControl label="Slug" required class="gap-2 text-sm">
-				<Input name="slug" value={organisation.slug} required class="bg-white text-gray-900" />
+				<Input name="slug" value={organisation.slug} required class="bg-input text-foreground" />
 			</FormControl>
 
 			<FormControl label="Homepage URL" class="gap-2 text-sm">
@@ -53,7 +53,7 @@
 					name="homepage_url"
 					value={organisation.homepage_url ?? ''}
 					placeholder="https://example.com"
-					class="bg-white text-gray-900"
+					class="bg-input text-foreground"
 				/>
 			</FormControl>
 
@@ -62,7 +62,7 @@
 					variant="outline"
 					type="button"
 					onclick={() => (open = false)}
-					class="bg-white hover:bg-slate-50"
+					class="bg-input hover:bg-muted/70"
 				>
 					Cancel
 				</Button>
