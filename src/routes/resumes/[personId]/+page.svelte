@@ -256,6 +256,17 @@
 		})
 	);
 
+	const formatResumeCardDate = (value: string | null | undefined): string => {
+		if (!value) return '—';
+		const parsed = new Date(value);
+		if (Number.isNaN(parsed.getTime())) return value;
+		return new Intl.DateTimeFormat(undefined, {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric'
+		}).format(parsed);
+	};
+
 	$effect(() => {
 		resetProfileEditor();
 		resumeList = [...(resumes ?? [])];
@@ -1359,7 +1370,7 @@
 								<div class="text-muted-fg mt-1 flex items-center gap-4 text-sm">
 									<span class="flex items-center gap-1">
 										<Calendar size={14} />
-										Updated {resume.updated_at ?? resume.created_at ?? '—'}
+										Updated {formatResumeCardDate(resume.updated_at ?? resume.created_at)}
 									</span>
 								</div>
 							</div>
