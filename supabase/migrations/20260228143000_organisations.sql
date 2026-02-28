@@ -413,7 +413,7 @@ AS $$
 		);
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_access_resume(target_resume_id bigint)
+CREATE OR REPLACE FUNCTION public.can_access_resume(target_resume_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
@@ -428,7 +428,7 @@ AS $$
 	);
 $$;
 
-CREATE OR REPLACE FUNCTION public.can_edit_resume(target_resume_id bigint)
+CREATE OR REPLACE FUNCTION public.can_edit_resume(target_resume_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE

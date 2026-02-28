@@ -1,10 +1,11 @@
 -- Normalized resume schema for fresh DBs using the talent+organisations foundation model.
 -- Requires: supabase-migrations-foundation-talent-org.sql to be applied first.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TABLE IF NOT EXISTS public.resumes (
-	id bigserial PRIMARY KEY,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	talent_id uuid NOT NULL REFERENCES public.talents(id) ON DELETE CASCADE,
 	version_name text NOT NULL DEFAULT 'Main',
 	is_main boolean NOT NULL DEFAULT false,
@@ -16,8 +17,8 @@ CREATE TABLE IF NOT EXISTS public.resumes (
 );
 
 CREATE TABLE IF NOT EXISTS public.resume_client_access (
-	id bigserial PRIMARY KEY,
-	resume_id bigint NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	resume_id uuid NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
 	client_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
 	granted_by_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
 	created_at timestamptz NOT NULL DEFAULT now(),
@@ -42,7 +43,7 @@ CREATE INDEX IF NOT EXISTS resume_client_access_client_user_id_idx
 	ON public.resume_client_access (client_user_id);
 
 CREATE TABLE IF NOT EXISTS public.resume_basics (
-	resume_id bigint PRIMARY KEY REFERENCES public.resumes(id) ON DELETE CASCADE,
+	resume_id uuid PRIMARY KEY REFERENCES public.resumes(id) ON DELETE CASCADE,
 	name text NOT NULL DEFAULT '',
 	title_sv text NOT NULL DEFAULT '',
 	title_en text NOT NULL DEFAULT '',
@@ -55,8 +56,8 @@ CREATE TABLE IF NOT EXISTS public.resume_basics (
 );
 
 CREATE TABLE IF NOT EXISTS public.resume_contacts (
-	id bigserial PRIMARY KEY,
-	resume_id bigint NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	resume_id uuid NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
 	position integer NOT NULL,
 	name text NOT NULL DEFAULT '',
 	phone text,
@@ -66,8 +67,8 @@ CREATE TABLE IF NOT EXISTS public.resume_contacts (
 );
 
 CREATE TABLE IF NOT EXISTS public.resume_skill_items (
-	id bigserial PRIMARY KEY,
-	resume_id bigint NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	resume_id uuid NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
 	kind text NOT NULL CHECK (kind IN ('example', 'technique', 'method')),
 	position integer NOT NULL,
 	value text NOT NULL DEFAULT '',
@@ -76,8 +77,8 @@ CREATE TABLE IF NOT EXISTS public.resume_skill_items (
 );
 
 CREATE TABLE IF NOT EXISTS public.resume_labeled_items (
-	id bigserial PRIMARY KEY,
-	resume_id bigint NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	resume_id uuid NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
 	kind text NOT NULL CHECK (kind IN ('language', 'education')),
 	position integer NOT NULL,
 	label_sv text NOT NULL DEFAULT '',
@@ -89,8 +90,8 @@ CREATE TABLE IF NOT EXISTS public.resume_labeled_items (
 );
 
 CREATE TABLE IF NOT EXISTS public.resume_portfolio_items (
-	id bigserial PRIMARY KEY,
-	resume_id bigint NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	resume_id uuid NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
 	position integer NOT NULL,
 	url text NOT NULL DEFAULT '',
 	created_at timestamptz NOT NULL DEFAULT now(),
@@ -98,7 +99,7 @@ CREATE TABLE IF NOT EXISTS public.resume_portfolio_items (
 );
 
 CREATE TABLE IF NOT EXISTS public.experience_library (
-	id bigserial PRIMARY KEY,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	talent_id uuid NOT NULL REFERENCES public.talents(id) ON DELETE CASCADE,
 	start_date text NOT NULL DEFAULT '',
 	end_date text NULL,
@@ -114,8 +115,8 @@ CREATE TABLE IF NOT EXISTS public.experience_library (
 );
 
 CREATE TABLE IF NOT EXISTS public.experience_library_technologies (
-	id bigserial PRIMARY KEY,
-	experience_id bigint NOT NULL REFERENCES public.experience_library(id) ON DELETE CASCADE,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	experience_id uuid NOT NULL REFERENCES public.experience_library(id) ON DELETE CASCADE,
 	position integer NOT NULL,
 	value text NOT NULL DEFAULT '',
 	created_at timestamptz NOT NULL DEFAULT now(),
@@ -123,9 +124,9 @@ CREATE TABLE IF NOT EXISTS public.experience_library_technologies (
 );
 
 CREATE TABLE IF NOT EXISTS public.resume_experience_items (
-	id bigserial PRIMARY KEY,
-	resume_id bigint NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
-	experience_id bigint NOT NULL REFERENCES public.experience_library(id) ON DELETE RESTRICT,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	resume_id uuid NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
+	experience_id uuid REFERENCES public.experience_library(id) ON DELETE SET NULL,
 	section text NOT NULL CHECK (section IN ('highlighted', 'experience')),
 	position integer NOT NULL,
 	hidden boolean NOT NULL DEFAULT false,
@@ -144,8 +145,8 @@ CREATE TABLE IF NOT EXISTS public.resume_experience_items (
 );
 
 CREATE TABLE IF NOT EXISTS public.resume_experience_tech_overrides (
-	id bigserial PRIMARY KEY,
-	resume_experience_item_id bigint NOT NULL REFERENCES public.resume_experience_items(id) ON DELETE CASCADE,
+	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+	resume_experience_item_id uuid NOT NULL REFERENCES public.resume_experience_items(id) ON DELETE CASCADE,
 	position integer NOT NULL,
 	value text NOT NULL DEFAULT '',
 	created_at timestamptz NOT NULL DEFAULT now(),
@@ -232,6 +233,32 @@ CREATE INDEX IF NOT EXISTS resume_skill_items_value_trgm_idx
 
 CREATE INDEX IF NOT EXISTS resume_experience_tech_overrides_value_trgm_idx
 	ON public.resume_experience_tech_overrides USING gin (value gin_trgm_ops);
+
+CREATE OR REPLACE FUNCTION public.prevent_main_resume_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+	IF OLD.is_main
+		AND EXISTS (
+			SELECT 1
+			FROM public.talents t
+			WHERE t.id = OLD.talent_id
+		)
+	THEN
+		RAISE EXCEPTION 'Main resume cannot be deleted. Set another resume as main first.';
+	END IF;
+
+	RETURN OLD;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS prevent_main_resume_delete ON public.resumes;
+
+CREATE TRIGGER prevent_main_resume_delete
+BEFORE DELETE ON public.resumes
+FOR EACH ROW
+EXECUTE FUNCTION public.prevent_main_resume_delete();
 
 ALTER TABLE public.resumes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resume_client_access ENABLE ROW LEVEL SECURITY;

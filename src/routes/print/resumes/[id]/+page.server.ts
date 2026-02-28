@@ -12,7 +12,7 @@ import type { Person, ResumeData } from '$lib/types/resume';
 import { ResumeService } from '$lib/services/resume';
 
 type ResumeRow = {
-	id: number;
+	id: string;
 	talent_id: string;
 	version_name: string | null;
 	is_main: boolean | null;
@@ -89,7 +89,7 @@ const summarizeResumeData = (data: ResumeData) => ({
 	methodsCount: data.methods.length,
 	languagesCount: data.languages.length,
 	educationCount: data.education.length,
-	portfolioCount: data.portfolio.length
+	portfolioCount: data.portfolio?.length ?? 0
 });
 
 export const load: PageServerLoad = async ({ params, url, cookies }) => {
@@ -148,7 +148,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	let usedResumeServiceFallback = false;
 	let usedEmptyResumeFallback = false;
 	try {
-		resumeData = await loadResumeData(adminClient, String(resumeRow.id));
+		resumeData = await loadResumeData(adminClient, resumeRow.id);
 		debugLog('normalized resume loaded', {
 			resumeId,
 			summary: summarizeResumeData(resumeData)
@@ -167,7 +167,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 			reason: !resumeData ? 'resumeData missing' : 'primary print content missing',
 			currentSummary: resumeData ? summarizeResumeData(resumeData) : null
 		});
-		const fallbackResume = await ResumeService.getResume(String(resumeRow.id));
+		const fallbackResume = await ResumeService.getResume(resumeRow.id);
 		if (fallbackResume?.data) {
 			resumeData = fallbackResume.data;
 			usedResumeServiceFallback = true;
@@ -218,7 +218,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 			})
 		: null;
 	const resume = {
-		id: String(resumeRow.id),
+		id: resumeRow.id,
 		personId: resumeRow.talent_id,
 		title: getResumeTitle(resumeData, resumeRow.version_name ?? 'Resume'),
 		version: resumeRow.version_name ?? 'Main',
@@ -245,7 +245,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		language,
 		debug: {
 			enabled: debugEnabled,
-			resumeId: String(resumeRow.id),
+			resumeId: resumeRow.id,
 			talentId: resumeRow.talent_id,
 			normalizedLoadError,
 			usedResumeServiceFallback,

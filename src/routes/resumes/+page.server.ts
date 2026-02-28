@@ -60,6 +60,16 @@ const extractTalentTechs = (techStack: unknown): string[] => {
 };
 
 const getSafeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+const normalizeId = (value: unknown): string | null => {
+	if (typeof value === 'string') {
+		const normalized = value.trim();
+		return normalized || null;
+	}
+	if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+		return String(value);
+	}
+	return null;
+};
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
@@ -191,7 +201,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 	const resumesResult =
 		talentIds.length === 0
-			? { data: [] as Array<{ id: number; talent_id: string }>, error: null }
+			? { data: [] as Array<{ id: string; talent_id: string }>, error: null }
 			: await adminClient.from('resumes').select('id, talent_id').in('talent_id', talentIds);
 
 	if (resumesResult.error) {
@@ -201,24 +211,24 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const resumeRows = resumesResult.data ?? [];
 	const resumeMetadata = resumeRows
 		.map((row) => ({
-			id: Number(row.id),
+			id: normalizeId((row as { id: unknown }).id) ?? '',
 			talentId: typeof row.talent_id === 'string' ? row.talent_id : ''
 		}))
-		.filter((row) => Number.isInteger(row.id) && row.id > 0 && row.talentId.length > 0);
+		.filter((row) => row.id.length > 0 && row.talentId.length > 0);
 	const resumeIds = resumeMetadata.map((row) => row.id);
-	const resumeIdToTalentId = new Map<number, string>(
+	const resumeIdToTalentId = new Map<string, string>(
 		resumeMetadata.map((row) => [row.id, row.talentId])
 	);
 
 	const [resumeSkillRowsResult, resumeExperienceRowsResult] =
 		resumeIds.length === 0
 			? [
-					{ data: [] as Array<{ resume_id: number; value: string }>, error: null },
+					{ data: [] as Array<{ resume_id: string; value: string }>, error: null },
 					{
 						data: [] as Array<{
-							id: number;
-							resume_id: number;
-							experience_id: number;
+							id: string;
+							resume_id: string;
+							experience_id: string | null;
 							use_tech_override: boolean;
 						}>,
 						error: null
@@ -243,13 +253,21 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	}
 
 	const resumeExperienceRows = resumeExperienceRowsResult.data ?? [];
-	const experienceIds = Array.from(new Set(resumeExperienceRows.map((row) => row.experience_id)));
-	const resumeExperienceItemIds = resumeExperienceRows.map((row) => row.id);
+	const experienceIds = Array.from(
+		new Set(
+			resumeExperienceRows
+				.map((row) => normalizeId((row as { experience_id: unknown }).experience_id))
+				.filter((id): id is string => Boolean(id))
+		)
+	);
+	const resumeExperienceItemIds = resumeExperienceRows
+		.map((row) => normalizeId((row as { id: unknown }).id))
+		.filter((id): id is string => Boolean(id));
 
 	const [libraryRowsResult, libraryTechRowsResult, overrideTechRowsResult] = await Promise.all([
 		experienceIds.length === 0
 			? {
-					data: [] as Array<{ id: number; company: string; role_sv: string; role_en: string }>,
+					data: [] as Array<{ id: string; company: string; role_sv: string; role_en: string }>,
 					error: null
 				}
 			: adminClient
@@ -257,13 +275,13 @@ export const load: PageServerLoad = async ({ cookies }) => {
 					.select('id, company, role_sv, role_en')
 					.in('id', experienceIds),
 		experienceIds.length === 0
-			? { data: [] as Array<{ experience_id: number; value: string }>, error: null }
+			? { data: [] as Array<{ experience_id: string; value: string }>, error: null }
 			: adminClient
 					.from('experience_library_technologies')
 					.select('experience_id, value')
 					.in('experience_id', experienceIds),
 		resumeExperienceItemIds.length === 0
-			? { data: [] as Array<{ resume_experience_item_id: number; value: string }>, error: null }
+			? { data: [] as Array<{ resume_experience_item_id: string; value: string }>, error: null }
 			: adminClient
 					.from('resume_experience_tech_overrides')
 					.select('resume_experience_item_id, value')
@@ -286,10 +304,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		);
 	}
 
-	const libraryById = new Map<number, { company: string; role_sv: string; role_en: string }>();
+	const libraryById = new Map<string, { company: string; role_sv: string; role_en: string }>();
 	for (const row of libraryRowsResult.data ?? []) {
-		const libraryId = Number(row.id);
-		if (!Number.isInteger(libraryId) || libraryId <= 0) continue;
+		const libraryId = normalizeId((row as { id: unknown }).id);
+		if (!libraryId) continue;
 		libraryById.set(libraryId, {
 			company: getSafeText(row.company),
 			role_sv: getSafeText(row.role_sv),
@@ -297,10 +315,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		});
 	}
 
-	const libraryTechByExperienceId = new Map<number, Set<string>>();
+	const libraryTechByExperienceId = new Map<string, Set<string>>();
 	for (const row of libraryTechRowsResult.data ?? []) {
-		const experienceId = Number(row.experience_id);
-		if (!Number.isInteger(experienceId) || experienceId <= 0) continue;
+		const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
+		if (!experienceId) continue;
 		const value = getSafeText(row.value);
 		if (!value) continue;
 		const set = libraryTechByExperienceId.get(experienceId) ?? new Set<string>();
@@ -308,10 +326,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		libraryTechByExperienceId.set(experienceId, set);
 	}
 
-	const overrideTechByItemId = new Map<number, Set<string>>();
+	const overrideTechByItemId = new Map<string, Set<string>>();
 	for (const row of overrideTechRowsResult.data ?? []) {
-		const itemId = Number(row.resume_experience_item_id);
-		if (!Number.isInteger(itemId) || itemId <= 0) continue;
+		const itemId = normalizeId((row as { resume_experience_item_id: unknown }).resume_experience_item_id);
+		if (!itemId) continue;
 		const value = getSafeText(row.value);
 		if (!value) continue;
 		const set = overrideTechByItemId.get(itemId) ?? new Set<string>();
@@ -319,10 +337,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		overrideTechByItemId.set(itemId, set);
 	}
 
-	const resumeSearchMap = new Map<number, Set<string>>();
+	const resumeSearchMap = new Map<string, Set<string>>();
 	for (const row of resumeSkillRowsResult.data ?? []) {
-		const resumeId = Number(row.resume_id);
-		if (!Number.isInteger(resumeId) || resumeId <= 0) continue;
+		const resumeId = normalizeId((row as { resume_id: unknown }).resume_id);
+		if (!resumeId) continue;
 		const value = getSafeText(row.value);
 		if (!value) continue;
 		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
@@ -331,12 +349,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	}
 
 	for (const item of resumeExperienceRows) {
-		const resumeId = Number(item.resume_id);
-		const experienceId = Number(item.experience_id);
-		const itemId = Number(item.id);
-		if (!Number.isInteger(resumeId) || resumeId <= 0) continue;
-		if (!Number.isInteger(experienceId) || experienceId <= 0) continue;
-		if (!Number.isInteger(itemId) || itemId <= 0) continue;
+		const resumeId = normalizeId((item as { resume_id: unknown }).resume_id);
+		const experienceId = normalizeId((item as { experience_id: unknown }).experience_id);
+		const itemId = normalizeId((item as { id: unknown }).id);
+		if (!resumeId || !experienceId || !itemId) continue;
 
 		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
 		const library = libraryById.get(experienceId);

@@ -135,6 +135,24 @@
 			);
 		});
 	});
+
+	const isLibrarySelected = (exp: ExperienceItem) =>
+		Boolean(exp.libraryId) || Boolean(exp.saveToLibrary);
+
+	const getLibraryButtonLabel = (exp: ExperienceItem) => {
+		if (exp.libraryId) return 'Already in library';
+		if (exp.saveToLibrary) return 'Will be added to library';
+		return 'Add to library';
+	};
+
+	const toggleLibrarySelection = (index: number) => {
+		const target = experiences[index];
+		if (!target || target.libraryId) return;
+		const nextValue = !Boolean(target.saveToLibrary);
+		experiences = experiences.map((item, itemIndex) =>
+			itemIndex === index ? { ...item, saveToLibrary: nextValue } : item
+		);
+	};
 </script>
 
 {#if isEditing || experiences.length > 0}
@@ -381,6 +399,31 @@
 										}}
 									/>
 								{/if}
+								<Button
+									variant="ghost"
+									size="sm"
+									class={isLibrarySelected(exp)
+										? 'bg-amber-100 text-amber-700 hover:bg-amber-100'
+										: 'text-secondary-text'}
+									onclick={() => toggleLibrarySelection(index)}
+									aria-label={getLibraryButtonLabel(exp)}
+									title={getLibraryButtonLabel(exp)}
+									disabled={Boolean(exp.libraryId)}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill={isLibrarySelected(exp) ? 'currentColor' : 'none'}
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path d="M19 21 12 16 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+									</svg>
+								</Button>
 								<Button
 									variant={exp.hidden ? 'outline' : 'ghost'}
 									size="sm"

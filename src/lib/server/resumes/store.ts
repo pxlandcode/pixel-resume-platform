@@ -11,12 +11,12 @@ import type {
 type LanguagePair = { sv: string; en: string };
 
 type ResumeOwnershipRow = {
-	id: number;
+	id: string;
 	talent_id: string;
 };
 
 type ExperienceLibraryRow = {
-	id: number;
+	id: string;
 	talent_id: string;
 	start_date: string;
 	end_date: string | null;
@@ -30,9 +30,9 @@ type ExperienceLibraryRow = {
 };
 
 type ResumeExperienceRow = {
-	id: number;
-	resume_id: number;
-	experience_id: number;
+	id: string;
+	resume_id: string;
+	experience_id: string | null;
 	section: 'highlighted' | 'experience';
 	position: number;
 	hidden: boolean;
@@ -50,7 +50,8 @@ type ResumeExperienceRow = {
 
 type NormalizedExperienceInput = {
 	section: 'highlighted' | 'experience';
-	libraryId: number | null;
+	libraryId: string | null;
+	saveToLibrary: boolean;
 	startDate: string;
 	endDate: string | null;
 	company: string;
@@ -62,6 +63,17 @@ type NormalizedExperienceInput = {
 };
 
 const normalizeString = (value: unknown): string => (typeof value === 'string' ? value.trim() : '');
+
+const normalizeId = (value: unknown): string | null => {
+	if (typeof value === 'string') {
+		const normalized = value.trim();
+		return normalized || null;
+	}
+	if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+		return String(value);
+	}
+	return null;
+};
 
 const normalizeOptionalString = (value: unknown): string | null => {
 	if (value === null) return null;
@@ -119,14 +131,7 @@ const arrayShallowEqual = (left: string[], right: string[]) => {
 	return true;
 };
 
-const parseLibraryId = (value: unknown): number | null => {
-	if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value;
-	if (typeof value === 'string') {
-		const parsed = Number.parseInt(value, 10);
-		if (Number.isInteger(parsed) && parsed > 0) return parsed;
-	}
-	return null;
-};
+const parseLibraryId = (value: unknown): string | null => normalizeId(value);
 
 const withNullableOverride = (current: string | null, base: string | null): string | null => {
 	const normalizedCurrent = current === null ? null : normalizeString(current);
@@ -138,13 +143,13 @@ const withNullableOverride = (current: string | null, base: string | null): stri
 const formatExperienceItem = (
 	item: ResumeExperienceRow,
 	base: ExperienceLibraryRow | null,
-	libraryTechByExperienceId: Map<number, string[]>,
-	overrideTechByItemId: Map<number, string[]>
+	libraryTechByExperienceId: Map<string, string[]>,
+	overrideTechByItemId: Map<string, string[]>
 ) => {
-	const baseStartDate = normalizeString(base?.start_date);
+	const baseStartDate = normalizeString(base?.start_date ?? '');
 	const baseEndDate =
-		base?.end_date === null ? null : (normalizeOptionalString(base?.end_date) ?? null);
-	const baseCompany = normalizeString(base?.company);
+		base?.end_date === null ? null : (normalizeOptionalString(base?.end_date ?? null) ?? null);
+	const baseCompany = normalizeString(base?.company ?? '');
 	const baseLocation = localizedFromColumns(base?.location_sv, base?.location_en);
 	const baseRole = localizedFromColumns(base?.role_sv, base?.role_en);
 	const baseDescription = localizedFromColumns(base?.description_sv, base?.description_en);
@@ -166,12 +171,13 @@ const formatExperienceItem = (
 	const endDateRaw = item.end_date_override ?? baseEndDate;
 	const endDate = endDateRaw === null ? null : (normalizeOptionalString(endDateRaw) ?? '');
 	const company = normalizeString(item.company_override ?? baseCompany);
-	const technologies = item.use_tech_override
-		? (overrideTechByItemId.get(item.id) ?? [])
-		: (libraryTechByExperienceId.get(item.experience_id) ?? []);
+	const technologies =
+		item.use_tech_override || !item.experience_id
+			? (overrideTechByItemId.get(item.id) ?? [])
+			: (libraryTechByExperienceId.get(item.experience_id) ?? []);
 
 	return {
-		libraryId: String(item.experience_id),
+		libraryId: item.experience_id ? String(item.experience_id) : null,
 		startDate,
 		endDate,
 		company,
@@ -219,6 +225,7 @@ const normalizeExperienceInput = (
 		return {
 			section,
 			libraryId,
+			saveToLibrary: Boolean((rawItem as { saveToLibrary?: unknown }).saveToLibrary),
 			startDate: normalizeString(item.startDate),
 			endDate: item.endDate === null ? null : (normalizeOptionalString(item.endDate) ?? ''),
 			company: normalizeString(item.company),
@@ -233,6 +240,7 @@ const normalizeExperienceInput = (
 	return {
 		section,
 		libraryId,
+		saveToLibrary: Boolean((rawItem as { saveToLibrary?: unknown }).saveToLibrary),
 		startDate: '',
 		endDate: null,
 		company: normalizeString(rawItem.company),
@@ -404,11 +412,11 @@ const saveExperienceSection = async (
 ) => {
 	const normalizedItems = items.map((item) => normalizeExperienceInput(item, section));
 	const existingLibraryIds = Array.from(
-		new Set(normalizedItems.map((item) => item.libraryId).filter((id): id is number => id !== null))
+		new Set(normalizedItems.map((item) => item.libraryId).filter((id): id is string => id !== null))
 	);
 
-	const libraryById = new Map<number, ExperienceLibraryRow>();
-	const libraryTechByExperienceId = new Map<number, string[]>();
+	const libraryById = new Map<string, ExperienceLibraryRow>();
+	const libraryTechByExperienceId = new Map<string, string[]>();
 
 	if (existingLibraryIds.length > 0) {
 		const { data: libraryRows, error: libraryError } = await adminClient
@@ -432,22 +440,26 @@ const saveExperienceSection = async (
 		if (libraryTechError) throw new Error(libraryTechError.message);
 
 		for (const row of libraryTechRows ?? []) {
-			const experienceId = Number((row as { experience_id: unknown }).experience_id);
+			const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
 			const value = normalizeString((row as { value: unknown }).value);
-			if (!Number.isInteger(experienceId) || experienceId <= 0 || !value) continue;
+			if (!experienceId || !value) continue;
 			const existing = libraryTechByExperienceId.get(experienceId) ?? [];
 			existing.push(value);
 			libraryTechByExperienceId.set(experienceId, existing);
 		}
 	}
 
-	const resolvedItems: Array<NormalizedExperienceInput & { resolvedLibraryId: number }> = [];
+	type ResolvedExperienceInput = NormalizedExperienceInput & {
+		resolvedLibraryId: string | null;
+	};
+	const resolvedItems: ResolvedExperienceInput[] = [];
 
 	for (const item of normalizedItems) {
 		let resolvedLibraryId = item.libraryId;
 		let baseLibraryRow = resolvedLibraryId ? (libraryById.get(resolvedLibraryId) ?? null) : null;
+		const shouldCreateLibrary = item.saveToLibrary || Boolean(resolvedLibraryId && !baseLibraryRow);
 
-		if (!baseLibraryRow || !resolvedLibraryId) {
+		if (shouldCreateLibrary && (!baseLibraryRow || !resolvedLibraryId)) {
 			const { data: insertedLibrary, error: insertLibraryError } = await adminClient
 				.from('experience_library')
 				.insert({
@@ -470,7 +482,11 @@ const saveExperienceSection = async (
 				throw new Error(insertLibraryError?.message ?? 'Failed to create experience library item.');
 			}
 
-			resolvedLibraryId = Number((insertedLibrary as { id: unknown }).id);
+			const insertedLibraryId = normalizeId((insertedLibrary as { id: unknown }).id);
+			if (!insertedLibraryId) {
+				throw new Error('Created experience library item returned an invalid id.');
+			}
+			resolvedLibraryId = insertedLibraryId;
 			baseLibraryRow = insertedLibrary as ExperienceLibraryRow;
 			libraryById.set(resolvedLibraryId, baseLibraryRow);
 
@@ -501,26 +517,28 @@ const saveExperienceSection = async (
 	if (resolvedItems.length === 0) return;
 
 	const rowsToInsert = resolvedItems.map((item, index) => {
-		const base = libraryById.get(item.resolvedLibraryId);
-		if (!base) {
+		const base = item.resolvedLibraryId ? (libraryById.get(item.resolvedLibraryId) ?? null) : null;
+		if (item.resolvedLibraryId && !base) {
 			throw new Error('Experience library item missing while saving resume section.');
 		}
-		const baseLocation = localizedFromColumns(base.location_sv, base.location_en);
-		const baseRole = localizedFromColumns(base.role_sv, base.role_en);
-		const baseDescription = localizedFromColumns(base.description_sv, base.description_en);
-		const baseTech = libraryTechByExperienceId.get(item.resolvedLibraryId) ?? [];
+		const baseLocation = localizedFromColumns(base?.location_sv, base?.location_en);
+		const baseRole = localizedFromColumns(base?.role_sv, base?.role_en);
+		const baseDescription = localizedFromColumns(base?.description_sv, base?.description_en);
+		const baseTech = item.resolvedLibraryId
+			? (libraryTechByExperienceId.get(item.resolvedLibraryId) ?? [])
+			: [];
 
 		const startDateOverride = withNullableOverride(
 			item.startDate || null,
-			normalizeString(base.start_date) || null
+			normalizeString(base?.start_date ?? '') || null
 		);
 		const endDateOverride = withNullableOverride(
 			item.endDate,
-			base.end_date === null ? null : normalizeOptionalString(base.end_date)
+			base?.end_date === null ? null : normalizeOptionalString(base?.end_date ?? null)
 		);
 		const companyOverride = withNullableOverride(
 			item.company || null,
-			normalizeString(base.company) || null
+			normalizeString(base?.company ?? '') || null
 		);
 		const locationSvOverride = withNullableOverride(
 			item.location.sv || null,
@@ -540,7 +558,9 @@ const saveExperienceSection = async (
 			item.description.en || null,
 			baseDescription.en || null
 		);
-		const useTechOverride = !arrayShallowEqual(item.technologies, baseTech);
+		const useTechOverride = item.resolvedLibraryId
+			? !arrayShallowEqual(item.technologies, baseTech)
+			: true;
 
 		return {
 			resume_id: resumeId,
@@ -567,16 +587,16 @@ const saveExperienceSection = async (
 		.select('id, position');
 	if (insertSectionError) throw new Error(insertSectionError.message);
 
-	const insertedByPosition = new Map<number, number>();
+	const insertedByPosition = new Map<number, string>();
 	for (const row of insertedRows ?? []) {
 		const position = Number((row as { position: unknown }).position);
-		const id = Number((row as { id: unknown }).id);
-		if (!Number.isInteger(position) || !Number.isInteger(id)) continue;
+		const id = normalizeId((row as { id: unknown }).id);
+		if (!Number.isInteger(position) || !id) continue;
 		insertedByPosition.set(position, id);
 	}
 
 	const overrideRows: Array<{
-		resume_experience_item_id: number;
+		resume_experience_item_id: string;
 		position: number;
 		value: string;
 	}> = [];
@@ -584,8 +604,11 @@ const saveExperienceSection = async (
 		const insertedId = insertedByPosition.get(position);
 		if (!insertedId) continue;
 
-		const baseTech = libraryTechByExperienceId.get(normalizedItem.resolvedLibraryId) ?? [];
-		if (arrayShallowEqual(normalizedItem.technologies, baseTech)) continue;
+		if (normalizedItem.resolvedLibraryId) {
+			const baseTech = libraryTechByExperienceId.get(normalizedItem.resolvedLibraryId) ?? [];
+			if (arrayShallowEqual(normalizedItem.technologies, baseTech)) continue;
+		}
+		if (normalizedItem.technologies.length === 0) continue;
 
 		normalizedItem.technologies.forEach((value, techIndex) => {
 			overrideRows.push({
@@ -669,12 +692,18 @@ export const loadResumeData = async (
 	if (experienceItemsResult.error) throw new Error(experienceItemsResult.error.message);
 
 	const experienceItems = (experienceItemsResult.data ?? []) as ResumeExperienceRow[];
-	const experienceIds = Array.from(new Set(experienceItems.map((row) => row.experience_id)));
+	const experienceIds = Array.from(
+		new Set(
+			experienceItems
+				.map((row) => row.experience_id)
+				.filter((id): id is string => typeof id === 'string' && id.length > 0)
+		)
+	);
 	const experienceItemIds = experienceItems.map((row) => row.id);
 
-	const libraryById = new Map<number, ExperienceLibraryRow>();
-	const libraryTechByExperienceId = new Map<number, string[]>();
-	const overrideTechByItemId = new Map<number, string[]>();
+	const libraryById = new Map<string, ExperienceLibraryRow>();
+	const libraryTechByExperienceId = new Map<string, string[]>();
+	const overrideTechByItemId = new Map<string, string[]>();
 
 	if (experienceIds.length > 0) {
 		const { data: libraryRows, error: libraryError } = await adminClient
@@ -695,9 +724,9 @@ export const loadResumeData = async (
 			.order('position', { ascending: true });
 		if (libraryTechError) throw new Error(libraryTechError.message);
 		for (const row of libraryTechRows ?? []) {
-			const experienceId = Number((row as { experience_id: unknown }).experience_id);
+			const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
 			const value = normalizeString((row as { value: unknown }).value);
-			if (!Number.isInteger(experienceId) || experienceId <= 0 || !value) continue;
+			if (!experienceId || !value) continue;
 			const existing = libraryTechByExperienceId.get(experienceId) ?? [];
 			existing.push(value);
 			libraryTechByExperienceId.set(experienceId, existing);
@@ -712,11 +741,11 @@ export const loadResumeData = async (
 			.order('position', { ascending: true });
 		if (overrideError) throw new Error(overrideError.message);
 		for (const row of overrideRows ?? []) {
-			const itemId = Number(
+			const itemId = normalizeId(
 				(row as { resume_experience_item_id: unknown }).resume_experience_item_id
 			);
 			const value = normalizeString((row as { value: unknown }).value);
-			if (!Number.isInteger(itemId) || itemId <= 0 || !value) continue;
+			if (!itemId || !value) continue;
 			const existing = overrideTechByItemId.get(itemId) ?? [];
 			existing.push(value);
 			overrideTechByItemId.set(itemId, existing);
@@ -726,9 +755,10 @@ export const loadResumeData = async (
 	const highlightedExperiences = experienceItems
 		.filter((item) => item.section === 'highlighted')
 		.map((item) => {
+			const base = item.experience_id ? (libraryById.get(item.experience_id) ?? null) : null;
 			const formatted = formatExperienceItem(
 				item,
-				libraryById.get(item.experience_id) ?? null,
+				base,
 				libraryTechByExperienceId,
 				overrideTechByItemId
 			);
@@ -745,9 +775,10 @@ export const loadResumeData = async (
 	const experiences = experienceItems
 		.filter((item) => item.section === 'experience')
 		.map((item) => {
+			const base = item.experience_id ? (libraryById.get(item.experience_id) ?? null) : null;
 			const formatted = formatExperienceItem(
 				item,
-				libraryById.get(item.experience_id) ?? null,
+				base,
 				libraryTechByExperienceId,
 				overrideTechByItemId
 			);
@@ -929,11 +960,11 @@ export const listExperienceLibrary = async (
 		.order('position', { ascending: true });
 	if (techError) throw new Error(techError.message);
 
-	const techByExperienceId = new Map<number, string[]>();
+	const techByExperienceId = new Map<string, string[]>();
 	for (const row of techRows ?? []) {
-		const experienceId = Number((row as { experience_id: unknown }).experience_id);
+		const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
 		const value = normalizeString((row as { value: unknown }).value);
-		if (!Number.isInteger(experienceId) || experienceId <= 0 || !value) continue;
+		if (!experienceId || !value) continue;
 		const existing = techByExperienceId.get(experienceId) ?? [];
 		existing.push(value);
 		techByExperienceId.set(experienceId, existing);

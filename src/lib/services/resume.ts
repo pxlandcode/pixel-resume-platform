@@ -22,7 +22,7 @@ type TalentRow = {
 };
 
 type ResumeRow = {
-	id: string | number;
+	id: string;
 	talent_id: string;
 	version_name: string | null;
 	is_main: boolean | null;

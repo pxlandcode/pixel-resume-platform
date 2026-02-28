@@ -359,8 +359,28 @@
 		}
 	};
 
+	const setMainResume = async (resumeId: string) => {
+		if (!canEdit) return;
+		loading(true, 'Setting main resume...');
+		try {
+			const formData = new FormData();
+			formData.set('resume_id', resumeId);
+			const res = await fetch('?/setMainResume', { method: 'POST', body: formData });
+			if (res.ok) {
+				resumeList = resumeList.map((resume) => ({
+					...resume,
+					is_main: resume.id === resumeId
+				}));
+			}
+		} finally {
+			loading(false);
+		}
+	};
+
 	const deleteResume = async (resumeId: string) => {
 		if (!canEdit) return;
+		const resume = resumeList.find((item) => item.id === resumeId);
+		if (resume?.is_main) return;
 		loading(true, 'Deleting resume...');
 		try {
 			const formData = new FormData();
@@ -1346,6 +1366,19 @@
 						</div>
 						{#if canEdit}
 							<div class="flex items-center gap-1">
+								{#if !resume.is_main}
+									<button
+										type="button"
+										class="border-border text-muted-fg hover:bg-primary/10 hover:text-primary cursor-pointer rounded-md border px-2 py-1 text-xs font-medium transition-colors"
+										onclick={(e) => {
+											e.stopPropagation();
+											setMainResume(resume.id);
+										}}
+										title="Set as main resume"
+									>
+										Set main
+									</button>
+								{/if}
 								<button
 									type="button"
 									class="text-muted-fg hover:bg-primary/10 hover:text-primary cursor-pointer rounded-md p-2 transition-colors"
@@ -1357,20 +1390,22 @@
 								>
 									<Copy size={18} />
 								</button>
-								<button
-									type="button"
-									class="text-muted-fg cursor-pointer rounded-md p-2 transition-colors hover:bg-red-50 hover:text-red-600"
-									onclick={(e) => e.stopPropagation()}
-									title="Delete resume"
-									use:confirm={{
-										title: 'Delete resume?',
-										description: `Are you sure you want to delete "${resume.version_name}"? This cannot be undone.`,
-										actionLabel: 'Delete',
-										action: () => deleteResume(resume.id)
-									}}
-								>
-									<Trash2 size={18} />
-								</button>
+								{#if !resume.is_main}
+									<button
+										type="button"
+										class="text-muted-fg cursor-pointer rounded-md p-2 transition-colors hover:bg-red-50 hover:text-red-600"
+										onclick={(e) => e.stopPropagation()}
+										title="Delete resume"
+										use:confirm={{
+											title: 'Delete resume?',
+											description: `Are you sure you want to delete "${resume.version_name}"? This cannot be undone.`,
+											actionLabel: 'Delete',
+											action: () => deleteResume(resume.id)
+										}}
+									>
+										<Trash2 size={18} />
+									</button>
+								{/if}
 							</div>
 						{/if}
 					</div>

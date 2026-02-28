@@ -37,6 +37,17 @@ const getTargetTalentId = (formData: FormData, fallbackTalentId: string): string
 	return fallbackTalentId || null;
 };
 
+const normalizeId = (value: unknown): string | null => {
+	if (typeof value === 'string') {
+		const normalized = value.trim();
+		return normalized || null;
+	}
+	if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+		return String(value);
+	}
+	return null;
+};
+
 export const load: PageServerLoad = async ({ params, cookies }) => {
 	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
 	const supabase = createSupabaseServerClient(accessToken);
@@ -135,10 +146,10 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 
 	const resumeRows = resumesResult.data ?? [];
 	const resumeIds = resumeRows
-		.map((row) => Number(row.id))
-		.filter((id) => Number.isInteger(id) && id > 0);
+		.map((row) => normalizeId((row as { id: unknown }).id))
+		.filter((id): id is string => Boolean(id));
 
-	const basicsByResumeId = new Map<number, { title_en: string | null; title_sv: string | null }>();
+	const basicsByResumeId = new Map<string, { title_en: string | null; title_sv: string | null }>();
 	if (resumeIds.length > 0) {
 		const { data: basicsRows, error: basicsError } = await adminClient
 			.from('resume_basics')
@@ -150,8 +161,8 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 		}
 
 		for (const row of basicsRows ?? []) {
-			const resumeId = Number((row as { resume_id: unknown }).resume_id);
-			if (!Number.isInteger(resumeId)) continue;
+			const resumeId = normalizeId((row as { resume_id: unknown }).resume_id);
+			if (!resumeId) continue;
 			basicsByResumeId.set(resumeId, {
 				title_en:
 					typeof (row as { title_en?: unknown }).title_en === 'string'
@@ -166,12 +177,13 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 	}
 
 	const resumes = resumeRows.map((resume) => {
-		const basic = basicsByResumeId.get(Number(resume.id));
+		const resumeId = normalizeId((resume as { id: unknown }).id) ?? '';
+		const basic = basicsByResumeId.get(resumeId);
 		const displayVersionName =
 			basic?.title_en?.trim() || basic?.title_sv?.trim() || resume.version_name || 'Main';
 
 		return {
-			id: String(resume.id),
+			id: resumeId,
 			talent_id: resume.talent_id,
 			version_name: displayVersionName,
 			is_main: Boolean(resume.is_main),
@@ -403,6 +415,63 @@ export const actions: Actions = {
 
 		return { ok: true };
 	},
+	setMainResume: async ({ request, cookies, params }) => {
+		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+		const adminClient = getSupabaseAdminClient();
+
+		if (!supabase || !adminClient) {
+			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+
+		const formData = await request.formData();
+		const resumeId = formData.get('resume_id');
+		const talentId = params.personId;
+
+		if (typeof resumeId !== 'string') {
+			return fail(400, { ok: false, message: 'Invalid resume id' });
+		}
+
+		const { canEdit } = await getResumeEditPermissions(supabase, adminClient, talentId);
+		if (!canEdit) {
+			return fail(403, { ok: false, message: 'Not authorized to edit resumes for this talent' });
+		}
+
+		const { data: existing, error: existingError } = await adminClient
+			.from('resumes')
+			.select('id, talent_id, is_main')
+			.eq('id', resumeId)
+			.eq('talent_id', talentId)
+			.maybeSingle();
+
+		if (existingError) {
+			return fail(500, { ok: false, message: existingError.message });
+		}
+		if (!existing) {
+			return fail(404, { ok: false, message: 'Resume not found' });
+		}
+		if (existing.is_main) {
+			return { ok: true };
+		}
+
+		const { error: clearMainError } = await adminClient
+			.from('resumes')
+			.update({ is_main: false })
+			.eq('talent_id', talentId);
+		if (clearMainError) {
+			return fail(500, { ok: false, message: clearMainError.message });
+		}
+
+		const { error: setMainError } = await adminClient
+			.from('resumes')
+			.update({ is_main: true })
+			.eq('id', resumeId)
+			.eq('talent_id', talentId);
+		if (setMainError) {
+			return fail(500, { ok: false, message: setMainError.message });
+		}
+
+		return { ok: true };
+	},
 
 	copyResume: async ({ request, cookies, params }) => {
 		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
@@ -511,6 +580,12 @@ export const actions: Actions = {
 		if (!existing) {
 			return fail(404, { ok: false, message: 'Resume not found' });
 		}
+		if (existing.is_main) {
+			return fail(400, {
+				ok: false,
+				message: 'Main resume cannot be deleted. Set another resume as main first.'
+			});
+		}
 
 		const { error } = await adminClient
 			.from('resumes')
@@ -520,19 +595,6 @@ export const actions: Actions = {
 
 		if (error) {
 			return fail(500, { ok: false, message: error.message });
-		}
-
-		if (existing.is_main) {
-			const { data: remaining } = await adminClient
-				.from('resumes')
-				.select('id')
-				.eq('talent_id', talentId)
-				.order('created_at', { ascending: false })
-				.limit(1);
-
-			if (remaining && remaining.length > 0) {
-				await adminClient.from('resumes').update({ is_main: true }).eq('id', remaining[0].id);
-			}
 		}
 
 		return { ok: true };

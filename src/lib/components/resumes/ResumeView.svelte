@@ -469,6 +469,7 @@
 	const addExperience = () => {
 		const newExp: ExperienceItem = {
 			_id: crypto.randomUUID(),
+			saveToLibrary: false,
 			startDate: '',
 			endDate: '',
 			company: '',
@@ -486,6 +487,7 @@
 		const newExp: ExperienceItem = {
 			_id: crypto.randomUUID(),
 			libraryId: selected.id,
+			saveToLibrary: true,
 			startDate: selected.startDate ?? '',
 			endDate: selected.endDate ?? '',
 			company: selected.company ?? '',
@@ -520,6 +522,7 @@
 	const addHighlightedExperience = () => {
 		const newExp: HighlightedExperience = {
 			_id: crypto.randomUUID(),
+			saveToLibrary: false,
 			company: '',
 			role: { sv: '', en: '' },
 			description: { sv: '', en: '' },
@@ -534,6 +537,7 @@
 		const newExp: HighlightedExperience = {
 			_id: crypto.randomUUID(),
 			libraryId: selected.id,
+			saveToLibrary: true,
 			company: selected.company ?? '',
 			role: selected.role ?? { sv: '', en: '' },
 			description: selected.description ?? { sv: '', en: '' },
