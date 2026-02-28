@@ -6,6 +6,7 @@ export const BRANDING_COLOR_KEYS = [
 	'background',
 	'foreground',
 	'text',
+	'secondaryText',
 	'card',
 	'cardForeground',
 	'border',
@@ -27,12 +28,13 @@ const DEFAULT_LIGHT_PALETTE: OrganisationBrandingPalette = {
 	background: '#F6F8FB',
 	foreground: '#0F172A',
 	text: '#0F172A',
+	secondaryText: '#2E333A',
 	card: '#FFFFFF',
 	cardForeground: '#0F172A',
 	border: '#E2E8F0',
 	input: '#FFFFFF',
 	muted: '#EDF2F7',
-	mutedForeground: '#64748B'
+	mutedForeground: '#2e333a'
 };
 
 const DEFAULT_DARK_PALETTE: OrganisationBrandingPalette = {
@@ -40,6 +42,7 @@ const DEFAULT_DARK_PALETTE: OrganisationBrandingPalette = {
 	background: '#0F0F11',
 	foreground: '#F5F6F8',
 	text: '#F0F0F0',
+	secondaryText: '#94A3B8',
 	card: '#121316',
 	cardForeground: '#F5F6F8',
 	border: '#334155',
@@ -58,6 +61,13 @@ const COLOR_ALIASES: Record<OrganisationBrandingColorKey, string[]> = {
 	background: ['background', 'colorBackground', '--color-background'],
 	foreground: ['foreground', 'colorForeground', '--color-foreground'],
 	text: ['text', 'colorText', '--color-text'],
+	secondaryText: [
+		'secondaryText',
+		'secondary',
+		'colorSecondaryText',
+		'--color-secondary-text',
+		'--color-secondary'
+	],
 	card: ['card', 'cardBg', 'colorCard', '--color-card', '--color-card-bg'],
 	cardForeground: ['cardForeground', 'colorCardForeground', '--color-card-fg'],
 	border: ['border', 'cardBorder', 'colorBorder', '--color-border', '--color-card-border'],
@@ -71,6 +81,7 @@ const CSS_SUFFIX_BY_KEY: Record<OrganisationBrandingColorKey, string> = {
 	background: 'background',
 	foreground: 'foreground',
 	text: 'text',
+	secondaryText: 'secondary-text',
 	card: 'card',
 	cardForeground: 'card-fg',
 	border: 'border',
@@ -189,9 +200,10 @@ export const organisationBrandingThemeToVarEntries = (
 	theme: OrganisationBrandingTheme
 ): Array<[name: string, value: string]> =>
 	BRANDING_MODES.flatMap((mode) =>
-		BRANDING_COLOR_KEYS.map(
-			(key): [string, string] => [`--org-${mode}-${CSS_SUFFIX_BY_KEY[key]}`, theme[mode][key]]
-		)
+		BRANDING_COLOR_KEYS.map((key): [string, string] => [
+			`--org-${mode}-${CSS_SUFFIX_BY_KEY[key]}`,
+			theme[mode][key]
+		])
 	);
 
 export const organisationBrandingThemeToInlineStyle = (theme: OrganisationBrandingTheme): string =>

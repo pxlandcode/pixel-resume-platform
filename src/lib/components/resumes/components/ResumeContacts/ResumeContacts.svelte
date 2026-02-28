@@ -20,7 +20,7 @@
 
 {#if isEditing}
 	<div class="space-y-3 rounded-xs border border-border bg-muted p-4">
-		<p class="text-xs font-semibold tracking-wide text-muted-fg uppercase">Contacts</p>
+		<p class="text-xs font-semibold tracking-wide text-secondary-text uppercase">Contacts</p>
 		{#each contacts as contact, index}
 			<div class="space-y-2 rounded-xs border border-border bg-card p-3">
 				<div class="flex justify-end">
@@ -60,14 +60,14 @@
 	<div class="flex-shrink-0 space-y-3 rounded-xs bg-muted p-4">
 		{#each contacts as contact}
 			<div class="space-y-1">
-				<p class="text-xs font-semibold tracking-wide text-muted-fg uppercase">
+				<p class="text-xs font-semibold tracking-wide text-secondary-text uppercase">
 					{language === 'sv' ? 'Kontakt' : 'Contact'}
 				</p>
 				<div class="space-y-2 text-sm text-foreground">
 					<div class="leading-tight">
 						<p class="text-sm font-medium">{contact.name}</p>
-						{#if contact.phone}<p class="text-xs text-muted-fg">{contact.phone}</p>{/if}
-						{#if contact.email}<p class="text-xs text-muted-fg">{contact.email}</p>{/if}
+						{#if contact.phone}<p class="text-xs text-secondary-text">{contact.phone}</p>{/if}
+						{#if contact.email}<p class="text-xs text-secondary-text">{contact.email}</p>{/if}
 					</div>
 				</div>
 			</div>

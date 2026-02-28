@@ -6,12 +6,14 @@
 	--color-background: var(--org-light-background, #f7f8fb);
 	--color-foreground: var(--org-light-foreground, #0f172a);
 	--color-text: var(--org-light-text, #0f172a);
+	--color-secondary-text: var(--org-light-secondary-text, #2e333a);
+	--color-secondary: var(--org-light-secondary-text, #2e333a);
 	--color-card: var(--org-light-card, #ffffff);
 	--color-card-fg: var(--org-light-card-fg, #0f172a);
 	--color-border: var(--org-light-border, #e2e8f0);
 	--color-input: var(--org-light-input, #ffffff);
 	--color-muted: var(--org-light-muted, #edf2f7);
-	--color-muted-fg: var(--org-light-muted-fg, #64748b);
+	--color-muted-fg: var(--org-light-muted-fg, #2e333a);
 	--color-card-bg: var(--color-card);
 	--color-card-border: var(--color-border);
 	--font-sans: 'Montserrat', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
@@ -36,6 +38,8 @@ body {
 	--color-background: var(--org-dark-background, #0f0f11);
 	--color-foreground: var(--org-dark-foreground, #f5f6f8);
 	--color-text: var(--org-dark-text, #f0f0f0);
+	--color-secondary-text: var(--org-dark-secondary-text, #94a3b8);
+	--color-secondary: var(--org-dark-secondary-text, #94a3b8);
 	--color-card: var(--org-dark-card, #121316);
 	--color-card-fg: var(--org-dark-card-fg, #f5f6f8);
 	--color-border: var(--org-dark-border, #334155);

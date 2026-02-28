@@ -117,7 +117,7 @@
 							activePath
 						)
 							? 'bg-primary/10 text-primary'
-							: 'text-muted-fg hover:bg-muted/60 hover:text-foreground'}"
+							: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'}"
 					>
 						{item.label}
 					</a>

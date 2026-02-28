@@ -143,30 +143,30 @@
 
 	{#if isEditing}
 		<div class="rounded-xs border border-border bg-muted p-4">
-			<h3 class="mb-4 text-sm font-semibold text-muted-fg">Highlighted Experiences</h3>
+			<h3 class="mb-4 text-sm font-semibold text-secondary-text">Highlighted Experiences</h3>
 			<div class="mb-4 flex gap-2">
 				<Button
 					variant="outline"
-					class="flex-1 border-dashed border-border text-muted-fg hover:bg-card"
+					class="flex-1 border-dashed border-border text-secondary-text hover:bg-card"
 					onclick={onAdd}
 				>
 					+ Add Highlighted Experience
 				</Button>
 				<Button
 					variant="outline"
-					class="border-border text-muted-fg hover:bg-card"
+					class="border-border text-secondary-text hover:bg-card"
 					onclick={() => (showLibraryPicker = !showLibraryPicker)}
 				>
 					Add from Library
 				</Button>
-				<Button variant="ghost" size="sm" class="text-muted-fg" onclick={toggleAll}>
+				<Button variant="ghost" size="sm" class="text-secondary-text" onclick={toggleAll}>
 					{allCollapsed ? 'Expand All' : 'Collapse All'}
 				</Button>
 			</div>
 			{#if showLibraryPicker}
 				<div class="rounded-xs mb-4 border border-border bg-muted p-3">
 					<div class="mb-2 flex items-center justify-between gap-2">
-						<p class="text-xs font-semibold uppercase tracking-wide text-muted-fg">
+						<p class="text-xs font-semibold uppercase tracking-wide text-secondary-text">
 							Experience Library
 						</p>
 						<Button variant="ghost" size="sm" onclick={() => (showLibraryPicker = false)}>
@@ -180,7 +180,7 @@
 					/>
 					<div class="max-h-56 space-y-2 overflow-auto">
 						{#if filteredLibraryExperiences.length === 0}
-							<p class="text-sm text-muted-fg">No saved experiences found.</p>
+							<p class="text-sm text-secondary-text">No saved experiences found.</p>
 						{:else}
 							{#each filteredLibraryExperiences as entry (entry.id)}
 								<div
@@ -190,7 +190,7 @@
 										<p class="truncate text-sm font-semibold text-foreground">
 											{entry.company || 'Untitled'}
 										</p>
-										<p class="truncate text-xs text-muted-fg">
+										<p class="truncate text-xs text-secondary-text">
 											{getLocalizedValue(entry.role, language) ||
 												getLocalizedValue(entry.role, 'en')}
 										</p>
@@ -225,7 +225,7 @@
 						>
 							<div class="flex min-w-0 flex-1 items-center gap-2">
 								<div
-									class="flex-shrink-0 cursor-grab rounded p-1 text-muted-fg hover:bg-muted hover:text-foreground active:cursor-grabbing"
+									class="flex-shrink-0 cursor-grab rounded p-1 text-secondary-text hover:bg-muted hover:text-foreground active:cursor-grabbing"
 									draggable="true"
 									ondragstart={handleDragStart(index)}
 									ondragend={handleDragEnd}
@@ -257,7 +257,7 @@
 									</svg>
 								</div>
 								<button
-									class="flex-shrink-0 rounded p-1 text-muted-fg hover:bg-muted hover:text-foreground"
+									class="flex-shrink-0 rounded p-1 text-secondary-text hover:bg-muted hover:text-foreground"
 									onclick={() => toggleExpanded(exp._id ?? '')}
 									aria-label={isExpanded(exp._id) ? 'Collapse' : 'Expand'}
 								>
@@ -277,11 +277,11 @@
 									</svg>
 								</button>
 								<div class="min-w-0 flex-1">
-									<span class="truncate font-semibold text-muted-fg">
+									<span class="truncate font-semibold text-secondary-text">
 										{exp.company || `Experience ${index + 1}`}
 									</span>
 									{#if exp.hidden}
-										<span class="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-fg">
+										<span class="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-text">
 											Hidden
 										</span>
 									{/if}
@@ -399,7 +399,7 @@
 									</FormControl>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-muted-fg"
+									<label class="mb-1 block text-sm font-medium text-secondary-text"
 										>Description (SV)</label
 									>
 									<div class="rounded-xs border border-border bg-card">
@@ -414,7 +414,7 @@
 									</div>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-muted-fg"
+									<label class="mb-1 block text-sm font-medium text-secondary-text"
 										>Description (EN)</label
 									>
 									<div class="rounded-xs border border-border bg-card">
@@ -429,7 +429,7 @@
 									</div>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-muted-fg"
+									<label class="mb-1 block text-sm font-medium text-secondary-text"
 										>Key Technologies</label
 									>
 									<TechStackSelector
@@ -448,15 +448,15 @@
 			<div class="border-primary space-y-3 border-l pl-4">
 				<div>
 					<p class="text-sm font-semibold text-foreground">{exp.company}</p>
-					<p class="text-sm italic text-muted-fg">{t(exp.role, language)}</p>
+					<p class="text-sm italic text-secondary-text">{t(exp.role, language)}</p>
 				</div>
-				<div class="experience-description text-sm leading-relaxed text-muted-fg">
+				<div class="experience-description text-sm leading-relaxed text-secondary-text">
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 					{@html t(exp.description, language)}
 				</div>
 				{#if exp.technologies.length > 0}
 					<div class="space-y-1">
-						<p class="text-xs font-semibold uppercase tracking-wide text-muted-fg">
+						<p class="text-xs font-semibold uppercase tracking-wide text-secondary-text">
 							{language === 'sv' ? 'Nyckeltekniker' : 'Key Technologies'}
 						</p>
 						<div class="flex flex-wrap gap-2">

@@ -154,26 +154,26 @@
 				<div class="flex gap-2">
 					<Button
 						variant="outline"
-						class="flex-1 border-dashed border-border text-muted-fg hover:bg-muted"
+						class="flex-1 border-dashed border-border text-secondary-text hover:bg-muted"
 						onclick={onAdd}
 					>
 						+ Add Experience
 					</Button>
 					<Button
 						variant="outline"
-						class="border-border text-muted-fg hover:bg-muted"
+						class="border-border text-secondary-text hover:bg-muted"
 						onclick={() => (showLibraryPicker = !showLibraryPicker)}
 					>
 						Add from Library
 					</Button>
-					<Button variant="ghost" size="sm" class="text-muted-fg" onclick={toggleAll}>
+					<Button variant="ghost" size="sm" class="text-secondary-text" onclick={toggleAll}>
 						{allCollapsed ? 'Expand All' : 'Collapse All'}
 					</Button>
 				</div>
 				{#if showLibraryPicker}
 					<div class="rounded-xs border border-border bg-card p-3">
 						<div class="mb-2 flex items-center justify-between gap-2">
-							<p class="text-xs font-semibold uppercase tracking-wide text-muted-fg">
+							<p class="text-xs font-semibold uppercase tracking-wide text-secondary-text">
 								Experience Library
 							</p>
 							<Button variant="ghost" size="sm" onclick={() => (showLibraryPicker = false)}>
@@ -187,7 +187,7 @@
 						/>
 						<div class="max-h-56 space-y-2 overflow-auto">
 							{#if filteredLibraryExperiences.length === 0}
-								<p class="text-sm text-muted-fg">No saved experiences found.</p>
+								<p class="text-sm text-secondary-text">No saved experiences found.</p>
 							{:else}
 								{#each filteredLibraryExperiences as entry (entry.id)}
 									<div
@@ -197,7 +197,7 @@
 											<p class="truncate text-sm font-semibold text-foreground">
 												{entry.company || 'Untitled'}
 											</p>
-											<p class="truncate text-xs text-muted-fg">
+											<p class="truncate text-xs text-secondary-text">
 												{getLocalizedValue(entry.role, language) ||
 													getLocalizedValue(entry.role, 'en')}
 											</p>
@@ -237,7 +237,7 @@
 							<div class="flex min-w-0 flex-1 items-center gap-2">
 								<!-- Drag handle -->
 								<div
-									class="flex-shrink-0 cursor-grab rounded p-1 text-muted-fg hover:bg-muted hover:text-foreground active:cursor-grabbing"
+									class="flex-shrink-0 cursor-grab rounded p-1 text-secondary-text hover:bg-muted hover:text-foreground active:cursor-grabbing"
 									draggable="true"
 									ondragstart={handleDragStart(index)}
 									ondragend={handleDragEnd}
@@ -270,7 +270,7 @@
 								</div>
 								<!-- Expand/Collapse button -->
 								<button
-									class="flex-shrink-0 rounded p-1 text-muted-fg hover:bg-muted hover:text-foreground"
+									class="flex-shrink-0 rounded p-1 text-secondary-text hover:bg-muted hover:text-foreground"
 									onclick={() => toggleExpanded(exp._id ?? '')}
 									aria-label={isExpanded(exp._id) ? 'Collapse' : 'Expand'}
 								>
@@ -291,14 +291,14 @@
 								</button>
 								<!-- Company and dates -->
 								<div class="min-w-0 flex-1">
-									<span class="truncate font-semibold text-muted-fg">
+									<span class="truncate font-semibold text-secondary-text">
 										{exp.company || `Experience ${index + 1}`}
 									</span>
-									<span class="ml-2 text-sm text-muted-fg">
+									<span class="ml-2 text-sm text-secondary-text">
 										{exp.startDate || '...'} - {exp.endDate || 'Present'}
 									</span>
 									{#if exp.hidden}
-										<span class="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-fg">
+										<span class="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-text">
 											Hidden
 										</span>
 									{/if}
@@ -486,7 +486,7 @@
 									</FormControl>
 								</div>
 								<div>
-									<p class="mb-1 text-sm font-medium text-muted-fg">Description (SV)</p>
+									<p class="mb-1 text-sm font-medium text-secondary-text">Description (SV)</p>
 									<div class="rounded-xs border border-border bg-card">
 										{#key `sv-${rowId}-${getDescriptionRevision(rowId)}`}
 											<QuillEditor
@@ -499,7 +499,7 @@
 									</div>
 								</div>
 								<div>
-									<p class="mb-1 text-sm font-medium text-muted-fg">Description (EN)</p>
+									<p class="mb-1 text-sm font-medium text-secondary-text">Description (EN)</p>
 									<div class="rounded-xs border border-border bg-card">
 										{#key `en-${rowId}-${getDescriptionRevision(rowId)}`}
 											<QuillEditor
@@ -512,7 +512,7 @@
 									</div>
 								</div>
 								<div>
-									<p class="mb-1 text-sm font-medium text-muted-fg">Key Technologies</p>
+									<p class="mb-1 text-sm font-medium text-secondary-text">Key Technologies</p>
 									<TechStackSelector
 										bind:value={exp.technologies}
 										onchange={(techs) => (exp.technologies = techs ?? [])}
@@ -534,7 +534,7 @@
 							</p>
 							<p class="text-sm font-semibold text-foreground">{exp.company}</p>
 							{#if exp.location}
-								<p class="text-sm text-muted-fg">{t(exp.location, language)}</p>
+								<p class="text-sm text-secondary-text">{t(exp.location, language)}</p>
 							{/if}
 						</div>
 
@@ -544,7 +544,7 @@
 								{t(exp.role, language)}
 							</h3>
 							<div
-								class="hyphens-auto break-words text-sm leading-relaxed text-muted-fg"
+								class="hyphens-auto break-words text-sm leading-relaxed text-secondary-text"
 								lang="en"
 							>
 								<!-- eslint-disable-next-line svelte/no-at-html-tags -->

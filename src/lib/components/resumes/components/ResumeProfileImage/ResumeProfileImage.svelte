@@ -33,7 +33,7 @@
 			decoding="async"
 		/>
 	{:else}
-		<div class="absolute inset-0 flex items-center justify-center bg-muted text-muted-fg">
+		<div class="absolute inset-0 flex items-center justify-center bg-muted text-secondary-text">
 			<svg
 				xmlns="http://www.w3.org/2000/svg"
 				class="h-20 w-20"

@@ -219,7 +219,7 @@ const DOC_STYLES = `
 	.resume-doc { max-width: 900px; margin: 0 auto; }
 	section { margin-bottom: 18px; }
 	.card { border: 1px solid #e2e8f0; padding: 12px; margin-bottom: 10px; border-radius: 6px; }
-	.muted { color: #64748b; font-size: 12px; }
+	.muted { color: #2e333a; font-size: 12px; }
 	a { color: #2563eb; text-decoration: none; }
 	a:hover { text-decoration: underline; }
 </style>

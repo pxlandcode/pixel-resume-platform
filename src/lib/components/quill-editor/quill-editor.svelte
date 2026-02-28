@@ -136,7 +136,7 @@
 		border-color: var(--color-primary, #f35b3f) !important;
 		padding-left: 0.75rem; /* pl-3 */
 		font-size: 0.875rem; /* text-sm */
-		color: var(--color-muted-fg, #64748b) !important;
+		color: var(--color-muted-fg, #2e333a) !important;
 		font-style: italic;
 		margin-top: 0.5rem;
 		margin-bottom: 0.5rem;

@@ -351,7 +351,7 @@
 						type="button"
 						class={activeLanguage === 'sv'
 							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating || creatingFromResume}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -364,7 +364,7 @@
 						type="button"
 						class={activeLanguage === 'en'
 							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating || creatingFromResume}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -436,7 +436,7 @@
 
 			{#if showSummaryPanel}
 				<div class="space-y-1">
-					<label class="text-xs font-medium text-muted-fg"
+					<label class="text-xs font-medium text-secondary-text"
 						>Summary ({activeLanguage.toUpperCase()})</label
 					>
 					<div class="rounded-xs border border-border bg-card">

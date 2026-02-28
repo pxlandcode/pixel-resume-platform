@@ -332,7 +332,7 @@
 
 	const getInputClass = (field: ResumeAiFieldKey) =>
 		isLocked(field)
-			? 'border-border bg-muted text-muted-fg'
+			? 'border-border bg-muted text-secondary-text'
 			: 'border-border bg-card text-foreground';
 
 	const handleBodyWheel = (event: WheelEvent) => {
@@ -655,7 +655,7 @@
 						type="button"
 						class={activeLanguage === 'sv'
 							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -668,7 +668,7 @@
 						type="button"
 						class={activeLanguage === 'en'
 							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -678,7 +678,7 @@
 						EN
 					</button>
 				</div>
-				<p class="text-xs text-muted-fg">
+				<p class="text-xs text-secondary-text">
 					{showFieldPanel
 						? 'Locked fields and description still guide AI context.'
 						: 'Fields and description appear after first generation.'}
@@ -736,7 +736,7 @@
 			{#if showFieldPanel}
 				<div class="rounded-xs grid gap-3 border border-border bg-muted p-3">
 					<div class="flex items-center justify-between gap-3">
-						<p class="text-sm font-medium text-muted-fg">Fields</p>
+						<p class="text-sm font-medium text-secondary-text">Fields</p>
 						<div class="flex gap-2">
 							<Button type="button" size="sm" variant="ghost" onclick={unlockAllVisibleFields}
 								>Unlock all</Button
@@ -746,16 +746,16 @@
 							>
 						</div>
 					</div>
-					<p class="text-xs text-muted-fg">
+					<p class="text-xs text-secondary-text">
 						AI can only update unlocked fields. Locked fields remain unchanged.
 					</p>
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-muted-fg">Company</label>
+							<label class="text-xs font-medium text-secondary-text">Company</label>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-fg hover:bg-muted"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => toggleFieldLock('company')}
 							>
 								{#if isLocked('company')}
@@ -777,12 +777,12 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-muted-fg"
+							<label class="text-xs font-medium text-secondary-text"
 								>Role ({activeLanguage.toUpperCase()})</label
 							>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-fg hover:bg-muted"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => toggleFieldLock('role')}
 							>
 								{#if isLocked('role')}
@@ -806,12 +806,12 @@
 					{#if sectionType === 'experience'}
 						<div class="space-y-1">
 							<div class="flex items-center justify-between gap-3">
-								<label class="text-xs font-medium text-muted-fg"
+								<label class="text-xs font-medium text-secondary-text"
 									>Location ({activeLanguage.toUpperCase()})</label
 								>
 								<button
 									type="button"
-									class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-fg hover:bg-muted"
+									class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 									onclick={() => toggleFieldLock('location')}
 								>
 									{#if isLocked('location')}
@@ -835,10 +835,10 @@
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
 								<div class="flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-muted-fg">Start Date (YYYY-MM-DD)</label>
+									<label class="text-xs font-medium text-secondary-text">Start Date (YYYY-MM-DD)</label>
 									<button
 										type="button"
-										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-fg hover:bg-muted"
+										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 										onclick={() => toggleFieldLock('startDate')}
 									>
 										{#if isLocked('startDate')}
@@ -859,12 +859,12 @@
 							</div>
 							<div class="space-y-1">
 								<div class="flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-muted-fg"
+									<label class="text-xs font-medium text-secondary-text"
 										>End Date (empty = Present)</label
 									>
 									<button
 										type="button"
-										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-fg hover:bg-muted"
+										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 										onclick={() => toggleFieldLock('endDate')}
 									>
 										{#if isLocked('endDate')}
@@ -893,12 +893,12 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-muted-fg"
+							<label class="text-xs font-medium text-secondary-text"
 								>Description ({activeLanguage.toUpperCase()})</label
 							>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-fg hover:bg-muted"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => (descriptionLocked = !descriptionLocked)}
 							>
 								{#if descriptionLocked}
@@ -912,17 +912,17 @@
 						</div>
 						<div
 							class={descriptionLocked
-								? 'rounded-xs border border-border bg-muted text-muted-fg'
+								? 'rounded-xs border border-border bg-muted text-secondary-text'
 								: 'rounded-xs border border-border bg-card'}
 						>
 							{#if descriptionLocked}
 								{#if normalizeDescription(draftByLanguage[activeLanguage])}
-									<div class="p-3 text-sm text-muted-fg">
+									<div class="p-3 text-sm text-secondary-text">
 										<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 										{@html draftByLanguage[activeLanguage]}
 									</div>
 								{:else}
-									<p class="p-3 text-sm text-muted-fg">No description yet.</p>
+									<p class="p-3 text-sm text-secondary-text">No description yet.</p>
 								{/if}
 							{:else}
 								{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}`}
@@ -939,10 +939,10 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-muted-fg">Key Technologies</label>
+							<label class="text-xs font-medium text-secondary-text">Key Technologies</label>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-fg hover:bg-muted"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => toggleFieldLock('technologies')}
 							>
 								{#if isLocked('technologies')}

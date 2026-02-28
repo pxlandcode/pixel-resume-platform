@@ -809,7 +809,7 @@
 				alt="Brand accent logo"
 				loading="lazy"
 			/>
-			<p class="text-muted-fg pb-1 text-xs">{resolvedHomepage}</p>
+			<p class="text-foreground pb-1 text-xs">{resolvedHomepage}</p>
 		</div>
 	</div>
 </div>

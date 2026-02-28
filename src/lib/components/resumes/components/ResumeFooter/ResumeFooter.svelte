@@ -16,7 +16,7 @@
 
 {#if isEditing}
 	<div class="mt-8 rounded-xs border border-border bg-muted p-4">
-		<p class="mb-2 text-sm font-semibold text-muted-fg">Footer Note</p>
+		<p class="mb-2 text-sm font-semibold text-secondary-text">Footer Note</p>
 		<div class="grid grid-cols-2 gap-4">
 			<Input
 				value={getLocalizedValue(footerNote ?? '', 'sv')}
@@ -35,7 +35,7 @@
 		</div>
 	</div>
 {:else if footerNote}
-	<div class="mt-8 border-t border-border pt-4 text-center text-sm text-muted-fg italic">
+	<div class="mt-8 border-t border-border pt-4 text-center text-sm text-secondary-text italic">
 		{t(footerNote, language)}
 	</div>
 {/if}

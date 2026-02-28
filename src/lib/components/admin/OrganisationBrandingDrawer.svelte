@@ -48,12 +48,16 @@
 		background: { label: 'Background', description: 'Page and app background tone.' },
 		foreground: { label: 'Foreground', description: 'Base foreground color for content.' },
 		text: { label: 'Text', description: 'Main text color.' },
+		secondaryText: {
+			label: 'Secondary text',
+			description: 'Color for supporting and secondary text.'
+		},
 		card: { label: 'Card background', description: 'Surface color for cards and panels.' },
 		cardForeground: { label: 'Card text', description: 'Text color shown on cards.' },
 		border: { label: 'Border', description: 'Borders and separators.' },
 		input: { label: 'Input background', description: 'Background color for form fields.' },
 		muted: { label: 'Muted background', description: 'Muted sections and subtle backgrounds.' },
-		mutedForeground: { label: 'Muted text', description: 'Secondary text color.' }
+		mutedForeground: { label: 'Muted text', description: 'Hint and muted label text color.' }
 	};
 
 	const brandingColorFields = BRANDING_COLOR_KEYS.map((key) => ({

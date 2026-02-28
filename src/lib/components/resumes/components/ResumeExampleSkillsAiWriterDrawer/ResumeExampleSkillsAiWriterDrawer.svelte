@@ -232,7 +232,7 @@
 						type="button"
 						class={activeLanguage === 'sv'
 							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={isBusy}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -245,7 +245,7 @@
 						type="button"
 						class={activeLanguage === 'en'
 							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-fg'}
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={isBusy}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -255,7 +255,7 @@
 						EN
 					</button>
 				</div>
-				<p class="text-xs text-muted-fg">AI uses resume experiences + skill profile as evidence</p>
+				<p class="text-xs text-secondary-text">AI uses resume experiences + skill profile as evidence</p>
 			</div>
 
 			<FormControl label="Prompt / relevance context">
@@ -308,10 +308,10 @@
 
 			<div class="rounded-xs border border-border bg-muted p-4">
 				<div class="mb-2 flex items-center justify-between gap-2">
-					<p class="text-xs font-semibold uppercase tracking-wide text-muted-fg">
+					<p class="text-xs font-semibold uppercase tracking-wide text-secondary-text">
 						Draft skills ({draftSkills.length})
 					</p>
-					<p class="text-xs text-muted-fg">Adjust before applying</p>
+					<p class="text-xs text-secondary-text">Adjust before applying</p>
 				</div>
 				<TechStackSelector
 					bind:value={draftSkills}

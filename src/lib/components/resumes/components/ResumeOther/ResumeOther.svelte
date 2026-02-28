@@ -46,7 +46,7 @@
 			{#if isEditing}
 				<!-- Languages Editor -->
 				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-muted-fg">
+					<p class="mb-2 text-sm font-semibold text-secondary-text">
 						{language === 'sv' ? 'Språk' : 'Languages'}
 					</p>
 					<div class="space-y-3">
@@ -99,7 +99,7 @@
 
 				<!-- Education Editor -->
 				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-muted-fg">
+					<p class="mb-2 text-sm font-semibold text-secondary-text">
 						{language === 'sv' ? 'Utbildning' : 'Education'}
 					</p>
 					<div class="space-y-3">
@@ -142,7 +142,7 @@
 
 				<!-- Portfolio Editor -->
 				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-muted-fg">Portfolio</p>
+					<p class="mb-2 text-sm font-semibold text-secondary-text">Portfolio</p>
 					<div class="space-y-2">
 						{#each portfolio ?? [] as url, index}
 							<div class="flex gap-2">
@@ -166,7 +166,7 @@
 				{#if languages.length > 0}
 					<!-- Languages Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-muted-fg uppercase">
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
 							{language === 'sv' ? 'Språk' : 'Languages'}
 						</p>
 						<div class="flex flex-col gap-1 text-sm text-foreground">
@@ -185,7 +185,7 @@
 				{#if education.length > 0}
 					<!-- Education Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-muted-fg uppercase">
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
 							{language === 'sv' ? 'Utbildning' : 'Education'}
 						</p>
 						<div class="flex flex-col gap-1 text-sm text-foreground">
@@ -202,7 +202,7 @@
 				{#if portfolio && portfolio.length > 0}
 					<!-- Portfolio Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-muted-fg uppercase">Portfolio</p>
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">Portfolio</p>
 						<div class="flex flex-wrap gap-2 text-sm text-foreground">
 							{#each portfolio as url}
 								<a

@@ -75,7 +75,7 @@
 		<div class="mt-4 space-y-4">
 			{#if isEditing}
 				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-muted-fg">
+					<p class="mb-2 text-sm font-semibold text-secondary-text">
 						{language === 'sv'
 							? 'Teknikstack (ändra och dra/ släpp kategorier och skills)'
 							: 'Tech stack (drag/drop between categories)'}
@@ -85,7 +85,7 @@
 			{:else}
 				{#each displayCategories() as category (category.id)}
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-muted-fg uppercase">
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
 							{labelFor(category.name, language)}
 						</p>
 						<div class="flex flex-wrap gap-2">
