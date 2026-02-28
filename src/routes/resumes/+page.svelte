@@ -81,17 +81,17 @@
 	}
 </script>
 
-<div class="">
-	<div class="mb-12 flex items-start justify-between gap-4">
+<div class="space-y-6">
+	<header class="flex items-center justify-between gap-4">
 		<div>
 			<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Resumes</h1>
-			<p class="text-muted-fg mt-4 text-lg">
+			<p class="text-muted-fg mt-3 text-lg">
 				Manage and view talents and resumes for all Pixel&Code consultants.
 			</p>
 		</div>
 		<Button
 			variant="outline"
-			size="sm"
+			size="md"
 			onclick={toggleSearch}
 			class="flex shrink-0 items-center gap-2 {searchOpen ? 'bg-muted text-foreground' : ''}"
 		>
@@ -110,7 +110,7 @@
 				{/if}
 			{/if}
 		</Button>
-	</div>
+	</header>
 
 	{#if searchOpen}
 		<div
@@ -132,7 +132,7 @@
 
 	{#if selectedTechFilters.length === 0}
 		<!-- No search active - show all talents -->
-		<div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+		<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 			{#each liveTalents as talent (talent.id)}
 				<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
 					<Card
@@ -168,8 +168,7 @@
 											class="h-5 w-auto object-contain"
 										/>
 									{:else}
-										<span class="text-muted-fg text-xs font-medium"
-											>{talent.organisation_name}</span
+										<span class="text-muted-fg text-xs font-medium">{talent.organisation_name}</span
 										>
 									{/if}
 								</div>
@@ -198,7 +197,7 @@
 								? 'bg-emerald-100 text-emerald-700'
 								: group.matchCount >= group.total * 0.6
 									? 'bg-amber-100 text-amber-700'
-								: 'bg-muted text-muted-fg'}"
+									: 'bg-muted text-muted-fg'}"
 						>
 							{group.matchCount}/{group.total} techs
 						</span>
@@ -207,7 +206,7 @@
 						</span>
 					</div>
 
-					<div class="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+					<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 						{#each group.talents as talent (talent.id)}
 							<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
 								<Card
@@ -233,7 +232,7 @@
 												? 'bg-emerald-500 text-white'
 												: group.matchCount >= group.total * 0.6
 													? 'bg-amber-500 text-white'
-												: 'bg-muted-fg text-white'}"
+													: 'bg-muted-fg text-white'}"
 										>
 											{group.matchCount}/{group.total}
 											<!-- Tooltip -->
