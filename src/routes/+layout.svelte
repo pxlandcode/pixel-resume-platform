@@ -17,6 +17,12 @@
 	import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
 	import { browser } from '$app/environment';
+	import {
+		DEFAULT_ORGANISATION_BRANDING_THEME,
+		organisationBrandingThemeToInlineStyle,
+		organisationBrandingThemeToVarEntries,
+		type OrganisationBrandingTheme
+	} from '$lib/branding/theme';
 	import '$lib/styles/resume-app-overrides.css';
 	import '$lib/styles/resume-app.css';
 
@@ -59,6 +65,11 @@
 	);
 	const layoutRole = $derived((data.role ?? null) as AdminRole | null);
 	const layoutRoles = $derived((data.roles ?? []) as AdminRole[]);
+	const brandingTheme = $derived(
+		(data.brandingTheme ?? DEFAULT_ORGANISATION_BRANDING_THEME) as OrganisationBrandingTheme
+	);
+	const brandingInlineStyle = $derived(organisationBrandingThemeToInlineStyle(brandingTheme));
+	const brandingVarEntries = $derived(organisationBrandingThemeToVarEntries(brandingTheme));
 
 	let successDismissing = $state(false);
 	let successDismissTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -128,11 +139,14 @@
 		importPollAbortController = controller;
 
 		try {
-			const response = await fetch(resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]', { jobId }), {
-				method: 'GET',
-				credentials: 'include',
-				signal: controller.signal
-			});
+			const response = await fetch(
+				resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]', { jobId }),
+				{
+					method: 'GET',
+					credentials: 'include',
+					signal: controller.signal
+				}
+			);
 
 			if (!response.ok) {
 				const text = await response.text().catch(() => '');
@@ -205,15 +219,6 @@
 	let hideTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	$effect(() => {
-		if (typeof document === 'undefined') return;
-		if (useAppShell) {
-			document.body.classList.add('internal-light');
-			return () => document.body.classList.remove('internal-light');
-		}
-		document.body.classList.remove('internal-light');
-	});
-
-	$effect(() => {
 		if (isBusy && !wasBusy) {
 			if (hideTimeout) {
 				clearTimeout(hideTimeout);
@@ -235,6 +240,23 @@
 		}
 
 		wasBusy = isBusy;
+	});
+
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+		const html = document.documentElement;
+		const body = document.body;
+		body.classList.toggle('app-shell-theme', useAppShell);
+		for (const [name, value] of brandingVarEntries) {
+			html.style.setProperty(name, value);
+		}
+
+		return () => {
+			body.classList.remove('app-shell-theme');
+			for (const [name] of brandingVarEntries) {
+				html.style.removeProperty(name);
+			}
+		};
 	});
 
 	onDestroy(() => {
@@ -266,12 +288,14 @@
 	{/if}
 	<meta name="theme-color" content="#0f172a" />
 	<link rel="icon" href={favicon} />
-		{#if jsonLdScripts.length}
-			{#each jsonLdIndexes as index (`jsonld-${index}`)}
-				<script type="application/ld+json">{@html jsonLdScripts[index]}</script>
-			{/each}
-		{/if}
-	</svelte:head>
+	{#if jsonLdScripts.length}
+		{#each jsonLdIndexes as index (`jsonld-${index}`)}
+			<script type="application/ld+json">
+{@html jsonLdScripts[index]}
+			</script>
+		{/each}
+	{/if}
+</svelte:head>
 
 <Mode.Watcher defaultMode="light" />
 
@@ -304,7 +328,7 @@
 					class={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 ${
 						importHasError
 							? 'bg-red-500 text-white hover:bg-red-600'
-							: 'bg-primary text-white hover:bg-primary/90'
+							: 'bg-primary hover:bg-primary/90 text-white'
 					}`}
 					title="View import status"
 				>
@@ -360,7 +384,7 @@
 {:else if isPlainRoute}
 	{@render children?.()}
 {:else}
-	<div class="internal-root">
+	<div class="internal-root" style={brandingInlineStyle}>
 		<ResumeLayout
 			profile={data.profile}
 			role={layoutRole}

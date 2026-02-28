@@ -5,6 +5,11 @@ import {
 	createSupabaseServerClient,
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
+import {
+	DEFAULT_ORGANISATION_BRANDING_THEME,
+	resolveOrganisationBrandingTheme,
+	type OrganisationBrandingTheme
+} from '$lib/branding/theme';
 import type { PageMetaInput } from '$lib/seo';
 import type { LayoutServerLoad } from './$types';
 
@@ -21,6 +26,7 @@ type LoadResult = {
 	role: Role | null;
 	roles: Role[];
 	currentTalentId: string | null;
+	brandingTheme: OrganisationBrandingTheme;
 	meta?: PageMetaInput;
 };
 
@@ -104,6 +110,7 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 				role: null,
 				roles: [],
 				currentTalentId: null,
+				brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
 				meta: appMeta(pathname)
 			} satisfies LoadResult;
 		}
@@ -119,6 +126,7 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 			role: null,
 			roles: [],
 			currentTalentId: null,
+			brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
 			meta: appMeta(pathname)
 		} satisfies LoadResult;
 	}
@@ -145,7 +153,7 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 
 		const adminClient = getSupabaseAdminClient();
 
-		const [{ data: profileData }, roleResult, talentResult] = await Promise.all([
+		const [{ data: profileData }, roleResult, talentResult, homeOrgResult] = await Promise.all([
 			supabase
 				.from('user_profiles')
 				.select('first_name, last_name')
@@ -154,17 +162,30 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 			adminClient
 				? adminClient.from('user_roles').select('roles(key)').eq('user_id', userId)
 				: Promise.resolve({ data: null, error: null }),
-			supabase.from('talents').select('id').eq('user_id', userId).maybeSingle()
+			supabase.from('talents').select('id').eq('user_id', userId).maybeSingle(),
+			adminClient
+				? adminClient
+						.from('organisation_users')
+						.select('organisation_id')
+						.eq('user_id', userId)
+						.order('updated_at', { ascending: false })
+						.order('created_at', { ascending: false })
+						.limit(1)
+						.maybeSingle()
+				: Promise.resolve({ data: null, error: null })
 		]);
 
 		if (roleResult.error) {
 			console.warn('[layout] could not load user roles', roleResult.error);
 		}
+		if (homeOrgResult.error) {
+			console.warn('[layout] could not load home organisation branding', homeOrgResult.error);
+		}
 
 		const roleRows =
-			(roleResult.data as
-				| Array<{ roles?: { key?: string | null } | Array<{ key?: string | null }> | null }>
-				| null) ?? [];
+			(roleResult.data as Array<{
+				roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
+			}> | null) ?? [];
 		const rolesFromTable = normalizeRolesFromJoin(roleRows);
 
 		let roles = rolesFromTable;
@@ -192,8 +213,42 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 
 		if (redirectTo) throw redirect(303, redirectTo);
 
-		const currentTalentId =
-			talentResult.data && typeof talentResult.data.id === 'string' ? talentResult.data.id : null;
+			const currentTalentId =
+				talentResult.data && typeof talentResult.data.id === 'string' ? talentResult.data.id : null;
+			let homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
+			let brandingTheme = DEFAULT_ORGANISATION_BRANDING_THEME;
+
+			if (!homeOrganisationId && adminClient && currentTalentId) {
+				const { data: talentHomeRow, error: talentHomeError } = await adminClient
+					.from('organisation_talents')
+					.select('organisation_id')
+					.eq('talent_id', currentTalentId)
+					.order('updated_at', { ascending: false })
+					.order('created_at', { ascending: false })
+					.limit(1)
+					.maybeSingle();
+				if (talentHomeError) {
+					console.warn(
+						'[layout] could not resolve home organisation from talent membership',
+						talentHomeError
+					);
+				} else {
+					homeOrganisationId = talentHomeRow?.organisation_id ?? null;
+				}
+			}
+
+			if (adminClient && homeOrganisationId) {
+			const { data: organisationRow, error: organisationError } = await adminClient
+				.from('organisations')
+				.select('brand_settings')
+				.eq('id', homeOrganisationId)
+				.maybeSingle();
+			if (organisationError) {
+				console.warn('[layout] could not resolve organisation brand settings', organisationError);
+			} else {
+				brandingTheme = resolveOrganisationBrandingTheme(organisationRow?.brand_settings ?? null);
+			}
+		}
 
 		return {
 			user: { id: userId, email: userData.user.email ?? undefined },
@@ -201,6 +256,7 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 			role: primaryRole,
 			roles: effectiveRoles,
 			currentTalentId,
+			brandingTheme,
 			meta: appMeta(pathname)
 		} satisfies LoadResult;
 	} catch (error) {

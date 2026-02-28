@@ -7,7 +7,6 @@
 		name: string;
 		slug: string;
 		homepage_url: string | null;
-		brand_settings: Record<string, unknown> | null;
 	};
 
 	let {
@@ -29,7 +28,7 @@
 	variant="right"
 	bind:open
 	title="Edit details"
-	subtitle="Update organisation name, slug, homepage URL, and brand settings."
+	subtitle="Update organisation name, slug, and homepage URL."
 	class="mr-0 w-full max-w-xl"
 	dismissable
 >
@@ -56,15 +55,6 @@
 					placeholder="https://example.com"
 					class="bg-white text-gray-900"
 				/>
-			</FormControl>
-
-			<FormControl label="Brand settings JSON" class="gap-2 text-sm">
-				<textarea
-					name="brand_settings"
-					rows="4"
-					class="w-full rounded border border-slate-300 bg-white p-2 font-mono text-sm text-slate-900"
-					>{JSON.stringify(organisation.brand_settings ?? {}, null, 2)}</textarea
-				>
 			</FormControl>
 
 			<div class="sticky bottom-0 flex flex-wrap justify-end gap-3 bg-transparent pt-4">

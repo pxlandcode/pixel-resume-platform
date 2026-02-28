@@ -1,70 +1,100 @@
 /* Internal admin overrides */
 
-:global(body.internal-light) {
-	background: #f6f8fb;
-	color: #0f172a;
-}
-
+:global(body.app-shell-theme),
 :global(.internal-root) {
-	--color-background: #f6f8fb;
-	--color-foreground: #0f172a;
-	--color-card-bg: #ffffff;
-	--color-card-border: #e2e8f0;
-	--color-input: #ffffff;
-	--color-primary: #e76f51;
+	--color-primary: var(--org-light-primary, #e76f51);
+	--color-background: var(--org-light-background, #f6f8fb);
+	--color-foreground: var(--org-light-foreground, #0f172a);
+	--color-text: var(--org-light-text, #0f172a);
+	--color-card: var(--org-light-card, #ffffff);
+	--color-card-fg: var(--org-light-card-fg, #0f172a);
+	--color-border: var(--org-light-border, #e2e8f0);
+	--color-input: var(--org-light-input, #ffffff);
+	--color-muted: var(--org-light-muted, #edf2f7);
+	--color-muted-fg: var(--org-light-muted-fg, #64748b);
+	--color-card-bg: var(--color-card);
+	--color-card-border: var(--color-border);
+	background: var(--color-background);
+	color: var(--color-text);
 	color-scheme: light;
 }
 
+:global(.dark body.app-shell-theme),
+:global(.dark .internal-root) {
+	--color-primary: var(--org-dark-primary, var(--org-light-primary, #e76f51));
+	--color-background: var(--org-dark-background, #0f0f11);
+	--color-foreground: var(--org-dark-foreground, #f5f6f8);
+	--color-text: var(--org-dark-text, #f0f0f0);
+	--color-card: var(--org-dark-card, #121316);
+	--color-card-fg: var(--org-dark-card-fg, #f5f6f8);
+	--color-border: var(--org-dark-border, #334155);
+	--color-input: var(--org-dark-input, #18191b);
+	--color-muted: var(--org-dark-muted, #1f2937);
+	--color-muted-fg: var(--org-dark-muted-fg, #94a3b8);
+	--color-card-bg: var(--color-card);
+	--color-card-border: var(--color-border);
+	color-scheme: dark;
+}
+
+:global(body.app-shell-theme input),
+:global(body.app-shell-theme select),
+:global(body.app-shell-theme textarea),
+:global(body.app-shell-theme .blocks-select__trigger),
+:global(body.app-shell-theme .blocks-select__content),
+:global(body.app-shell-theme .blocks-select__item),
+:global(body.app-shell-theme .blocks-input),
+:global(body.app-shell-theme .blocks-textarea),
 :global(.internal-root input),
 :global(.internal-root select),
 :global(.internal-root textarea),
-:global(.internal-root button),
 :global(.internal-root .blocks-select__trigger),
 :global(.internal-root .blocks-select__content),
 :global(.internal-root .blocks-select__item),
 :global(.internal-root .blocks-input),
 :global(.internal-root .blocks-textarea) {
-	background-color: #ffffff;
-	color: #0f172a;
+	background-color: var(--color-input);
+	color: var(--color-foreground);
+	border-color: var(--color-border);
 }
 
+:global(body.app-shell-theme .blocks-select__trigger),
 :global(.internal-root .blocks-select__trigger) {
-	border-color: #cbd5e1;
+	border-color: var(--color-border);
 }
 
 .internal-root .news-table thead th,
 .internal-root .user-table thead th,
 .internal-root .news-table thead th :is(div, button),
 .internal-root .user-table thead th :is(div, button) {
-	color: rgb(17 24 39);
+	color: var(--color-foreground);
 	font-weight: 600;
 }
 
 .internal-root .news-table thead th svg,
 .internal-root .user-table thead th svg {
-	stroke: rgb(17 24 39);
+	stroke: var(--color-foreground);
 }
 
 .internal-root .news-table .flex.justify-center.p-2.text-sm.font-semibold,
 .internal-root .user-table .flex.justify-center.p-2.text-sm.font-semibold {
-	color: rgb(17 24 39);
+	color: color-mix(in oklab, var(--color-foreground) 90%, transparent);
 	opacity: 0.9;
 }
 
 .internal-root .news-table a {
-	color: #f35b3f;
+	color: var(--color-primary);
 	font-weight: 500;
 }
 
 .internal-root .news-table a:hover {
-	color: #d84f36;
+	color: color-mix(in oklab, var(--color-primary) 82%, black);
 }
 
 .internal-root .news-table .flex.justify-end a {
-	color: #f35b3f;
+	color: var(--color-primary);
 	font-weight: 500;
 }
 
 .internal-root .news-table .flex.justify-end a:hover {
-	color: #d84f36;
+	color: color-mix(in oklab, var(--color-primary) 82%, black);
 }

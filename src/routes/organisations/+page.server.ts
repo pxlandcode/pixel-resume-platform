@@ -6,6 +6,11 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import { getActorAccessContext, normalizeRolesFromJoinRows } from '$lib/server/access';
+import {
+	mergeOrganisationBrandingTheme,
+	parseOrganisationBrandingThemeFormData,
+	resolveOrganisationBrandingTheme
+} from '$lib/branding/theme';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
@@ -452,28 +457,34 @@ export const actions: Actions = {
 			});
 		}
 
-		let brandSettings: Record<string, unknown> = {};
-		try {
-			brandSettings = parseOptionalJsonObject(
-				typeof brandSettingsRaw === 'string' ? brandSettingsRaw : '{}'
-			);
-		} catch (jsonError) {
-			return fail(400, {
-				type: 'updateOrganisation',
-				ok: false,
-				message: jsonError instanceof Error ? jsonError.message : 'Invalid brand settings JSON.'
-			});
+		const updatePayload: {
+			name: string;
+			slug: string;
+			homepage_url: string | null;
+			updated_at: string;
+			brand_settings?: Record<string, unknown>;
+		} = {
+			name,
+			slug,
+			homepage_url: homepageUrl,
+			updated_at: new Date().toISOString()
+		};
+
+		if (typeof brandSettingsRaw === 'string') {
+			try {
+				updatePayload.brand_settings = parseOptionalJsonObject(brandSettingsRaw);
+			} catch (jsonError) {
+				return fail(400, {
+					type: 'updateOrganisation',
+					ok: false,
+					message: jsonError instanceof Error ? jsonError.message : 'Invalid brand settings JSON.'
+				});
+			}
 		}
 
 		const { error: updateError } = await context.adminClient
 			.from('organisations')
-			.update({
-				name,
-				slug,
-				homepage_url: homepageUrl,
-				brand_settings: brandSettings,
-				updated_at: new Date().toISOString()
-			})
+			.update(updatePayload)
 			.eq('id', orgId);
 
 		if (updateError) {
@@ -481,6 +492,85 @@ export const actions: Actions = {
 		}
 
 		return { type: 'updateOrganisation', ok: true, message: 'Organisation updated.' };
+	},
+
+	updateOrganisationBranding: async ({ request, cookies }) => {
+		const context = await ensureAdminForAction(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const organisationId = formData.get('organisation_id');
+		if (typeof organisationId !== 'string' || !isValidUuid(organisationId)) {
+			return fail(400, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: 'Invalid organisation id.'
+			});
+		}
+
+		const { data: organisationRow, error: organisationError } = await context.adminClient
+			.from('organisations')
+			.select('brand_settings')
+			.eq('id', organisationId)
+			.maybeSingle();
+		if (organisationError) {
+			return fail(500, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: organisationError.message
+			});
+		}
+		if (!organisationRow) {
+			return fail(404, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: 'Organisation not found.'
+			});
+		}
+
+		const fallbackTheme = resolveOrganisationBrandingTheme(organisationRow.brand_settings);
+		let theme: typeof fallbackTheme;
+		try {
+			theme = parseOrganisationBrandingThemeFormData(formData, fallbackTheme);
+		} catch (parseError) {
+			return fail(400, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: parseError instanceof Error ? parseError.message : 'Invalid branding colors.'
+			});
+		}
+
+		const mergedBrandSettings = mergeOrganisationBrandingTheme(
+			organisationRow.brand_settings,
+			theme
+		);
+
+		const { error: updateError } = await context.adminClient
+			.from('organisations')
+			.update({
+				brand_settings: mergedBrandSettings,
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', organisationId);
+		if (updateError) {
+			return fail(500, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: updateError.message
+			});
+		}
+
+		return {
+			type: 'updateOrganisationBranding',
+			ok: true,
+			message: 'Organisation branding updated.'
+		};
 	},
 
 	updateOrganisationTemplate: async ({ request, cookies }) => {

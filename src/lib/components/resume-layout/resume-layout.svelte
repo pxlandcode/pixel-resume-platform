@@ -77,12 +77,12 @@
 	};
 </script>
 
-<div class="flex min-h-screen bg-slate-50">
+<div class="bg-background text-foreground flex min-h-screen">
 	<!-- Sidebar -->
-	<aside class="hidden w-64 flex-shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
+	<aside class="border-border bg-card hidden w-64 flex-shrink-0 flex-col border-r md:flex">
 		<!-- Logo / Brand -->
-		<div class="border-b border-slate-100 px-6 py-5">
-			<h1 class="text-xl font-bold tracking-tight text-slate-900">
+		<div class="border-border border-b px-6 py-5">
+			<h1 class="text-foreground text-xl font-bold tracking-tight">
 				<span class="text-primary">Resume</span>Builder
 			</h1>
 		</div>
@@ -98,7 +98,7 @@
 							activePath
 						)
 							? 'bg-primary/10 text-primary'
-							: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}"
+							: 'text-muted-fg hover:bg-muted/60 hover:text-foreground'}"
 					>
 						{item.label}
 					</a>
@@ -107,8 +107,8 @@
 		</nav>
 
 		<!-- Powered by -->
-		<div class="border-t border-slate-100 px-6 py-4">
-			<p class="mb-2 text-xs font-medium tracking-wider text-slate-400 uppercase">Powered by</p>
+		<div class="border-border border-t px-6 py-4">
+			<p class="text-muted-fg mb-2 text-xs font-medium uppercase tracking-wider">Powered by</p>
 			<a
 				href="https://pixelcode.se"
 				target="_blank"
@@ -123,31 +123,31 @@
 	<!-- Main content -->
 	<div class="flex flex-1 flex-col">
 		<!-- Header -->
-		<header class="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+		<header class="border-border bg-card flex items-center justify-between border-b px-6 py-4">
 			<div>
-				<h2 class="text-lg font-semibold text-slate-900">Build & manage resumes</h2>
-				<p class="text-sm text-slate-500">Create professional talent profiles</p>
+				<h2 class="text-foreground text-lg font-semibold">Build & manage resumes</h2>
+				<p class="text-muted-fg text-sm">Create professional talent profiles</p>
 			</div>
 
 			<div class="flex items-center gap-4">
 				<div class="text-right">
-					<p class="text-sm font-medium text-slate-900">{displayName}</p>
+					<p class="text-foreground text-sm font-medium">{displayName}</p>
 					{#if (roles?.length ?? 0) > 0}
 						<div class="mt-1 flex flex-wrap justify-end gap-1">
 							{#each roles as r}
-								<Badge variant="info" size="xs" class="tracking-wide uppercase">
+								<Badge variant="info" size="xs" class="uppercase tracking-wide">
 									{r.replace('_', ' ')}
 								</Badge>
 							{/each}
 						</div>
 					{:else if role}
-						<Badge variant="info" size="xs" class="tracking-wide uppercase">
+						<Badge variant="info" size="xs" class="uppercase tracking-wide">
 							{role.replace('_', ' ')}
 						</Badge>
 					{/if}
 				</div>
 				<Mode.Switch
-					class="h-9 w-9 rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus:ring-2 focus:ring-primary/40 focus:ring-offset-1 focus:outline-none"
+					class="border-border bg-input text-foreground hover:bg-muted/70 focus:ring-primary/40 h-9 w-9 rounded-full border shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1"
 				/>
 				<form method="POST" action="/logout">
 					<Button type="submit" variant="outline" size="sm" onclick={() => dispatch('logout')}>
