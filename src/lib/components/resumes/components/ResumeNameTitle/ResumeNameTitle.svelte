@@ -35,6 +35,6 @@
 	</div>
 {:else}
 	<div>
-		<h2 class="text-xl font-medium text-secondary-text">{t(title, language)}</h2>
+		<h2 class="text-text text-xl font-medium">{t(title, language)}</h2>
 	</div>
 {/if}
