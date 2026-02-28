@@ -87,71 +87,63 @@
 
 	<!-- Stats -->
 	<div class="grid gap-4 sm:grid-cols-3">
-		<Card class="rounded-sm p-5">
-			<div class="flex items-center gap-4">
-				<div
-					class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-blue-500 text-white"
-				>
-					<Users size={24} />
-				</div>
-				<div>
-					<p class="text-muted-fg text-sm">Total Talents</p>
-					<p class="text-foreground text-2xl font-bold">{stats.totalTalents}</p>
-				</div>
-			</div>
-		</Card>
-		<Card class="rounded-sm p-5">
-			<div class="flex items-center gap-4">
-				<div
-					class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-emerald-500 text-white"
-				>
-					<FileText size={24} />
-				</div>
-				<div>
-					<p class="text-muted-fg text-sm">Total Resumes</p>
-					<p class="text-foreground text-2xl font-bold">{stats.totalResumes}</p>
-				</div>
-			</div>
-		</Card>
-		<Card class="rounded-sm p-5">
-			<div class="flex items-center gap-4">
-				<div
-					class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-amber-500 text-white"
-				>
-					<CalendarCheck size={24} />
-				</div>
-				<div>
-					<p class="text-muted-fg text-sm">Available Now</p>
-					<p class="text-foreground text-2xl font-bold">{stats.availableNow}</p>
-				</div>
-			</div>
-		</Card>
-	</div>
-
-	<!-- Quick Actions -->
-	<div class="grid gap-4 sm:grid-cols-2">
-		{#each quickActions as action}
-			<a
-				href={action.href}
-				class="border-border bg-card hover:border-border/80 group relative flex items-start gap-4 rounded-sm border p-5 shadow-sm transition-all hover:shadow-md"
-			>
-				<div
-					class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm {action.color} text-white"
-				>
-					<action.icon size={24} />
-				</div>
-				<div class="flex-1">
-					<h3 class="text-foreground group-hover:text-primary font-semibold">
-						{action.title}
-					</h3>
-					<p class="text-muted-fg mt-1 text-sm">{action.description}</p>
+		<a href="/talents">
+			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
+				<div class="flex items-start gap-4">
+					<div
+						class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-blue-500 text-white"
+					>
+						<Users size={24} />
+					</div>
+					<div>
+						<p class="text-muted-fg text-sm">Total Talents</p>
+						<p class="text-foreground text-2xl font-bold">{stats.totalTalents}</p>
+					</div>
 				</div>
 				<ArrowRight
 					size={20}
-					class="text-muted-fg group-hover:text-primary absolute right-5 top-1/2 -translate-y-1/2 transition-transform group-hover:translate-x-1"
+					class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
 				/>
-			</a>
-		{/each}
+			</Card>
+		</a>
+		<a href="/resumes">
+			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
+				<div class="flex items-start gap-4">
+					<div
+						class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-emerald-500 text-white"
+					>
+						<FileText size={24} />
+					</div>
+					<div>
+						<p class="text-muted-fg text-sm">Total Resumes</p>
+						<p class="text-foreground text-2xl font-bold">{stats.totalResumes}</p>
+					</div>
+				</div>
+				<ArrowRight
+					size={20}
+					class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
+				/>
+			</Card>
+		</a>
+		<a href="/resumes">
+			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
+				<div class="flex items-start gap-4">
+					<div
+						class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-amber-500 text-white"
+					>
+						<CalendarCheck size={24} />
+					</div>
+					<div>
+						<p class="text-muted-fg text-sm">Available Now</p>
+						<p class="text-foreground text-2xl font-bold">{stats.availableNow}</p>
+					</div>
+				</div>
+				<ArrowRight
+					size={20}
+					class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
+				/>
+			</Card>
+		</a>
 	</div>
 
 	<!-- Recent Resumes & Available Soon -->
