@@ -11,6 +11,7 @@ import { fail } from '@sveltejs/kit';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 import { listExperienceLibrary, saveResumeData } from '$lib/server/resumes/store';
 import type { ResumeData } from '$lib/types/resume';
+import { getActorAccessContext, resolvePrintTemplateContext } from '$lib/server/access';
 
 export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	const resumeId = params.resumeId;
@@ -39,6 +40,9 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		throw error(403, 'Not authorized to view this resume.');
 	}
 
+	const actor = await getActorAccessContext(supabase, adminClient);
+	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId);
+
 	const experienceLibrary =
 		adminClient && canEdit
 			? await listExperienceLibrary(adminClient, talentId).catch(() => [])
@@ -50,6 +54,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	return {
 		resume,
 		resumePerson,
+		templateContext,
 		experienceLibrary,
 		avatarUrl: resumePerson?.avatar_url ?? null,
 		language,

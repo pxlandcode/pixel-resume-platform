@@ -189,7 +189,8 @@
 	const downloadFile = async (type: 'pdf' | 'word') => {
 		const extension = type === 'pdf' ? 'pdf' : 'doc';
 		const label = type === 'pdf' ? 'Generating PDF...' : 'Generating Word file...';
-		const url = `/api/resumes/${data.resume.id}/${type}?lang=${downloadLanguage}`;
+		const debugParam = type === 'pdf' ? '&debug=1' : '';
+		const url = `/api/resumes/${data.resume.id}/${type}?lang=${downloadLanguage}${debugParam}`;
 		const filename = `${downloadBaseName}.${extension}`;
 
 		downloading = type;
@@ -228,11 +229,7 @@
 
 <div class="flex items-center justify-between">
 	<div>
-		<Button
-			variant="ghost"
-			href="/resumes"
-			class=" pl-0 hover:bg-transparent hover:text-primary"
-		>
+		<Button variant="ghost" href="/resumes" class=" hover:text-primary pl-0 hover:bg-transparent">
 			<ArrowLeft size={16} class="mr-2" />
 			Back to resumes
 		</Button>
@@ -262,13 +259,13 @@
 				<div class="absolute bottom-14 right-0 flex flex-col items-end gap-2">
 					<div transition:fly={{ y: 12, duration: 120 }}>
 						<div
-							class="flex items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-xs font-medium shadow-sm"
+							class="border-border bg-card flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium shadow-sm"
 						>
 							<button
 								type="button"
 								class={downloadLanguage === 'sv'
-									? 'rounded-full bg-primary px-2 py-0.5 text-white'
-									: 'px-2 py-0.5 text-muted-fg hover:text-foreground'}
+									? 'bg-primary rounded-full px-2 py-0.5 text-white'
+									: 'text-muted-fg hover:text-foreground px-2 py-0.5'}
 								onclick={() => (downloadLanguageOverride = 'sv')}
 							>
 								SV
@@ -276,8 +273,8 @@
 							<button
 								type="button"
 								class={downloadLanguage === 'en'
-									? 'rounded-full bg-primary px-2 py-0.5 text-white'
-									: 'px-2 py-0.5 text-muted-fg hover:text-foreground'}
+									? 'bg-primary rounded-full px-2 py-0.5 text-white'
+									: 'text-muted-fg hover:text-foreground px-2 py-0.5'}
 								onclick={() => (downloadLanguageOverride = 'en')}
 							>
 								EN
@@ -336,6 +333,10 @@
 				person={data.resumePerson ?? undefined}
 				image={avatarImage ?? undefined}
 				profileTechStack={data.resumePerson?.techStack}
+				templateMainLogotypeUrl={data.templateContext?.mainLogotypeUrl}
+				templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
+				templateEndLogoUrl={data.templateContext?.endLogoUrl}
+				templateHomepageUrl={data.templateContext?.homepageUrl}
 				experienceLibrary={data.experienceLibrary ?? []}
 				onGenerateDescription={generateDescription}
 				{isEditing}

@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { Button, Select } from '@pixelcode_/blocks/components';
+	import { Button } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import { Dropdown } from '$lib/components/dropdown';
 
 	type Organisation = {
 		id: string;
@@ -39,7 +40,10 @@
 		userMemberships = [],
 		talentMemberships = [],
 		accessGrants = [],
-		eligibleGrantUsers = []
+		eligibleGrantUsers = [],
+		usersWithHomeOrg = new Set<string>(),
+		talentsWithHomeOrg = new Set<string>(),
+		userHomeOrgNames = new Map<string, string>()
 	}: {
 		open: boolean;
 		organisation?: Organisation;
@@ -49,6 +53,9 @@
 		talentMemberships?: TalentMembership[];
 		accessGrants?: AccessGrant[];
 		eligibleGrantUsers?: UserRow[];
+		usersWithHomeOrg?: Set<string>;
+		talentsWithHomeOrg?: Set<string>;
+		userHomeOrgNames?: Map<string, string>;
 	} = $props();
 
 	const userById = $derived(
@@ -79,9 +86,47 @@
 		return name || talent.id;
 	};
 
+	// State for dropdown selections
+	let selectedUserId = $state('');
+	let selectedTalentId = $state('');
+	let selectedGrantUserId = $state('');
+
+	// Options for dropdowns (excluding users/talents that already have ANY home org)
+	const userOptions = $derived(
+		users
+			.filter((user) => !usersWithHomeOrg.has(user.user_id))
+			.map((user) => ({
+				label: `${displayUser(user.user_id)} (${user.roles.join(', ')})`,
+				value: user.user_id
+			}))
+	);
+
+	const talentOptions = $derived(
+		talents
+			.filter((talent) => !talentsWithHomeOrg.has(talent.id))
+			.map((talent) => ({
+				label: displayTalent(talent.id),
+				value: talent.id
+			}))
+	);
+
+	const grantUserOptions = $derived(
+		eligibleGrantUsers.map((user) => {
+			const homeOrg = userHomeOrgNames.get(user.user_id);
+			const orgPart = homeOrg ? ` - ${homeOrg}` : '';
+			return {
+				label: `${displayUser(user.user_id)} (${user.roles.join(', ')})${orgPart}`,
+				value: user.user_id
+			};
+		})
+	);
+
 	$effect(() => {
 		if (!open) {
-			// Reset any local state when drawer closes if needed
+			// Reset selections when drawer closes
+			selectedUserId = '';
+			selectedTalentId = '';
+			selectedGrantUserId = '';
 		}
 	});
 </script>
@@ -103,16 +148,18 @@
 					<h3 class="text-foreground text-sm font-semibold">Home users</h3>
 					<p class="text-muted-fg text-xs">Users whose primary organisation is this one.</p>
 				</div>
-				<form method="POST" action="?/connectUserHome" class="flex items-end gap-2">
+				<form method="POST" action="?/connectUserHome" class="flex items-center gap-2">
 					<input type="hidden" name="organisation_id" value={organisation.id} />
-					<Select name="user_id" class="bg-input text-foreground flex-1">
-						{#each users as user (user.user_id)}
-							<option value={user.user_id}>
-								{displayUser(user.user_id)} ({user.roles.join(', ')})
-							</option>
-						{/each}
-					</Select>
-					<Button type="submit" size="sm" variant="outline">Connect</Button>
+					<Dropdown
+						name="user_id"
+						bind:value={selectedUserId}
+						options={userOptions}
+						placeholder="Select user"
+						search={users.length > 5}
+						hideLabel
+						class="flex-1"
+					/>
+					<Button type="submit" size="md" variant="outline">Connect</Button>
 				</form>
 				<ul class="space-y-2">
 					{#each userMemberships as membership (membership.user_id)}
@@ -137,14 +184,18 @@
 					<h3 class="text-foreground text-sm font-semibold">Home talents</h3>
 					<p class="text-muted-fg text-xs">Talents whose primary organisation is this one.</p>
 				</div>
-				<form method="POST" action="?/connectTalentHome" class="flex items-end gap-2">
+				<form method="POST" action="?/connectTalentHome" class="flex items-center gap-2">
 					<input type="hidden" name="organisation_id" value={organisation.id} />
-					<Select name="talent_id" class="bg-input text-foreground flex-1">
-						{#each talents as talent (talent.id)}
-							<option value={talent.id}>{displayTalent(talent.id)}</option>
-						{/each}
-					</Select>
-					<Button type="submit" size="sm" variant="outline">Connect</Button>
+					<Dropdown
+						name="talent_id"
+						bind:value={selectedTalentId}
+						options={talentOptions}
+						placeholder="Select talent"
+						search={talents.length > 5}
+						hideLabel
+						class="flex-1"
+					/>
+					<Button type="submit" size="md" variant="outline">Connect</Button>
 				</form>
 				<ul class="space-y-2">
 					{#each talentMemberships as membership (membership.talent_id)}
@@ -169,16 +220,18 @@
 					<h3 class="text-foreground text-sm font-semibold">Access grants</h3>
 					<p class="text-muted-fg text-xs">Cross-organisation access for brokers and employers.</p>
 				</div>
-				<form method="POST" action="?/grantOrganisationAccess" class="flex items-end gap-2">
+				<form method="POST" action="?/grantOrganisationAccess" class="flex items-center gap-2">
 					<input type="hidden" name="organisation_id" value={organisation.id} />
-					<Select name="user_id" class="bg-input text-foreground flex-1">
-						{#each eligibleGrantUsers as user (user.user_id)}
-							<option value={user.user_id}>
-								{displayUser(user.user_id)} ({user.roles.join(', ')})
-							</option>
-						{/each}
-					</Select>
-					<Button type="submit" size="sm" variant="outline">Grant</Button>
+					<Dropdown
+						name="user_id"
+						bind:value={selectedGrantUserId}
+						options={grantUserOptions}
+						placeholder="Select user"
+						search
+						hideLabel
+						class="flex-1"
+					/>
+					<Button type="submit" size="md" variant="outline">Grant</Button>
 				</form>
 				<ul class="space-y-2">
 					{#each accessGrants as grant (grant.id)}

@@ -4,7 +4,7 @@
 	import pdfStyles from './pdf-print.css?inline';
 	import andLogo from '$lib/assets/and.svg?url';
 	import pixelcodeLogoDark from '$lib/assets/pixelcodelogodark.svg?url';
-	import worldclassUrl from '$lib/assets/worldclass.webp?url';
+	import worldclassUrl from '$lib/assets/worldclass.svg?url';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
 	type Language = 'sv' | 'en';
@@ -102,15 +102,31 @@
 		profileTechStack = initialProfileTechStack ?? person?.techStack ?? [];
 	});
 
-	const visibleHighlighted = $derived(data.highlightedExperiences.filter((exp) => !exp.hidden));
-	const visibleExperiences = $derived(data.experiences.filter((exp) => !exp.hidden));
-
 	// Helper to resolve localized text
 	const t = (text: LocalizedText | undefined): string => {
 		if (!text) return '';
 		if (typeof text === 'string') return text;
 		return text[language] ?? text.sv ?? '';
 	};
+
+	const visibleHighlighted = $derived.by(() => {
+		const items = data.highlightedExperiences ?? [];
+		const nonHidden = items.filter((exp) => !exp.hidden);
+		if (nonHidden.length > 0) return nonHidden;
+		return items;
+	});
+
+	const visibleExperiences = $derived.by(() => {
+		const items = data.experiences ?? [];
+		const nonHidden = items.filter((exp) => !exp.hidden);
+		if (nonHidden.length > 0) return nonHidden;
+		return items;
+	});
+
+	const displayName = $derived((data.name ?? '').trim() || (person?.name ?? '').trim());
+	const displayTitle = $derived((t(data.title) ?? '').trim() || (person?.title ?? '').trim());
+	const displaySummary = $derived((t(data.summary) ?? '').trim() || (person?.bio ?? '').trim());
+	const displayFooterNote = $derived((t(data.footerNote) ?? '').trim());
 
 	// Format date for display (e.g., "Jan 2020")
 	const formatDate = (dateString: string | null | undefined): string => {
@@ -157,8 +173,9 @@
 							<img
 								src={resolvedImage.src}
 								srcset={resolvedImage.srcset ?? resolvedImage.src}
-								alt={data.name || 'Profile'}
+								alt={displayName || 'Profile'}
 								class="h-full w-full object-cover object-center"
+								data-debug="avatar-image"
 								loading="lazy"
 								decoding="async"
 							/>
@@ -225,16 +242,18 @@
 				<div class="space-y-6">
 					<!-- Name and Title -->
 					<div>
-						{#if data.name}
-							<h1 class="mb-2 text-4xl font-bold text-slate-900">{data.name}</h1>
+						{#if displayName}
+							<h1 class="mb-2 text-4xl font-bold text-slate-900">{displayName}</h1>
 						{/if}
-						<h2 class="text-xl font-medium text-slate-700">{t(data.title)}</h2>
+						{#if displayTitle}
+							<h2 class="text-xl font-medium text-slate-700">{displayTitle}</h2>
+						{/if}
 					</div>
 
 					<!-- Summary -->
-					<div class="text-sm leading-relaxed text-slate-700">
+					<div class="text-sm leading-relaxed text-slate-700" data-debug="summary">
 						<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-						{@html t(data.summary)}
+						{@html displaySummary}
 					</div>
 
 					<!-- Highlighted Experience (matching HighlightedExperience.svelte) -->
@@ -245,7 +264,7 @@
 							</h3>
 
 							{#each visibleHighlighted as exp}
-								<div class="border-primary space-y-3 border-l pl-4">
+								<div class="border-primary space-y-3 border-l pl-4" data-debug="highlighted-item">
 									<div>
 										<p class="text-sm font-semibold text-slate-900">{exp.company}</p>
 										<p class="text-sm italic text-slate-700">{t(exp.role)}</p>
@@ -307,7 +326,7 @@
 				<div class="mt-4 space-y-6">
 					{#each visibleExperiences as exp}
 						<!-- Experience Item (matching ExperienceItem.svelte) -->
-						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]" data-debug="experience-item">
 							<!-- Column 1: Period, Company, Location -->
 							<div class="space-y-1">
 								<p class="text-sm font-semibold text-slate-900">
@@ -363,7 +382,7 @@
 				</div>
 
 				<div class="mt-4 space-y-4">
-					{#each displayCategories() as category (category.id)}
+					{#each displayCategories() as category, categoryIndex (`${category.id}-${categoryIndex}`)}
 						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
 							<p class="pt-1 text-xs font-bold uppercase tracking-wide text-slate-700">
 								{labelFor(category.name)}
@@ -450,9 +469,9 @@
 		{/if}
 
 		<!-- Footer -->
-		{#if data.footerNote}
+		{#if displayFooterNote}
 			<div class="mt-8 border-t border-slate-200 pt-4 text-center text-sm italic text-slate-500">
-				{t(data.footerNote)}
+				{displayFooterNote}
 			</div>
 		{/if}
 

@@ -28,6 +28,7 @@
 	} from './components';
 	import type { Person, TechCategory } from '$lib/types/resume';
 	import type { ResumeAiGenerateParams, ResumeAiGenerateResult } from './components/utils';
+	import andLogo from '$lib/assets/and.svg?url';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
 
@@ -38,6 +39,10 @@
 		isEditing = false,
 		person,
 		profileTechStack,
+		templateMainLogotypeUrl = null,
+		templateAccentLogoUrl = null,
+		templateEndLogoUrl = null,
+		templateHomepageUrl = null,
 		experienceLibrary = [],
 		onGenerateDescription
 	}: {
@@ -47,6 +52,10 @@
 		isEditing?: boolean;
 		person?: Person;
 		profileTechStack?: TechCategory[];
+		templateMainLogotypeUrl?: string | null;
+		templateAccentLogoUrl?: string | null;
+		templateEndLogoUrl?: string | null;
+		templateHomepageUrl?: string | null;
 		experienceLibrary?: ExperienceLibraryItem[];
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
 	} = $props();
@@ -57,6 +66,19 @@
 
 	const resolvedImage: ImageResource | string | null = $derived.by(() => {
 		return image ?? person?.avatar_url ?? null;
+	});
+	const resolvedAccentLogo = $derived(templateAccentLogoUrl ?? andLogo);
+	const resolvedEndLogo = $derived(templateEndLogoUrl ?? worldclassUrl);
+	const resolvedHomepage = $derived.by(() => {
+		const homepage = templateHomepageUrl?.trim() ?? '';
+		if (!homepage) return 'www.pixelcode.se';
+		try {
+			const parsed = new URL(homepage);
+			const path = parsed.pathname === '/' ? '' : parsed.pathname;
+			return `${parsed.host}${path}`;
+		} catch {
+			return homepage;
+		}
 	});
 
 	$effect(() => {
@@ -598,7 +620,10 @@
 	<!-- Header Section -->
 	<div class="header-top">
 		<!-- Brand -->
-		<ResumeBrand />
+		<ResumeBrand
+			logoUrl={templateMainLogotypeUrl}
+			logoAlt={person?.name ? `${person.name} organisation logo` : 'Organisation logo'}
+		/>
 
 		{#if isEditing}
 			<!-- Edit Mode: Single column layout for easier editing -->
@@ -769,11 +794,23 @@
 	<!-- Worldclass Image -->
 	<div class="mt-8 flex justify-center border-t border-border pt-6">
 		<img
-			src={worldclassUrl}
-			alt="Worldclass Tech, Worldclass People"
+			src={resolvedEndLogo}
+			alt="Brand end logo"
 			class="max-h-[200px] w-auto object-contain"
 			loading="lazy"
 		/>
+	</div>
+
+	<div class="mt-4 flex justify-start border-t border-border/70 pt-4">
+		<div class="inline-flex items-end gap-3">
+			<img
+				src={resolvedAccentLogo}
+				class="h-16 w-auto object-contain opacity-85"
+				alt="Brand accent logo"
+				loading="lazy"
+			/>
+			<p class="text-muted-fg pb-1 text-xs">{resolvedHomepage}</p>
+		</div>
 	</div>
 </div>
 

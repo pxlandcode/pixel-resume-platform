@@ -133,6 +133,13 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		throw error(400, 'Invalid resume id');
 	}
 	const lang = url.searchParams.get('lang') ?? 'sv';
+	const debugEnabled = url.searchParams.get('debug') === '1';
+	console.log('[pdf debug] request received', {
+		resumeId,
+		lang,
+		debugEnabled,
+		query: url.search
+	});
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 	const adminClient = getSupabaseAdminClient();
 	if (!supabase || !adminClient) {
@@ -161,11 +168,33 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		const page = await browser.newPage({
 			viewport: { width: 1123, height: 1587 }
 		});
+		if (debugEnabled) {
+			page.on('console', (message) => {
+				console.log('[pdf debug][page console]', {
+					type: message.type(),
+					text: message.text()
+				});
+			});
+			page.on('pageerror', (pageError) => {
+				console.error('[pdf debug][page error]', pageError);
+			});
+			page.on('requestfailed', (request) => {
+				console.warn('[pdf debug][request failed]', {
+					url: request.url(),
+					method: request.method(),
+					failure: request.failure()?.errorText ?? 'unknown'
+				});
+			});
+		}
 
 		// Use the print route
 		const target = new URL(`/print/resumes/${resumeId}`, url.origin);
 		target.searchParams.set('lang', lang);
+		if (debugEnabled) {
+			target.searchParams.set('debug', '1');
+		}
 		const targetUrl = target.toString();
+		console.log('[pdf debug] rendering target url', targetUrl);
 
 		let accessToken = cookies.get(AUTH_COOKIE_NAMES.access);
 		const refreshToken = cookies.get(AUTH_COOKIE_NAMES.refresh);
@@ -230,12 +259,29 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		if (!response || !response.ok()) {
 			throw error(response?.status() ?? 500, 'Failed to load resume page for PDF rendering.');
 		}
+		console.log('[pdf debug] page loaded', {
+			status: response.status(),
+			url: response.url()
+		});
 
 		await page.emulateMedia({ media: 'print', colorScheme: 'light' });
 		await page.waitForSelector('.resume-print-page', { timeout: 15_000 });
+		await page
+			.waitForSelector('.resume-print-page.page-2-plus', { timeout: 15_000 })
+			.catch(() => null);
 		await page.waitForSelector('.pdf-mode', { timeout: 5_000 }).catch(() => null);
 		await page
 			.waitForFunction(() => (document as Document).fonts?.ready, { timeout: 5_000 })
+			.catch(() => null);
+		await page
+			.waitForFunction(
+				() =>
+					Array.from(document.images).every((img) => {
+						if (!img.complete) return false;
+						return img.naturalWidth > 0;
+					}),
+				{ timeout: 15_000 }
+			)
 			.catch(() => null);
 
 		await page.waitForFunction(
@@ -246,9 +292,45 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			},
 			{ timeout: 15_000 }
 		);
+		if (debugEnabled) {
+			const domSummary = await page.evaluate(() => {
+				const summaryEl = document.querySelector('[data-debug="summary"]') as HTMLElement | null;
+				const avatarImg = document.querySelector(
+					'[data-debug="avatar-image"]'
+				) as HTMLImageElement | null;
+				const nameEl = document.querySelector('.page-1 h1') as HTMLElement | null;
+				const titleEl = document.querySelector('.page-1 h2') as HTMLElement | null;
+				const highlightedCount = document.querySelectorAll(
+					'[data-debug="highlighted-item"]'
+				).length;
+				const experienceCount = document.querySelectorAll('[data-debug="experience-item"]').length;
 
-		// Convert oklch/lab colors to rgb for PDF compatibility
+				return {
+					nameText: nameEl?.innerText?.trim() ?? '',
+					titleText: titleEl?.innerText?.trim() ?? '',
+					summaryLength: summaryEl?.innerText?.trim().length ?? 0,
+					highlightedCount,
+					experienceCount,
+					avatar: avatarImg
+						? {
+								src: avatarImg.currentSrc || avatarImg.src,
+								complete: avatarImg.complete,
+								naturalWidth: avatarImg.naturalWidth,
+								naturalHeight: avatarImg.naturalHeight
+							}
+						: null
+				};
+			});
+			console.log('[pdf debug] dom summary before pdf()', domSummary);
+		}
+
+		// Force white background and convert oklch/lab colors to rgb for PDF compatibility.
 		await page.evaluate(() => {
+			document.documentElement.classList.remove('dark');
+			document.body.classList.remove('dark');
+			document.documentElement.style.background = '#ffffff';
+			document.body.style.background = '#ffffff';
+
 			const toRgb = (value: string) => {
 				if (!value) return value;
 				const el = document.createElement('div');
@@ -280,6 +362,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 				}
 			}
 		});
+		await page.waitForTimeout(200);
 
 		const pdfBuffer = await page.pdf({
 			format: 'A4',

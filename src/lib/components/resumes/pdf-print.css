@@ -15,6 +15,12 @@
         background: #ffffff !important;
     }
 
+    .pdf-mode {
+        display: block !important;
+        min-height: auto !important;
+        background: #ffffff !important;
+    }
+
     @page {
         size: A4;
         margin: 15mm;
@@ -63,7 +69,8 @@ html, body {
     .pdf-mode .resume-print-page.page-2-plus {
         width: auto !important;
         max-width: 100% !important;
-        min-height: auto !important;
+        min-height: calc(297mm - 30mm) !important;
+        background: #ffffff !important;
         padding: 0 !important; /* @page margin handles spacing */
         margin: 0 !important;
     }

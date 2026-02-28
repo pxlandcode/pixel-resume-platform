@@ -54,6 +54,114 @@ const getResumeTitleFromData = (data: ResumeData, fallback: string) => {
 	return fallback;
 };
 
+const normalizeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+
+const normalizeLocalized = (value: unknown): ResumeData['title'] => {
+	if (typeof value === 'string') return value;
+	if (value && typeof value === 'object') {
+		const record = value as Record<string, unknown>;
+		const sv = normalizeText(record.sv);
+		const en = normalizeText(record.en);
+		if (sv || en) {
+			return { sv: sv || en, en: en || sv };
+		}
+	}
+	return '';
+};
+
+const normalizeStringArray = (value: unknown): string[] =>
+	Array.isArray(value)
+		? value
+				.filter((entry): entry is string => typeof entry === 'string')
+				.map((entry) => entry.trim())
+				.filter(Boolean)
+		: [];
+
+const normalizeLegacyResumeData = (value: unknown): ResumeData | null => {
+	if (!value || typeof value !== 'object') return null;
+	const raw = value as Record<string, unknown>;
+	const source =
+		raw && raw.data && typeof raw.data === 'object' ? (raw.data as Record<string, unknown>) : raw;
+
+	const data: ResumeData = {
+		...emptyResumeData(normalizeText(source.name)),
+		name: normalizeText(source.name),
+		title: normalizeLocalized(source.title),
+		summary: normalizeLocalized(source.summary),
+		contacts: Array.isArray(source.contacts)
+			? (source.contacts as Array<Record<string, unknown>>).map((contact) => ({
+					name: normalizeText(contact?.name),
+					phone: normalizeText(contact?.phone) || null,
+					email: normalizeText(contact?.email) || null
+				}))
+			: [],
+		exampleSkills: normalizeStringArray(source.exampleSkills),
+		highlightedExperiences: Array.isArray(source.highlightedExperiences)
+			? (source.highlightedExperiences as ResumeData['highlightedExperiences'])
+			: [],
+		experiences: Array.isArray(source.experiences)
+			? (source.experiences as ResumeData['experiences'])
+			: [],
+		techniques: normalizeStringArray(source.techniques),
+		methods: normalizeStringArray(source.methods),
+		languages: Array.isArray(source.languages) ? (source.languages as ResumeData['languages']) : [],
+		education: Array.isArray(source.education) ? (source.education as ResumeData['education']) : [],
+		portfolio: normalizeStringArray(source.portfolio),
+		footerNote: normalizeLocalized(source.footerNote)
+	};
+
+	return data;
+};
+
+const hasResumeContent = (data: ResumeData): boolean => {
+	const hasLocalizedValue = (value: LocalizedText | undefined) => {
+		if (!value) return false;
+		if (typeof value === 'string') return value.trim().length > 0;
+		return (value.sv ?? '').trim().length > 0 || (value.en ?? '').trim().length > 0;
+	};
+
+	return Boolean(
+		data.name.trim() ||
+			hasLocalizedValue(data.title) ||
+			hasLocalizedValue(data.summary) ||
+			data.contacts.length > 0 ||
+			data.exampleSkills.length > 0 ||
+			data.highlightedExperiences.length > 0 ||
+			data.experiences.length > 0 ||
+			data.techniques.length > 0 ||
+			data.methods.length > 0 ||
+			data.languages.length > 0 ||
+			data.education.length > 0 ||
+			(data.portfolio?.length ?? 0) > 0 ||
+			hasLocalizedValue(data.footerNote)
+	);
+};
+
+const loadLegacyResumeContent = async (
+	client: NonNullable<ReturnType<typeof admin>>,
+	resumeId: string
+): Promise<ResumeData | null> => {
+	const { data, error } = await client
+		.from('resumes')
+		.select('content')
+		.eq('id', resumeId)
+		.maybeSingle();
+
+	if (error) {
+		// Fresh normalized DBs intentionally remove resumes.content.
+		if (error.code === '42703' || /column .*content.* does not exist/i.test(error.message)) {
+			return null;
+		}
+		console.warn('[resume service] failed to read legacy resumes.content fallback', {
+			resumeId,
+			message: error.message
+		});
+		return null;
+	}
+
+	return normalizeLegacyResumeData((data as { content?: unknown } | null)?.content);
+};
+
 const mapResumeRow = (row: ResumeRow, data: ResumeData): Resume => {
 	const fallbackTitle = row.version_name ?? 'Resume';
 	return {
@@ -73,8 +181,37 @@ const loadResumeDataSafe = async (
 	resumeId: string
 ) => {
 	try {
-		return await loadResumeData(client, resumeId);
-	} catch {
+		const normalizedData = await loadResumeData(client, resumeId);
+		if (hasResumeContent(normalizedData)) {
+			return normalizedData;
+		}
+
+		const legacyData = await loadLegacyResumeContent(client, resumeId);
+		if (legacyData && hasResumeContent(legacyData)) {
+			console.warn(
+				'[resume service] using legacy resumes.content fallback for empty normalized resume',
+				{
+					resumeId
+				}
+			);
+			return legacyData;
+		}
+
+		return normalizedData;
+	} catch (loadError) {
+		console.warn('[resume service] normalized load failed, trying legacy fallback', {
+			resumeId,
+			message: loadError instanceof Error ? loadError.message : 'Unknown error'
+		});
+
+		const legacyData = await loadLegacyResumeContent(client, resumeId);
+		if (legacyData && hasResumeContent(legacyData)) {
+			console.warn('[resume service] using legacy resumes.content fallback after load failure', {
+				resumeId
+			});
+			return legacyData;
+		}
+
 		return emptyResumeData('');
 	}
 };

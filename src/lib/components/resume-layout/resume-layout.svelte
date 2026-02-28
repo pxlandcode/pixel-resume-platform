@@ -4,22 +4,36 @@
 
 <script lang="ts">
 	import { Badge, Button, Mode } from '@pixelcode_/blocks/components';
-	import { createEventDispatcher } from 'svelte';
+	import { mode } from 'mode-watcher';
 	import { page } from '$app/stores';
-	import pixelcodeLogo from '$lib/assets/pixelcodelogodark.svg';
-
-	const dispatch = createEventDispatcher<{ logout: void }>();
+	import type { Snippet } from 'svelte';
+	import pixelcodeLogoDark from '$lib/assets/pixelcodelogodark.svg';
+	import pixelcodeLogoLight from '$lib/assets/pixelcodelogolight.svg';
 
 	interface Profile {
 		first_name: string | null;
 		last_name: string | null;
 	}
 
-	export let profile: Profile | null = null;
-	export let role: AdminRole | null = null;
-	export let roles: AdminRole[] = [];
-	export let userEmail: string | null = null;
-	export let unauthorizedMessage: string | null = null;
+	type Props = {
+		profile?: Profile | null;
+		role?: AdminRole | null;
+		roles?: AdminRole[];
+		userEmail?: string | null;
+		unauthorizedMessage?: string | null;
+		children: Snippet;
+		onlogout?: () => void;
+	};
+
+	let {
+		profile = null,
+		role = null,
+		roles = [],
+		userEmail = null,
+		unauthorizedMessage = null,
+		children,
+		onlogout
+	}: Props = $props();
 
 	type NavItem = {
 		label: string;
@@ -61,10 +75,15 @@
 		}
 	];
 
-	$: activePath = $page.url.pathname;
-	$: displayName = profile
-		? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || userEmail || 'User'
-		: userEmail || 'User';
+	const activePath = $derived($page.url.pathname);
+	const displayName = $derived(
+		profile
+			? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || userEmail || 'User'
+			: userEmail || 'User'
+	);
+
+	// Use light logo when dark mode is active (for contrast)
+	const pixelcodeLogo = $derived(mode.current === 'dark' ? pixelcodeLogoLight : pixelcodeLogoDark);
 
 	const canView = (allowed: AdminRole[]) => {
 		const effectiveRoles = roles.length ? roles : role ? [role] : [];
@@ -115,7 +134,7 @@
 				rel="noopener noreferrer"
 				class="inline-block transition-opacity hover:opacity-100"
 			>
-				<img src={pixelcodeLogo} alt="Pixel&Code" class="h-5 opacity-60" />
+				<img src={pixelcodeLogo} alt="Pixel&Code" class="h-5" />
 			</a>
 		</div>
 	</aside>
@@ -150,7 +169,7 @@
 					class="border-border bg-input text-foreground hover:bg-muted/70 focus:ring-primary/40 h-9 w-9 rounded-full border shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-1"
 				/>
 				<form method="POST" action="/logout">
-					<Button type="submit" variant="outline" size="sm" onclick={() => dispatch('logout')}>
+					<Button type="submit" variant="outline" size="sm" onclick={() => onlogout?.()}>
 						Log out
 					</Button>
 				</form>
@@ -165,7 +184,7 @@
 
 		<!-- Page content -->
 		<main class="flex-1 p-6">
-			<slot />
+			{@render children()}
 		</main>
 	</div>
 </div>

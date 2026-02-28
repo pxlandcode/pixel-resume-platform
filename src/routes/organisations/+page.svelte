@@ -100,6 +100,32 @@
 		users.filter((user) => user.roles.includes('broker') || user.roles.includes('employer'))
 	);
 
+	// Users/talents that already have any home organisation
+	const usersWithHomeOrg = $derived(
+		new Set((membershipsUsers as Array<{ user_id: string }>).map((m) => m.user_id))
+	);
+	const talentsWithHomeOrg = $derived(
+		new Set((membershipsTalents as Array<{ talent_id: string }>).map((m) => m.talent_id))
+	);
+
+	// Map user_id to their home organisation name
+	const orgById = $derived(
+		Object.fromEntries(organisations.map((org) => [org.id, org] as const)) as Record<
+			string,
+			(typeof organisations)[number]
+		>
+	);
+	const userHomeOrgNames = $derived.by(() => {
+		const map = new Map<string, string>();
+		for (const m of membershipsUsers as Array<{ organisation_id: string; user_id: string }>) {
+			const org = orgById[m.organisation_id];
+			if (org) {
+				map.set(m.user_id, org.name);
+			}
+		}
+		return map;
+	});
+
 	const actionMessage = $derived(typeof form?.message === 'string' ? form.message : null);
 	const actionFailed = $derived(form?.ok === false);
 
@@ -180,4 +206,7 @@
 		: []}
 	accessGrants={selectedOrganisation ? (grantsByOrg[selectedOrganisation.id] ?? []) : []}
 	{eligibleGrantUsers}
+	{usersWithHomeOrg}
+	{talentsWithHomeOrg}
+	{userHomeOrgNames}
 />
