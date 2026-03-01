@@ -314,10 +314,10 @@
 		</div>
 	{:else if selectedTechFilters.length === 0}
 		<!-- No search active - show all talents -->
-		<div class="mb-2">
-			<Input icon={Search} bind:value={searchQuery} placeholder="Search..." class="pl-9" />
-		</div>
 		{#if resumesViewMode === 'grid'}
+			<div class="mb-2">
+				<Input icon={Search} bind:value={searchQuery} placeholder="Search..." class="pl-9" />
+			</div>
 			<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{#each searchFilteredTalents as talent (talent.id)}
 					<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
