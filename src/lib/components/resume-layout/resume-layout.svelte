@@ -171,7 +171,7 @@
 	<!-- Sidebar -->
 	<aside class="border-border bg-card hidden w-64 flex-shrink-0 flex-col border-r md:flex">
 		<!-- Logo / Brand -->
-		<div class="border-border border-b px-6 py-5">
+		<div class="border-border flex min-h-[72px] items-center border-b px-6">
 			<h1 class="text-foreground text-xl font-bold tracking-tight">
 				<span class="text-primary">Talent</span>Atlas
 			</h1>
@@ -213,7 +213,9 @@
 	<!-- Main content -->
 	<div class="flex flex-1 flex-col">
 		<!-- Header -->
-		<header class="border-border bg-card flex items-center justify-between border-b px-6 py-4">
+		<header
+			class="border-border bg-card flex min-h-[72px] items-center justify-between border-b px-6"
+		>
 			<div class="md:hidden">
 				<h2 class="text-foreground text-lg font-semibold">
 					<span class="text-primary">Talent</span>Atlas
