@@ -4,19 +4,43 @@
 	import { DropdownCheckbox } from '$lib/components/dropdown-checkbox';
 	import { SuperList, ListHandler, Cell, Row } from '$lib/components/super-list';
 	import type { SuperListHead } from '$lib/components/super-list';
+	import { clickOutside } from '$lib/utils/clickOutside';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
 	import { Button, Card, Input } from '@pixelcode_/blocks/components';
 	import { User, Search, SlidersHorizontal, LayoutGrid, List } from 'lucide-svelte';
+	import { onDestroy } from 'svelte';
 	import { slide } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 
 	const { data } = $props();
 
+	type AvailabilityMode = 'all' | 'now' | 'within-days';
+	type TechStatus = 'met' | 'insufficient' | 'missing';
+	type SelectedTechFilter = {
+		label: string;
+		key: string;
+		requiredYears: number | null;
+	};
+	type TechMatch = SelectedTechFilter & {
+		actualYears: number;
+		status: TechStatus;
+	};
+
+	const DEFAULT_AVAILABILITY_WITHIN_DAYS = 30;
 	const allTalents = data.talents ?? [];
 	let selectedTechs = $state<string[]>([]);
+	let requiredYearsByTechKey = $state<Record<string, number>>({});
 	let filtersOpen = $state(false);
 	let searchQuery = $state('');
+	let availabilityMode = $state<AvailabilityMode>('all');
+	let availabilityWithinDaysInput = $state(String(DEFAULT_AVAILABILITY_WITHIN_DAYS));
+	let availabilityWithinDaysAppliedInput = $state(String(DEFAULT_AVAILABILITY_WITHIN_DAYS));
+	let openTechRequirementKey = $state<string | null>(null);
+	let techRequirementDraft = $state('');
+	let techRequirementError = $state('');
+	let availabilityWithinDaysDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 	const resumesViewMode = $derived($userSettingsStore.settings.views.resumes);
 	const homeOrganisationId = $derived(
 		typeof data.homeOrganisationId === 'string' ? data.homeOrganisationId : null
@@ -52,7 +76,7 @@
 		return [availableOrganisationIds[0]];
 	});
 
-	const visibleTalents = $derived.by(() => {
+	const organisationFilteredTalents = $derived.by(() => {
 		if (selectedOrganisationIds.length === 0) return allTalents;
 
 		const selectedSet = new Set(selectedOrganisationIds);
@@ -64,70 +88,255 @@
 
 	const normalize = (value: string) => value.trim().toLowerCase();
 
-	const selectedTechFilters = $derived(
-		selectedTechs.map((tech) => normalize(tech)).filter((tech) => tech.length > 0)
-	);
-
-	type TalentWithScore = (typeof visibleTalents)[number] & {
-		matchCount: number;
-		matchedTechs: string[];
-		unmatchedTechs: string[];
+	const toIsoUtcDate = (date: Date) => {
+		const year = date.getUTCFullYear();
+		const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+		const day = String(date.getUTCDate()).padStart(2, '0');
+		return `${year}-${month}-${day}`;
 	};
 
-	const groupedTalents = $derived.by(() => {
-		if (selectedTechFilters.length === 0) {
-			return [{ matchCount: 0, total: 0, talents: visibleTalents as TalentWithScore[] }];
-		}
+	const parseNonNegativeInteger = (value: string, fallback: number) => {
+		const trimmed = value.trim();
+		if (!trimmed) return fallback;
+		const parsed = Number.parseInt(trimmed, 10);
+		if (!Number.isInteger(parsed) || parsed < 0) return fallback;
+		return parsed;
+	};
 
-		const talentsWithScores: TalentWithScore[] = visibleTalents.map((talent) => {
-			const talentTechSet = new Set(
-				(talent.search_techs ?? [])
-					.filter((tech): tech is string => typeof tech === 'string')
-					.map((tech) => normalize(tech))
-					.filter((tech) => tech.length > 0)
+	const availabilityWithinDays = $derived.by(() =>
+		parseNonNegativeInteger(availabilityWithinDaysAppliedInput, DEFAULT_AVAILABILITY_WITHIN_DAYS)
+	);
+
+	const clearAvailabilityDaysDebounce = () => {
+		if (availabilityWithinDaysDebounceTimer === null) return;
+		clearTimeout(availabilityWithinDaysDebounceTimer);
+		availabilityWithinDaysDebounceTimer = null;
+	};
+
+	const scheduleAvailabilityWithinDaysApply = (rawValue: string) => {
+		availabilityWithinDaysInput = rawValue;
+		clearAvailabilityDaysDebounce();
+		availabilityWithinDaysDebounceTimer = setTimeout(() => {
+			availabilityWithinDaysAppliedInput = rawValue;
+			availabilityWithinDaysDebounceTimer = null;
+		}, 180);
+	};
+
+	const applyAvailabilityWithinDaysNow = (rawValue: string) => {
+		availabilityWithinDaysInput = rawValue;
+		availabilityWithinDaysAppliedInput = rawValue;
+		clearAvailabilityDaysDebounce();
+	};
+
+	const handleAvailabilityWithinDaysKeydown = (event: KeyboardEvent) => {
+		if (event.key !== 'Enter') return;
+		const inputEl = event.currentTarget as HTMLInputElement | null;
+		applyAvailabilityWithinDaysNow(inputEl?.value ?? availabilityWithinDaysInput);
+	};
+
+	onDestroy(() => {
+		clearAvailabilityDaysDebounce();
+	});
+
+	const isAvailableNow = (
+		availability: (typeof allTalents)[number]['availability'] | null | undefined
+	) => typeof availability?.nowPercent === 'number' && availability.nowPercent > 0;
+
+	const getEarliestAvailabilityDate = (
+		availability: (typeof allTalents)[number]['availability'] | null | undefined
+	) => {
+		const switchDate =
+			typeof availability?.switchFromDate === 'string' ? availability.switchFromDate : null;
+		const plannedDate =
+			typeof availability?.plannedFromDate === 'string' ? availability.plannedFromDate : null;
+		if (switchDate && plannedDate) return switchDate < plannedDate ? switchDate : plannedDate;
+		return switchDate ?? plannedDate;
+	};
+
+	const availabilityFilteredTalents = $derived.by(() => {
+		if (availabilityMode === 'all') return organisationFilteredTalents;
+
+		if (availabilityMode === 'now') {
+			return organisationFilteredTalents.filter((talent) =>
+				isAvailableNow(talent.availability ?? null)
 			);
-
-			const matchedTechs: string[] = [];
-			const unmatchedTechs: string[] = [];
-
-			// Use original selectedTechs to preserve casing for display
-			for (const tech of selectedTechs) {
-				if (talentTechSet.has(normalize(tech))) {
-					matchedTechs.push(tech);
-				} else {
-					unmatchedTechs.push(tech);
-				}
-			}
-
-			const matchCount = matchedTechs.length;
-			return { ...talent, matchCount, matchedTechs, unmatchedTechs };
-		});
-
-		// Group by match count, sorted descending
-		const groups = new Map<number, TalentWithScore[]>();
-		for (const emp of talentsWithScores) {
-			if (emp.matchCount === 0) continue; // Skip talents with no matches
-			const existing = groups.get(emp.matchCount) ?? [];
-			existing.push(emp);
-			groups.set(emp.matchCount, existing);
 		}
 
-		// Convert to array sorted by match count descending
-		return Array.from(groups.entries())
-			.sort((a, b) => b[0] - a[0])
-			.map(([matchCount, talents]) => ({
-				matchCount,
-				total: selectedTechFilters.length,
-				talents
-			}));
+		const now = new Date();
+		const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+		todayUtc.setUTCDate(todayUtc.getUTCDate() + availabilityWithinDays);
+		const latestAllowedDate = toIsoUtcDate(todayUtc);
+
+		return organisationFilteredTalents.filter((talent) => {
+			const availability = talent.availability ?? null;
+			if (isAvailableNow(availability)) return true;
+			const earliestDate = getEarliestAvailabilityDate(availability);
+			if (!earliestDate) return false;
+			return earliestDate <= latestAllowedDate;
+		});
+	});
+
+	const selectedTechFilters = $derived.by<SelectedTechFilter[]>(() => {
+		const seen = new Set<string>();
+		const filters: SelectedTechFilter[] = [];
+
+		for (const tech of selectedTechs) {
+			const trimmed = tech.trim();
+			if (!trimmed) continue;
+			const key = normalize(trimmed);
+			if (!key || seen.has(key)) continue;
+			seen.add(key);
+			filters.push({
+				label: trimmed,
+				key,
+				requiredYears: requiredYearsByTechKey[key] ?? null
+			});
+		}
+
+		return filters;
+	});
+
+	const recordsEqual = (left: Record<string, number>, right: Record<string, number>) => {
+		const leftKeys = Object.keys(left);
+		const rightKeys = Object.keys(right);
+		if (leftKeys.length !== rightKeys.length) return false;
+		for (const key of leftKeys) {
+			if (!(key in right)) return false;
+			if (left[key] !== right[key]) return false;
+		}
+		return true;
+	};
+
+	$effect(() => {
+		const validKeys = new Set(selectedTechFilters.map((filter) => filter.key));
+		const nextYearsByKey: Record<string, number> = {};
+
+		for (const [key, years] of Object.entries(requiredYearsByTechKey)) {
+			if (!validKeys.has(key)) continue;
+			nextYearsByKey[key] = years;
+		}
+
+		if (!recordsEqual(requiredYearsByTechKey, nextYearsByKey)) {
+			requiredYearsByTechKey = nextYearsByKey;
+		}
+
+		if (openTechRequirementKey && !validKeys.has(openTechRequirementKey)) {
+			openTechRequirementKey = null;
+			techRequirementDraft = '';
+			techRequirementError = '';
+		}
+	});
+
+	type TalentWithScore = (typeof allTalents)[number] & {
+		metCount: number;
+		insufficientCount: number;
+		missingCount: number;
+		total: number;
+		techMatches: TechMatch[];
+	};
+
+	type TalentGroup = {
+		metCount: number;
+		insufficientCount: number;
+		total: number;
+		talents: TalentWithScore[];
+	};
+
+	const getTalentName = (talent: (typeof allTalents)[number]) =>
+		[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed';
+
+	const getTalentTechYearsByKey = (talent: (typeof allTalents)[number]) => {
+		const raw = talent.tech_years_by_key;
+		if (!raw || typeof raw !== 'object') return {} as Record<string, number>;
+
+		const normalized: Record<string, number> = {};
+		for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+			if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
+			normalized[normalize(key)] = value;
+		}
+
+		return normalized;
+	};
+
+	const groupedTalents = $derived.by<TalentGroup[]>(() => {
+		if (selectedTechFilters.length === 0) return [];
+
+		const scoredTalents: TalentWithScore[] = availabilityFilteredTalents
+			.map((talent) => {
+				const talentTechSet = new Set(
+					(talent.search_techs ?? [])
+						.filter((tech): tech is string => typeof tech === 'string')
+						.map((tech) => normalize(tech))
+						.filter((tech) => tech.length > 0)
+				);
+				const talentTechYearsByKey = getTalentTechYearsByKey(talent);
+
+				const techMatches: TechMatch[] = selectedTechFilters.map((techFilter) => {
+					const hasTech = talentTechSet.has(techFilter.key);
+					const actualYears = talentTechYearsByKey[techFilter.key] ?? 0;
+
+					let status: TechStatus = 'missing';
+					if (hasTech) {
+						if (techFilter.requiredYears === null || actualYears >= techFilter.requiredYears) {
+							status = 'met';
+						} else {
+							status = 'insufficient';
+						}
+					}
+
+					return {
+						...techFilter,
+						actualYears,
+						status
+					};
+				});
+
+				const metCount = techMatches.filter((match) => match.status === 'met').length;
+				const insufficientCount = techMatches.filter(
+					(match) => match.status === 'insufficient'
+				).length;
+				const missingCount = techMatches.length - metCount - insufficientCount;
+
+				return {
+					...talent,
+					metCount,
+					insufficientCount,
+					missingCount,
+					total: techMatches.length,
+					techMatches
+				};
+			})
+			.filter((talent) => talent.metCount + talent.insufficientCount > 0)
+			.sort((left, right) => {
+				if (right.metCount !== left.metCount) return right.metCount - left.metCount;
+				if (right.insufficientCount !== left.insufficientCount) {
+					return right.insufficientCount - left.insufficientCount;
+				}
+				return getTalentName(left).localeCompare(getTalentName(right));
+			});
+
+		const groupsByScore = new Map<string, TalentGroup>();
+		for (const talent of scoredTalents) {
+			const key = `${talent.metCount}:${talent.insufficientCount}`;
+			const group = groupsByScore.get(key);
+			if (group) {
+				group.talents.push(talent);
+				continue;
+			}
+			groupsByScore.set(key, {
+				metCount: talent.metCount,
+				insufficientCount: talent.insufficientCount,
+				total: talent.total,
+				talents: [talent]
+			});
+		}
+
+		return Array.from(groupsByScore.values());
 	});
 
 	const totalMatches = $derived(
 		groupedTalents.reduce((sum, group) => sum + group.talents.length, 0)
 	);
-
-	const getTalentName = (talent: (typeof allTalents)[number]) =>
-		[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed';
 
 	type ResumesListRow = {
 		id: string;
@@ -145,44 +354,80 @@
 		{ heading: 'Organisation', sortable: 'organisation_name', width: 25 }
 	];
 
-	const toListRows = (talents: typeof visibleTalents): ResumesListRow[] =>
-		talents.map((t) => ({
-			id: t.id,
-			name: getTalentName(t),
-			avatar_url: t.avatar_url ?? null,
-			availability: t.availability ?? null,
-			organisation_name: t.organisation_name ?? null,
-			organisation_logo_url: t.organisation_logo_url ?? null
+	const toListRows = (talents: typeof availabilityFilteredTalents): ResumesListRow[] =>
+		talents.map((talent) => ({
+			id: talent.id,
+			name: getTalentName(talent),
+			avatar_url: talent.avatar_url ?? null,
+			availability: talent.availability ?? null,
+			organisation_name: talent.organisation_name ?? null,
+			organisation_logo_url: talent.organisation_logo_url ?? null
 		}));
 
 	const listHandler = $derived.by(() => {
 		const handler = new ListHandler<ResumesListRow>(
 			resumesListHeadings,
-			toListRows(visibleTalents)
+			toListRows(availabilityFilteredTalents)
 		);
 		handler.query = searchQuery;
 		return handler;
 	});
 
-	const getMatchPillClass = (matchCount: number, total: number) => {
-		if (matchCount === total) return 'bg-emerald-100 text-emerald-700';
-		if (matchCount >= total * 0.6) return 'bg-amber-100 text-amber-700';
+	const isPerfectMatch = (metCount: number, total: number, insufficientCount: number) =>
+		metCount === total && insufficientCount === 0;
+
+	const getMatchPillClass = (metCount: number, total: number, insufficientCount: number) => {
+		if (isPerfectMatch(metCount, total, insufficientCount))
+			return 'bg-emerald-100 text-emerald-700';
+		if (metCount + insufficientCount > 0) return 'bg-amber-100 text-amber-700';
 		return 'bg-muted text-muted-fg';
 	};
 
-	const getMatchBadgeClass = (matchCount: number, total: number) => {
-		if (matchCount === total) return 'bg-emerald-500 text-white';
-		if (matchCount >= total * 0.6) return 'bg-amber-500 text-white';
+	const getMatchBadgeClass = (metCount: number, total: number, insufficientCount: number) => {
+		if (isPerfectMatch(metCount, total, insufficientCount)) return 'bg-emerald-500 text-white';
+		if (metCount + insufficientCount > 0) return 'bg-amber-500 text-white';
 		return 'bg-muted-fg text-white';
 	};
 
+	const getTechStatusClass = (status: TechStatus) => {
+		if (status === 'met') return 'bg-emerald-100 text-emerald-700';
+		if (status === 'insufficient') return 'bg-amber-100 text-amber-700';
+		return 'bg-red-100 text-red-700';
+	};
+
+	const roundUpOneDecimal = (value: number) => Math.ceil(value * 10) / 10;
+	const formatYears = (value: number) => {
+		const rounded = roundUpOneDecimal(value);
+		const nearestInteger = Math.round(rounded);
+		if (Math.abs(rounded - nearestInteger) < 0.000001) return `${nearestInteger}y`;
+		return `${rounded.toFixed(1).replace(/\.0$/, '')}y`;
+	};
+
+	const getTechMatchTooltip = (techMatch: TechMatch) => {
+		const actualYearsLabel = formatYears(techMatch.actualYears);
+		if (techMatch.requiredYears === null) {
+			return `${techMatch.label}: ${actualYearsLabel} experience`;
+		}
+
+		const requiredYearsLabel = formatYears(techMatch.requiredYears);
+		if (techMatch.status === 'missing') {
+			return `${techMatch.label}: missing (required ${requiredYearsLabel})`;
+		}
+
+		return `${techMatch.label}: ${actualYearsLabel} (required ${requiredYearsLabel})`;
+	};
+
 	const searchFilteredTalents = $derived.by(() => {
-		if (!searchQuery.trim()) return visibleTalents;
+		if (!searchQuery.trim()) return availabilityFilteredTalents;
 		const q = searchQuery.trim().toLowerCase();
-		return visibleTalents.filter((t) => getTalentName(t).toLowerCase().includes(q));
+		return availabilityFilteredTalents.filter((talent) =>
+			getTalentName(talent).toLowerCase().includes(q)
+		);
 	});
 
-	const activeFilterCount = $derived(selectedTechs.length);
+	const activeFilterCount = $derived(
+		selectedTechFilters.length + (availabilityMode === 'all' ? 0 : 1)
+	);
 
 	function toggleFilters() {
 		filtersOpen = !filtersOpen;
@@ -202,6 +447,88 @@
 			}
 		}
 		void userSettingsStore.setOrganisationFilters('resumes', next);
+	};
+
+	const closeTechRequirementPopover = () => {
+		openTechRequirementKey = null;
+		techRequirementDraft = '';
+		techRequirementError = '';
+	};
+
+	const openTechRequirementPopover = (filter: SelectedTechFilter) => {
+		if (openTechRequirementKey === filter.key) {
+			closeTechRequirementPopover();
+			return;
+		}
+
+		openTechRequirementKey = filter.key;
+		techRequirementDraft = filter.requiredYears === null ? '' : String(filter.requiredYears);
+		techRequirementError = '';
+	};
+
+	const removeSelectedTech = (techKey: string) => {
+		selectedTechs = selectedTechs.filter((tech) => normalize(tech) !== techKey);
+		if (openTechRequirementKey === techKey) {
+			closeTechRequirementPopover();
+		}
+	};
+
+	const clearSelectedTechFilters = () => {
+		selectedTechs = [];
+		requiredYearsByTechKey = {};
+		closeTechRequirementPopover();
+	};
+
+	const applyTechRequirementDraft = (
+		techKey: string,
+		rawDraft = techRequirementDraft,
+		closeOnSuccess = false
+	) => {
+		techRequirementDraft = rawDraft;
+		const raw = rawDraft.trim().replace(',', '.');
+
+		if (!raw) {
+			const { [techKey]: _, ...rest } = requiredYearsByTechKey;
+			requiredYearsByTechKey = rest;
+			techRequirementError = '';
+			if (closeOnSuccess) closeTechRequirementPopover();
+			return true;
+		}
+
+		const parsed = Number(raw);
+		if (!Number.isFinite(parsed) || parsed < 0) {
+			techRequirementError = 'Enter a non-negative number.';
+			return false;
+		}
+
+		const normalizedYears = Math.round(parsed * 2) / 2;
+		requiredYearsByTechKey = {
+			...requiredYearsByTechKey,
+			[techKey]: normalizedYears
+		};
+		techRequirementError = '';
+		if (closeOnSuccess) closeTechRequirementPopover();
+		return true;
+	};
+
+	const clearTechRequirement = (techKey: string) => {
+		const { [techKey]: _, ...rest } = requiredYearsByTechKey;
+		requiredYearsByTechKey = rest;
+		closeTechRequirementPopover();
+	};
+
+	const handleTechRequirementKeydown = (event: KeyboardEvent, techKey: string) => {
+		if (event.key === 'Enter') {
+			event.preventDefault();
+			const inputEl = event.currentTarget as HTMLInputElement | null;
+			void applyTechRequirementDraft(techKey, inputEl?.value ?? techRequirementDraft, true);
+			return;
+		}
+
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			closeTechRequirementPopover();
+		}
 	};
 </script>
 
@@ -290,27 +617,168 @@
 				{/if}
 
 				<div>
+					<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">
+						Availability
+					</h2>
+					<div class="flex flex-wrap items-center gap-2">
+						<Button
+							type="button"
+							size="sm"
+							variant={availabilityMode === 'all' ? 'primary' : 'outline'}
+							onclick={() => (availabilityMode = 'all')}
+						>
+							All
+						</Button>
+						<Button
+							type="button"
+							size="sm"
+							variant={availabilityMode === 'now' ? 'primary' : 'outline'}
+							onclick={() => (availabilityMode = 'now')}
+						>
+							Available now
+						</Button>
+						<Button
+							type="button"
+							size="sm"
+							variant={availabilityMode === 'within-days' ? 'primary' : 'outline'}
+							onclick={() => (availabilityMode = 'within-days')}
+						>
+							Available within X days
+						</Button>
+					</div>
+					{#if availabilityMode === 'within-days'}
+						<div class="mt-3 flex items-center gap-2">
+							<Input
+								type="number"
+								min="0"
+								step="1"
+								size="sm"
+								class="w-24"
+								value={availabilityWithinDaysInput}
+								oninput={(event) =>
+									scheduleAvailabilityWithinDaysApply(
+										(event.currentTarget as HTMLInputElement).value
+									)}
+								onblur={(event) =>
+									applyAvailabilityWithinDaysNow((event.currentTarget as HTMLInputElement).value)}
+								onkeydown={handleAvailabilityWithinDaysKeydown}
+							/>
+							<span class="text-muted-fg text-sm">days (including uppsägningstid)</span>
+						</div>
+					{/if}
+				</div>
+
+				<div>
 					<div class="mb-3 flex items-center justify-between gap-4">
 						<h2 class="text-muted-fg text-xs font-semibold uppercase tracking-wide">
 							Search by tech
 						</h2>
-						{#if selectedTechs.length > 0}
-							<Button variant="ghost" size="sm" onclick={() => (selectedTechs = [])}>Clear</Button>
+						{#if selectedTechFilters.length > 0}
+							<Button variant="ghost" size="sm" onclick={clearSelectedTechFilters}>Clear</Button>
 						{/if}
 					</div>
-					<TechStackSelector bind:value={selectedTechs} />
+					<TechStackSelector bind:value={selectedTechs} showSelectedChips={false} />
+
+					{#if selectedTechFilters.length > 0}
+						<div class="mt-3 flex flex-wrap gap-2" use:clickOutside={closeTechRequirementPopover}>
+							{#each selectedTechFilters as techFilter (techFilter.key)}
+								<div class="relative">
+									<button
+										type="button"
+										onclick={() => openTechRequirementPopover(techFilter)}
+										class="border-border bg-muted text-foreground inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 pr-8 text-xs font-medium"
+									>
+										<span>{techFilter.label}</span>
+										{#if techFilter.requiredYears !== null}
+											<span class="text-muted-fg text-[10px]"
+												>{formatYears(techFilter.requiredYears)}</span
+											>
+										{:else}
+											<span class="text-muted-fg text-[10px]">any years</span>
+										{/if}
+									</button>
+									<button
+										type="button"
+										onclick={(event) => {
+											event.stopPropagation();
+											removeSelectedTech(techFilter.key);
+										}}
+										class="text-muted-fg hover:text-foreground absolute right-1 top-1/2 -translate-y-1/2 rounded-sm px-1 text-xs"
+										aria-label={`Remove ${techFilter.label}`}
+									>
+										×
+									</button>
+
+									{#if openTechRequirementKey === techFilter.key}
+										<div
+											class="border-border bg-card absolute left-0 top-full z-20 mt-2 w-52 rounded-sm border p-3 shadow-xl"
+										>
+											<p class="text-foreground text-xs font-semibold">
+												Min years for {techFilter.label}
+											</p>
+											<Input
+												type="number"
+												min="0"
+												step="0.5"
+												size="sm"
+												class="mt-2 w-full"
+												value={techRequirementDraft}
+												oninput={(event) =>
+													void applyTechRequirementDraft(
+														techFilter.key,
+														(event.currentTarget as HTMLInputElement).value
+													)}
+												onblur={(event) =>
+													void applyTechRequirementDraft(
+														techFilter.key,
+														(event.currentTarget as HTMLInputElement).value
+													)}
+												onkeydown={(event) => handleTechRequirementKeydown(event, techFilter.key)}
+											/>
+											{#if techRequirementError}
+												<p class="mt-1 text-xs text-red-600">{techRequirementError}</p>
+											{/if}
+											<div class="mt-2 flex items-center justify-between gap-2">
+												<Button
+													type="button"
+													size="sm"
+													variant="ghost"
+													onclick={() => clearTechRequirement(techFilter.key)}
+												>
+													Clear
+												</Button>
+												<span class="text-muted-fg text-[11px]">Auto-saved</span>
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+
 					<p class="text-muted-fg mt-3 text-sm">
-						{totalMatches} of {visibleTalents.length} consultants match.
+						{#if selectedTechFilters.length > 0}
+							{totalMatches} of {availabilityFilteredTalents.length} consultants match.
+						{:else}
+							{availabilityFilteredTalents.length} consultants in current result set.
+						{/if}
 					</p>
 				</div>
 			</div>
 		</div>
 	{/if}
 
-	{#if visibleTalents.length === 0}
+	{#if organisationFilteredTalents.length === 0}
 		<div class="border-border rounded-none border-2 border-dashed p-10 text-center">
 			<h3 class="text-foreground text-lg font-medium">No consultants in selected organisations</h3>
 			<p class="text-muted-fg mt-2 text-sm">Try selecting another organisation filter.</p>
+		</div>
+	{:else if availabilityFilteredTalents.length === 0}
+		<div class="border-border rounded-none border-2 border-dashed p-10 text-center">
+			<h3 class="text-foreground text-lg font-medium">No consultants match availability filter</h3>
+			<p class="text-muted-fg mt-2 text-sm">
+				Try changing availability filter or extending days for availability window.
+			</p>
 		</div>
 	{:else if selectedTechFilters.length === 0}
 		<!-- No search active - show all talents -->
@@ -397,13 +865,13 @@
 			</SuperList>
 		{/if}
 	{:else if groupedTalents.length > 0}
-		<!-- Search active - show grouped by match count -->
+		<!-- Search active - show grouped by score -->
 		<div class="space-y-10">
-			{#each groupedTalents as group (group.matchCount)}
+			{#each groupedTalents as group (`${group.metCount}-${group.insufficientCount}`)}
 				<section>
 					<div class="mb-4 flex items-center gap-3">
 						<h2 class="text-foreground text-lg font-semibold">
-							{#if group.matchCount === group.total}
+							{#if isPerfectMatch(group.metCount, group.total, group.insufficientCount)}
 								<span class="text-emerald-600">Perfect match</span>
 							{:else}
 								Partial match
@@ -411,11 +879,15 @@
 						</h2>
 						<span
 							class={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${getMatchPillClass(
-								group.matchCount,
-								group.total
+								group.metCount,
+								group.total,
+								group.insufficientCount
 							)}`}
 						>
-							{group.matchCount}/{group.total} techs
+							{group.metCount}/{group.total} met
+							{#if group.insufficientCount > 0}
+								<span class="ml-1">+ {group.insufficientCount} close</span>
+							{/if}
 						</span>
 						<span class="text-muted-fg text-sm">
 							({group.talents.length} consultant{group.talents.length === 1 ? '' : 's'})
@@ -427,50 +899,33 @@
 							{#each group.talents as talent (talent.id)}
 								<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
 									<Card
-										class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md
-											{group.matchCount === group.total ? 'ring-2 ring-emerald-200' : ''}"
+										class="flex h-full flex-col overflow-visible rounded-none transition-all hover:shadow-md
+											{isPerfectMatch(talent.metCount, group.total, talent.insufficientCount)
+											? 'ring-2 ring-emerald-200'
+											: ''}"
 									>
-										<div class="bg-muted relative aspect-square w-full overflow-hidden">
-											{#if talent.avatar_url}
-												<img
-													src={talent.avatar_url}
-													alt={getTalentName(talent)}
-													class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
-												/>
-											{:else}
-												<div class="text-muted-fg flex h-full w-full items-center justify-center">
-													<User size={48} />
-												</div>
-											{/if}
-											<!-- Match badge on image -->
+										<div class="relative aspect-square w-full">
+											<div class="bg-muted absolute inset-0 overflow-hidden">
+												{#if talent.avatar_url}
+													<img
+														src={talent.avatar_url}
+														alt={getTalentName(talent)}
+														class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
+													/>
+												{:else}
+													<div class="text-muted-fg flex h-full w-full items-center justify-center">
+														<User size={48} />
+													</div>
+												{/if}
+											</div>
 											<span
-												class={`group absolute right-2 top-2 inline-flex cursor-help items-center rounded-full px-2 py-1 text-xs font-bold shadow-sm ${getMatchBadgeClass(
-													talent.matchCount,
-													group.total
+												class={`absolute right-2 top-2 z-10 inline-flex items-center rounded-full px-2 py-1 text-xs font-bold shadow-sm ${getMatchBadgeClass(
+													talent.metCount,
+													group.total,
+													talent.insufficientCount
 												)}`}
 											>
-												{talent.matchCount}/{group.total}
-												<!-- Tooltip -->
-												<div
-													class="border-border bg-card text-foreground pointer-events-none invisible absolute right-0 top-full z-50 mt-2 w-56 rounded-sm border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
-												>
-													<div class="flex flex-wrap gap-1">
-														{#each talent.matchedTechs as tech}
-															<span
-																class="rounded-sm bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
-															>
-																{tech}
-															</span>
-														{/each}
-														{#each talent.unmatchedTechs as tech}
-															<span
-																class="rounded-sm bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
-															>
-																{tech}
-															</span>
-														{/each}
-													</div>
-												</div>
+												{talent.metCount}/{group.total}
 											</span>
 										</div>
 
@@ -481,6 +936,18 @@
 													compact
 													availability={talent.availability ?? null}
 												/>
+											</div>
+											<div class="mt-3 flex flex-wrap gap-1">
+												{#each talent.techMatches as techMatch}
+													<span
+														class={`rounded-sm px-2 py-0.5 text-xs font-medium ${getTechStatusClass(techMatch.status)}`}
+													>
+														{techMatch.label}
+														{#if techMatch.actualYears > 0}
+															<span class="opacity-60">{formatYears(techMatch.actualYears)}</span>
+														{/if}
+													</span>
+												{/each}
 											</div>
 											{#if talent.organisation_logo_url || talent.organisation_name}
 												<div class="mt-auto pt-3">
@@ -507,7 +974,7 @@
 							{#each group.talents as talent (talent.id)}
 								<Row.Root
 									href={`/resumes/${encodeURIComponent(talent.id)}`}
-									highlight={talent.matchCount === group.total}
+									highlight={isPerfectMatch(talent.metCount, group.total, talent.insufficientCount)}
 								>
 									<Cell.Value width={6}>
 										<Cell.Avatar src={talent.avatar_url} alt={getTalentName(talent)} size={36} />
@@ -519,11 +986,12 @@
 											</span>
 											<span
 												class={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getMatchPillClass(
-													talent.matchCount,
-													group.total
+													talent.metCount,
+													group.total,
+													talent.insufficientCount
 												)}`}
 											>
-												{talent.matchCount}/{group.total}
+												{talent.metCount}/{group.total}
 											</span>
 										</div>
 									</Cell.Value>
@@ -535,18 +1003,14 @@
 									</Cell.Value>
 									<Cell.Value width={30}>
 										<div class="flex flex-wrap gap-1">
-											{#each talent.matchedTechs as tech}
+											{#each talent.techMatches as techMatch}
 												<span
-													class="rounded-sm bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+													class={`rounded-sm px-2 py-0.5 text-xs font-medium ${getTechStatusClass(techMatch.status)}`}
 												>
-													{tech}
-												</span>
-											{/each}
-											{#each talent.unmatchedTechs as tech}
-												<span
-													class="rounded-sm bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700"
-												>
-													{tech}
+													{techMatch.label}
+													{#if techMatch.actualYears > 0}
+														<span class="opacity-60">{formatYears(techMatch.actualYears)}</span>
+													{/if}
 												</span>
 											{/each}
 										</div>
@@ -575,7 +1039,7 @@
 		<div class="border-border rounded-none border-2 border-dashed p-10 text-center">
 			<h3 class="text-foreground text-lg font-medium">No consultants found</h3>
 			<p class="text-muted-fg mt-2 text-sm">
-				No consultant matched any of the selected technologies.
+				No consultant matched the selected technologies and year requirements.
 			</p>
 		</div>
 	{/if}
