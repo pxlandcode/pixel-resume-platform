@@ -39,7 +39,13 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const { supabase, adminClient, actor } = await getActorContext(cookies);
 
 	if (!supabase || !adminClient || !actor.userId) {
-		return { talents: [], canManageTalents: false, meta: null };
+		return {
+			talents: [],
+			organisationOptions: [],
+			homeOrganisationId: null,
+			canManageTalents: false,
+			meta: null
+		};
 	}
 
 	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
@@ -149,13 +155,35 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			avatar_url: talent.avatar_url ?? null,
 			title: talent.title ?? '',
 			email: talent.user_id ? (emailByUserId.get(talent.user_id) ?? null) : null,
+			organisation_id: orgId ?? null,
 			organisation_name: org?.name ?? null,
 			organisation_logo_url: org?.logoUrl ?? null
 		};
 	});
 
+	const accessibleOrgRowsResult = actor.isAdmin
+		? await adminClient.from('organisations').select('id, name').order('name', { ascending: true })
+		: actor.accessibleOrganisationIds.length === 0
+			? { data: [] as Array<{ id: string; name: string }>, error: null }
+			: await adminClient
+					.from('organisations')
+					.select('id, name')
+					.in('id', actor.accessibleOrganisationIds)
+					.order('name', { ascending: true });
+
+	if (accessibleOrgRowsResult.error) {
+		console.warn('[talents index] accessible organisations error', accessibleOrgRowsResult.error);
+	}
+
+	const organisationOptions = (accessibleOrgRowsResult.data ?? []).map((org) => ({
+		id: org.id,
+		name: org.name
+	}));
+
 	return {
 		talents,
+		organisationOptions,
+		homeOrganisationId: actor.homeOrganisationId ?? null,
 		canManageTalents: canManageTalents(actor),
 		meta: {
 			title: `${siteMeta.name} — Talents`,

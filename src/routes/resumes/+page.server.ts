@@ -75,18 +75,18 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 
 	if (!supabase) {
-		return { talents: [], meta: null };
+		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
 	}
 
 	const adminClient = getSupabaseAdminClient();
 
 	if (!adminClient) {
-		return { talents: [], meta: null };
+		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
 	}
 
 	const actor = await getActorAccessContext(supabase, adminClient);
 	if (!actor.userId) {
-		return { talents: [], meta: null };
+		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
 	}
 
 	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
@@ -328,7 +328,9 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 	const overrideTechByItemId = new Map<string, Set<string>>();
 	for (const row of overrideTechRowsResult.data ?? []) {
-		const itemId = normalizeId((row as { resume_experience_item_id: unknown }).resume_experience_item_id);
+		const itemId = normalizeId(
+			(row as { resume_experience_item_id: unknown }).resume_experience_item_id
+		);
 		if (!itemId) continue;
 		const value = getSafeText(row.value);
 		if (!value) continue;
@@ -398,13 +400,35 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			email: talent.user_id ? (authMap.get(talent.user_id)?.email ?? null) : null,
 			availability: availabilityByTalentId.get(talent.id) ?? normalizeAvailabilityRow(null),
 			search_techs: uniq([...profileTechs, ...resumeTechs]),
+			organisation_id: orgId ?? null,
 			organisation_name: org?.name ?? null,
 			organisation_logo_url: org?.logoUrl ?? null
 		};
 	});
 
+	const accessibleOrgRowsResult = actor.isAdmin
+		? await adminClient.from('organisations').select('id, name').order('name', { ascending: true })
+		: actor.accessibleOrganisationIds.length === 0
+			? { data: [] as Array<{ id: string; name: string }>, error: null }
+			: await adminClient
+					.from('organisations')
+					.select('id, name')
+					.in('id', actor.accessibleOrganisationIds)
+					.order('name', { ascending: true });
+
+	if (accessibleOrgRowsResult.error) {
+		console.warn('[resumes index] accessible organisations error', accessibleOrgRowsResult.error);
+	}
+
+	const organisationOptions = (accessibleOrgRowsResult.data ?? []).map((org) => ({
+		id: org.id,
+		name: org.name
+	}));
+
 	return {
 		talents: talentsWithSearch,
+		organisationOptions,
+		homeOrganisationId: actor.homeOrganisationId ?? null,
 		meta: {
 			title: `${siteMeta.name} — Resumes`,
 			description: 'Manage consultant resumes and export packages.',

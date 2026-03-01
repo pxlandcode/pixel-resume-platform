@@ -7,6 +7,7 @@
 	import type { AdminRole } from '$lib/components/resume-layout/resume-layout.svelte';
 	import { Mode } from '@pixelcode_/blocks/components';
 	import { loadingStore } from '$lib/stores/loading';
+	import { userSettingsStore } from '$lib/stores/userSettings';
 	import {
 		pdfImportStore,
 		isImportActive,
@@ -65,6 +66,7 @@
 	);
 	const layoutRole = $derived((data.role ?? null) as AdminRole | null);
 	const layoutRoles = $derived((data.roles ?? []) as AdminRole[]);
+	const authenticatedUserId = $derived(typeof data.user?.id === 'string' ? data.user.id : null);
 	const brandingTheme = $derived(
 		(data.brandingTheme ?? DEFAULT_ORGANISATION_BRANDING_THEME) as OrganisationBrandingTheme
 	);
@@ -191,6 +193,14 @@
 			if (importPollAbortController === controller) importPollAbortController = null;
 		}
 	};
+
+	$effect(() => {
+		const userId = authenticatedUserId;
+		userSettingsStore.setCurrentUser(userId);
+		if (userId) {
+			void userSettingsStore.syncFromServer(userId);
+		}
+	});
 
 	$effect(() => {
 		if (!useAppShell) {
@@ -339,29 +349,29 @@
 					{/if}
 				</a>
 
-					<div
-						class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-56 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
-					>
-						<p class="text-foreground mb-1 font-semibold">
-							{#if importHasError}
-								Import Failed
-							{:else}
-								Importing PDF
-							{/if}
-						</p>
-						{#if importFilename}
-							<p class="text-muted-fg mb-1 truncate text-xs">{importFilename}</p>
-						{/if}
-						{#if importError}
-							<p class="text-xs text-red-600">{importError}</p>
+				<div
+					class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-56 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+				>
+					<p class="text-foreground mb-1 font-semibold">
+						{#if importHasError}
+							Import Failed
 						{:else}
-							<p class="text-muted-fg text-xs">{statusLabel || 'Processing...'}</p>
+							Importing PDF
 						{/if}
-						<p class="text-muted-fg mt-2 text-[11px]">Click to view details</p>
-					</div>
+					</p>
+					{#if importFilename}
+						<p class="text-muted-fg mb-1 truncate text-xs">{importFilename}</p>
+					{/if}
+					{#if importError}
+						<p class="text-xs text-red-600">{importError}</p>
+					{:else}
+						<p class="text-muted-fg text-xs">{statusLabel || 'Processing...'}</p>
+					{/if}
+					<p class="text-muted-fg mt-2 text-[11px]">Click to view details</p>
 				</div>
-			{/if}
-		</div>
+			</div>
+		{/if}
+	</div>
 {/if}
 
 {#if useAppShell && barVisible}
