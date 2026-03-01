@@ -83,8 +83,13 @@
 
 	let {
 		value = $bindable([]),
+		showSelectedChips = true,
 		onchange
-	}: { value?: string[]; onchange?: (techs: string[]) => void } = $props();
+	}: {
+		value?: string[];
+		showSelectedChips?: boolean;
+		onchange?: (techs: string[]) => void;
+	} = $props();
 
 	let searchTerm = $state('');
 	let isOpen = $state(false);
@@ -92,7 +97,7 @@
 	let draggingIndex = $state<number | null>(null);
 	let dragOverIndex = $state<number | null>(null);
 	let wrapperRef: HTMLElement | null = null;
-	let inputRef = $state<HTMLInputElement | null>(null);
+	let inputRef = $state<HTMLInputElement | undefined>(undefined);
 
 	const filteredTechnologies = $derived.by<Technology[]>(() => {
 		const term = searchTerm.trim().toLowerCase();
@@ -296,13 +301,13 @@
 <svelte:window on:click={handleClickOutside} />
 
 <div class="space-y-2" bind:this={wrapperRef}>
-	{#if value.length}
+	{#if showSelectedChips && value.length}
 		<div class="flex flex-wrap gap-2">
 			{#each value as tech, index (tech.toLowerCase())}
 				<span
-					class={`bg-muted text-foreground inline-flex cursor-move items-center gap-2 rounded-xs px-3 py-1 text-xs ${
+					class={`bg-muted text-foreground rounded-xs inline-flex cursor-move items-center gap-2 px-3 py-1 text-xs ${
 						dragOverIndex === index
-							? 'bg-primary/10 ring-2 ring-primary/60 ring-offset-1 ring-offset-background'
+							? 'bg-primary/10 ring-primary/60 ring-offset-background ring-2 ring-offset-1'
 							: ''
 					}`}
 					role="listitem"
@@ -341,7 +346,7 @@
 		<button
 			type="button"
 			aria-label="Toggle technologies"
-			class="absolute inset-y-0 right-0 flex items-center px-3 text-border transition hover:text-foreground"
+			class="text-border hover:text-foreground absolute inset-y-0 right-0 flex items-center px-3 transition"
 			onclick={toggleDropdown}
 		>
 			<ChevronDown class={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -349,7 +354,7 @@
 
 		{#if isOpen}
 			<div
-				class="absolute z-40 mt-2 max-h-72 w-full overflow-hidden rounded-md border bg-card shadow-md shadow-black/5"
+				class="bg-card absolute z-40 mt-2 max-h-72 w-full overflow-hidden rounded-md border shadow-md shadow-black/5"
 			>
 				{#if groupedOptions.length}
 					<div class="max-h-72 overflow-y-auto">
@@ -358,7 +363,7 @@
 								class={`border-border/80 ${index < groupedOptions.length - 1 ? 'border-b' : ''}`}
 							>
 								<div
-									class="flex items-center gap-2 bg-muted px-3 py-2 text-xs font-semibold tracking-wide text-foreground/70 uppercase"
+									class="bg-muted text-foreground/70 flex items-center gap-2 px-3 py-2 text-xs font-semibold uppercase tracking-wide"
 								>
 									<ArrowDown class="h-3.5 w-3.5 shrink-0 opacity-60" />
 									{group.category}
@@ -371,14 +376,14 @@
 										{@const isActive = activeIndex === optionIndex}
 										<button
 											type="button"
-											class={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition hover:bg-primary/10 ${
+											class={`hover:bg-primary/10 flex w-full items-center justify-between px-3 py-2 text-left text-sm transition ${
 												isActive ? 'bg-primary/10 text-primary' : ''
 											}`}
 											onclick={() => handleSelect(tech.name)}
 										>
 											<span class="truncate">{tech.name}</span>
 											{#if valueIncludes(tech.name)}
-												<Check class="h-4 w-4 text-primary" />
+												<Check class="text-primary h-4 w-4" />
 											{/if}
 										</button>
 									{/each}
@@ -387,7 +392,7 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="px-3 py-3 text-sm text-muted-fg">
+					<div class="text-muted-fg px-3 py-3 text-sm">
 						{#if searchTerm.trim()}
 							Press Enter to add "{searchTerm.trim()}"
 						{:else}

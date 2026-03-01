@@ -71,6 +71,45 @@ const normalizeId = (value: unknown): string | null => {
 	return null;
 };
 
+const normalizeTechKey = (value: string) => value.trim().toLowerCase();
+const ONGOING_END_DATE_KEYWORDS = new Set([
+	'present',
+	'current',
+	'ongoing',
+	'nuvarande',
+	'pågående'
+]);
+const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
+
+const parseDateToMs = (value: string | null | undefined): number | null => {
+	if (!value) return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+
+	const isoDateMatch = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
+	if (isoDateMatch) {
+		const parsed = Date.parse(`${trimmed}T00:00:00Z`);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+
+	const isoMonthMatch = /^\d{4}-\d{2}$/.test(trimmed);
+	if (isoMonthMatch) {
+		const parsed = Date.parse(`${trimmed}-01T00:00:00Z`);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+
+	const parsed = Date.parse(trimmed);
+	return Number.isFinite(parsed) ? parsed : null;
+};
+
+const parseEndDateToMs = (value: string | null | undefined, nowMs: number): number | null => {
+	if (!value) return nowMs;
+	const trimmed = value.trim();
+	if (!trimmed) return nowMs;
+	if (ONGOING_END_DATE_KEYWORDS.has(trimmed.toLowerCase())) return nowMs;
+	return parseDateToMs(trimmed);
+};
+
 export const load: PageServerLoad = async ({ cookies }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 
@@ -229,7 +268,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 							id: string;
 							resume_id: string;
 							experience_id: string | null;
+							section: 'highlighted' | 'experience';
 							use_tech_override: boolean;
+							start_date_override: string | null;
+							end_date_override: string | null;
 						}>,
 						error: null
 					}
@@ -241,7 +283,9 @@ export const load: PageServerLoad = async ({ cookies }) => {
 						.in('resume_id', resumeIds),
 					adminClient
 						.from('resume_experience_items')
-						.select('id, resume_id, experience_id, use_tech_override')
+						.select(
+							'id, resume_id, experience_id, section, use_tech_override, start_date_override, end_date_override'
+						)
 						.in('resume_id', resumeIds)
 				]);
 
@@ -267,12 +311,19 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const [libraryRowsResult, libraryTechRowsResult, overrideTechRowsResult] = await Promise.all([
 		experienceIds.length === 0
 			? {
-					data: [] as Array<{ id: string; company: string; role_sv: string; role_en: string }>,
+					data: [] as Array<{
+						id: string;
+						company: string;
+						role_sv: string;
+						role_en: string;
+						start_date: string;
+						end_date: string | null;
+					}>,
 					error: null
 				}
 			: adminClient
 					.from('experience_library')
-					.select('id, company, role_sv, role_en')
+					.select('id, company, role_sv, role_en, start_date, end_date')
 					.in('id', experienceIds),
 		experienceIds.length === 0
 			? { data: [] as Array<{ experience_id: string; value: string }>, error: null }
@@ -304,14 +355,25 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		);
 	}
 
-	const libraryById = new Map<string, { company: string; role_sv: string; role_en: string }>();
+	const libraryById = new Map<
+		string,
+		{
+			company: string;
+			role_sv: string;
+			role_en: string;
+			start_date: string;
+			end_date: string | null;
+		}
+	>();
 	for (const row of libraryRowsResult.data ?? []) {
 		const libraryId = normalizeId((row as { id: unknown }).id);
 		if (!libraryId) continue;
 		libraryById.set(libraryId, {
 			company: getSafeText(row.company),
 			role_sv: getSafeText(row.role_sv),
-			role_en: getSafeText(row.role_en)
+			role_en: getSafeText(row.role_en),
+			start_date: getSafeText(row.start_date),
+			end_date: row.end_date === null ? null : getSafeText(row.end_date)
 		});
 	}
 
@@ -386,6 +448,103 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		resumeSearchByTalentId.set(talentId, talentSet);
 	}
 
+	type TechInterval = { startMs: number; endMs: number };
+	const intervalsByTalentId = new Map<string, Map<string, Map<string, TechInterval>>>();
+	const nowMs = Date.now();
+
+	for (const item of resumeExperienceRows) {
+		const section = getSafeText((item as { section: unknown }).section);
+		if (section !== 'experience') continue;
+
+		const resumeId = normalizeId((item as { resume_id: unknown }).resume_id);
+		const itemId = normalizeId((item as { id: unknown }).id);
+		if (!resumeId || !itemId) continue;
+
+		const talentId = resumeIdToTalentId.get(resumeId);
+		if (!talentId) continue;
+
+		const experienceId = normalizeId((item as { experience_id: unknown }).experience_id);
+		const library = experienceId ? libraryById.get(experienceId) : undefined;
+
+		const overrideStartDate = getSafeText(
+			(item as { start_date_override: unknown }).start_date_override
+		);
+		const startDateValue = overrideStartDate || library?.start_date || '';
+		const startMs = parseDateToMs(startDateValue);
+		if (startMs === null) continue;
+
+		const endDateOverrideRaw = (item as { end_date_override: unknown }).end_date_override;
+		const endDateOverride =
+			typeof endDateOverrideRaw === 'string' ? getSafeText(endDateOverrideRaw) : null;
+		const endDateValue =
+			endDateOverrideRaw === null ? (library?.end_date ?? null) : (endDateOverride ?? null);
+		const endMs = parseEndDateToMs(endDateValue, nowMs);
+		if (endMs === null || endMs <= startMs) continue;
+
+		const techValues =
+			item.use_tech_override || !experienceId
+				? (overrideTechByItemId.get(itemId) ?? new Set<string>())
+				: (libraryTechByExperienceId.get(experienceId) ?? new Set<string>());
+		if (techValues.size === 0) continue;
+
+		let talentIntervals = intervalsByTalentId.get(talentId);
+		if (!talentIntervals) {
+			talentIntervals = new Map();
+			intervalsByTalentId.set(talentId, talentIntervals);
+		}
+
+		for (const rawTech of techValues) {
+			const techKey = normalizeTechKey(rawTech);
+			if (!techKey) continue;
+
+			let intervalMap = talentIntervals.get(techKey);
+			if (!intervalMap) {
+				intervalMap = new Map();
+				talentIntervals.set(techKey, intervalMap);
+			}
+
+			intervalMap.set(`${startMs}:${endMs}`, { startMs, endMs });
+		}
+	}
+
+	const techYearsByTalentId = new Map<string, Record<string, number>>();
+	for (const [talentId, techMap] of intervalsByTalentId.entries()) {
+		const yearsByKey: Record<string, number> = {};
+
+		for (const [techKey, intervalMap] of techMap.entries()) {
+			const sortedIntervals = Array.from(intervalMap.values()).sort((left, right) => {
+				if (left.startMs !== right.startMs) return left.startMs - right.startMs;
+				return left.endMs - right.endMs;
+			});
+			if (sortedIntervals.length === 0) continue;
+
+			let totalMs = 0;
+			let currentStart = sortedIntervals[0].startMs;
+			let currentEnd = sortedIntervals[0].endMs;
+
+			for (let index = 1; index < sortedIntervals.length; index += 1) {
+				const interval = sortedIntervals[index];
+				if (interval.startMs <= currentEnd) {
+					currentEnd = Math.max(currentEnd, interval.endMs);
+					continue;
+				}
+
+				totalMs += Math.max(0, currentEnd - currentStart);
+				currentStart = interval.startMs;
+				currentEnd = interval.endMs;
+			}
+
+			totalMs += Math.max(0, currentEnd - currentStart);
+			if (totalMs <= 0) continue;
+
+			yearsByKey[techKey] = totalMs / MS_PER_YEAR;
+		}
+
+		if (Object.keys(yearsByKey).length > 0) {
+			techYearsByTalentId.set(talentId, yearsByKey);
+		}
+	}
+
 	const talentsWithSearch = talentRows.map((talent) => {
 		const profileTechs = extractTalentTechs(talent.tech_stack);
 		const resumeTechs = Array.from(resumeSearchByTalentId.get(talent.id) ?? []);
@@ -400,6 +559,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			email: talent.user_id ? (authMap.get(talent.user_id)?.email ?? null) : null,
 			availability: availabilityByTalentId.get(talent.id) ?? normalizeAvailabilityRow(null),
 			search_techs: uniq([...profileTechs, ...resumeTechs]),
+			tech_years_by_key: techYearsByTalentId.get(talent.id) ?? {},
 			organisation_id: orgId ?? null,
 			organisation_name: org?.name ?? null,
 			organisation_logo_url: org?.logoUrl ?? null
