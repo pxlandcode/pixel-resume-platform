@@ -44,7 +44,7 @@ const parseViewsPatch = (
 		return { ok: false, message: '"views" must be an object.' };
 	}
 
-	const allowedViewKeys = new Set(['talents', 'resumes']);
+	const allowedViewKeys = new Set(['talents', 'resumes', 'users']);
 	const viewKeys = Object.keys(value.views);
 	if (viewKeys.length === 0) {
 		return { ok: false, message: 'At least one view setting is required.' };
@@ -65,6 +65,8 @@ const parseViewsPatch = (
 			patch.talents = mode;
 		} else if (key === 'resumes') {
 			patch.resumes = mode;
+		} else if (key === 'users') {
+			patch.users = mode;
 		}
 	}
 

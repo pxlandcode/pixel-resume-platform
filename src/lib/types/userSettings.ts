@@ -3,6 +3,7 @@ export type ViewMode = 'grid' | 'list';
 export type UserSettingsViews = {
 	talents: ViewMode;
 	resumes: ViewMode;
+	users: ViewMode;
 };
 
 export type UserSettingsOrganisationFilters = {
@@ -26,7 +27,8 @@ export type UserSettingsPatch = {
 export const DEFAULT_USER_SETTINGS: UserSettings = {
 	views: {
 		talents: 'grid',
-		resumes: 'grid'
+		resumes: 'grid',
+		users: 'list'
 	},
 	organisationFilters: {
 		talents: [],
@@ -43,7 +45,8 @@ export const isViewMode = (value: unknown): value is ViewMode =>
 export const cloneUserSettings = (settings: UserSettings): UserSettings => ({
 	views: {
 		talents: settings.views.talents,
-		resumes: settings.views.resumes
+		resumes: settings.views.resumes,
+		users: settings.views.users
 	},
 	organisationFilters: {
 		talents: [...settings.organisationFilters.talents],
@@ -75,7 +78,8 @@ export const normalizeUserSettings = (value: unknown): UserSettings => {
 	return {
 		views: {
 			talents: isViewMode(views.talents) ? views.talents : defaults.views.talents,
-			resumes: isViewMode(views.resumes) ? views.resumes : defaults.views.resumes
+			resumes: isViewMode(views.resumes) ? views.resumes : defaults.views.resumes,
+			users: isViewMode(views.users) ? views.users : defaults.views.users
 		},
 		organisationFilters: {
 			talents: normalizeOrganisationFilterIds(organisationFilters.talents),
@@ -90,7 +94,8 @@ export const applyUserSettingsViewsPatch = (
 ): UserSettings => ({
 	views: {
 		talents: patch.talents ?? settings.views.talents,
-		resumes: patch.resumes ?? settings.views.resumes
+		resumes: patch.resumes ?? settings.views.resumes,
+		users: patch.users ?? settings.views.users
 	},
 	organisationFilters: {
 		talents: settings.organisationFilters.talents,
@@ -104,7 +109,8 @@ export const applyUserSettingsPatch = (
 ): UserSettings => ({
 	views: {
 		talents: patch.views?.talents ?? settings.views.talents,
-		resumes: patch.views?.resumes ?? settings.views.resumes
+		resumes: patch.views?.resumes ?? settings.views.resumes,
+		users: patch.views?.users ?? settings.views.users
 	},
 	organisationFilters: {
 		talents:

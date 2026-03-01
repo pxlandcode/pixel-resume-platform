@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { Alert, Button } from '@pixelcode_/blocks/components';
-	import OrganisationTable from '$lib/components/admin/OrganisationTable.svelte';
+	import { SuperList, ListHandler, Cell, Row } from '$lib/components/super-list';
+	import type { SuperListHead } from '$lib/components/super-list';
 	import OrganisationCreateDrawer from '$lib/components/admin/OrganisationCreateDrawer.svelte';
 	import OrganisationDetailsDrawer from '$lib/components/admin/OrganisationDetailsDrawer.svelte';
 	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
 	import OrganisationMembershipDrawer from '$lib/components/admin/OrganisationMembershipDrawer.svelte';
+	import { Globe, Settings, Palette, Users } from 'lucide-svelte';
 
 	let { data, form } = $props();
 
@@ -154,6 +156,34 @@
 		selectedOrganisation = organisation;
 		isMembershipDrawerOpen = true;
 	};
+
+	type OrgListRow = {
+		id: string;
+		displayName: string;
+		slug: string;
+		homepage_url: string | null;
+		source: Organisation;
+	};
+
+	const orgListHeadings: SuperListHead<OrgListRow>[] = [
+		{ heading: 'Organisation', sortable: 'displayName', filterable: 'displayName', width: 30 },
+		{ heading: 'Slug', sortable: 'slug', width: 16 },
+		{ heading: 'Homepage', width: 22 },
+		{ heading: null, width: 32 }
+	];
+
+	const toOrgListRows = (items: Organisation[]): OrgListRow[] =>
+		items.map((org) => ({
+			id: org.id,
+			displayName: org.name || 'Unnamed Organisation',
+			slug: org.slug,
+			homepage_url: org.homepage_url,
+			source: org
+		}));
+
+	const orgListHandler = $derived(
+		new ListHandler<OrgListRow>(orgListHeadings, toOrgListRows(organisations))
+	);
 </script>
 
 <div class="flex items-center justify-between">
@@ -174,14 +204,77 @@
 	</Alert>
 {/if}
 
-<div class="mt-6">
-	<OrganisationTable
-		{organisations}
-		onEditDetails={openDetailsDrawer}
-		onEditBranding={openBrandingDrawer}
-		onEditMembership={openMembershipDrawer}
-	/>
-</div>
+{#if organisations.length === 0}
+	<div class="mt-6">
+		<p class="text-muted-fg text-sm font-medium">
+			No organisations yet. Create your first organisation to get started.
+		</p>
+	</div>
+{:else}
+	<div class="mt-6">
+		<SuperList instance={orgListHandler} emptyMessage="No organisations found">
+			{#each orgListHandler.data as row (row.id)}
+				<Row.Root>
+					<Cell.Value width={30}>
+						<span class="text-foreground text-sm font-semibold">{row.displayName}</span>
+					</Cell.Value>
+					<Cell.Value width={16}>
+						<span class="text-muted-fg font-mono text-sm">{row.slug}</span>
+					</Cell.Value>
+					<Cell.Value width={22}>
+						{#if row.homepage_url}
+							<a
+								href={row.homepage_url}
+								target="_blank"
+								rel="noopener noreferrer"
+								class="text-primary hover:text-primary/80 inline-flex items-center gap-1 text-sm hover:underline"
+							>
+								<Globe size={14} />
+								<span class="max-w-[180px] truncate">{row.homepage_url}</span>
+							</a>
+						{:else}
+							<span class="text-muted-fg text-xs">Not set</span>
+						{/if}
+					</Cell.Value>
+					<Cell.Value width={32}>
+						<div class="flex justify-end gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								type="button"
+								onclick={() => openDetailsDrawer(row.source)}
+								class="gap-1.5"
+							>
+								<Settings size={14} />
+								Details
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								type="button"
+								onclick={() => openBrandingDrawer(row.source)}
+								class="gap-1.5"
+							>
+								<Palette size={14} />
+								Branding
+							</Button>
+							<Button
+								variant="outline"
+								size="sm"
+								type="button"
+								onclick={() => openMembershipDrawer(row.source)}
+								class="gap-1.5"
+							>
+								<Users size={14} />
+								Access
+							</Button>
+						</div>
+					</Cell.Value>
+				</Row.Root>
+			{/each}
+		</SuperList>
+	</div>
+{/if}
 
 <OrganisationCreateDrawer bind:open={isCreateDrawerOpen} />
 
