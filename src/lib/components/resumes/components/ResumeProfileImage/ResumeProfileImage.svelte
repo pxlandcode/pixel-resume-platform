@@ -21,7 +21,7 @@
 </script>
 
 <div
-	class="relative aspect-square w-full flex-shrink-0 overflow-hidden rounded-xs border border-slate-200 bg-white"
+	class="relative aspect-square w-full flex-shrink-0 overflow-hidden rounded-xs border border-border bg-card"
 >
 	{#if resolved}
 		<img
@@ -33,7 +33,7 @@
 			decoding="async"
 		/>
 	{:else}
-		<div class="absolute inset-0 flex items-center justify-center bg-slate-50 text-slate-400">
+		<div class="absolute inset-0 flex items-center justify-center bg-muted text-secondary-text">
 			<svg
 				xmlns="http://www.w3.org/2000/svg"
 				class="h-20 w-20"

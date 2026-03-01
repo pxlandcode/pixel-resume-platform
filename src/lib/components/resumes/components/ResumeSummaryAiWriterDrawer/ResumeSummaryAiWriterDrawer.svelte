@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button, FormControl } from '@pixelcode_/blocks/components';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
-	import PixelDrawer from '$lib/components/PixelDrawer.svelte';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { QuillEditor } from '$lib/components';
 	import { confirm } from '$lib/utils/confirm';
 	import type { Language, ResumeAiGenerateParams, ResumeAiGenerateResult } from '../utils';
@@ -325,17 +325,11 @@
 	<Sparkles size={16} />
 </Button>
 
-<PixelDrawer
-	bind:open
-	variant="bottom"
-	title={rowTitle}
-	subtitle="AI writer"
-	beforeClose={requestClose}
->
+<Drawer bind:open variant="bottom" title={rowTitle} subtitle="AI writer" beforeClose={requestClose}>
 	<div class="relative flex min-h-0 flex-1 flex-col gap-4">
 		<button
 			type="button"
-			class="pointer-events-none absolute top-0 right-0 h-0 w-0 opacity-0"
+			class="pointer-events-none absolute right-0 top-0 h-0 w-0 opacity-0"
 			aria-hidden="true"
 			bind:this={closeConfirmTrigger}
 			use:confirm={{
@@ -356,8 +350,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'sv'
-							? 'rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600'}
+							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating || creatingFromResume}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -369,8 +363,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'en'
-							? 'rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600'}
+							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating || creatingFromResume}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -387,7 +381,7 @@
 					bind:value={prompt}
 					rows="5"
 					placeholder="Describe the summary you want..."
-					class="w-full resize-y rounded-xs border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-indigo-400"
+					class="rounded-xs w-full resize-y border border-border bg-card p-3 text-sm text-foreground outline-none focus:border-primary"
 				></textarea>
 			</FormControl>
 
@@ -442,10 +436,10 @@
 
 			{#if showSummaryPanel}
 				<div class="space-y-1">
-					<label class="text-xs font-medium text-slate-700"
+					<label class="text-xs font-medium text-secondary-text"
 						>Summary ({activeLanguage.toUpperCase()})</label
 					>
-					<div class="rounded-xs border border-slate-300 bg-white">
+					<div class="rounded-xs border border-border bg-card">
 						{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}`}
 							<QuillEditor
 								content={draftByLanguage[activeLanguage]}
@@ -458,7 +452,7 @@
 			{/if}
 		</div>
 
-		<div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+		<div class="flex justify-end gap-2 border-t border-border pt-4">
 			<Button type="button" variant="ghost" onclick={closeDrawer}>Close</Button>
 			<Button
 				type="button"
@@ -468,4 +462,4 @@
 			>
 		</div>
 	</div>
-</PixelDrawer>
+</Drawer>

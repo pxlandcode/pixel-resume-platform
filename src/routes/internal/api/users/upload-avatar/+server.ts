@@ -51,7 +51,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
 	const { error: uploadError } = await adminClient.storage.from('avatars').upload(objectPath, fileBytes, {
 		contentType: file.type || 'application/octet-stream',
-        cacheControl: '3600',
+		cacheControl: '3600',
 		upsert: false
 	});
 
@@ -60,12 +60,10 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		throw error(500, uploadError.message);
 	}
 
-	const { data: publicUrlData, error: publicUrlError } = adminClient.storage
-		.from('avatars')
-		.getPublicUrl(objectPath);
+	const { data: publicUrlData } = adminClient.storage.from('avatars').getPublicUrl(objectPath);
 
-	if (publicUrlError || !publicUrlData?.publicUrl) {
-		console.error('[users/upload-avatar] Failed to generate public URL', publicUrlError);
+	if (!publicUrlData?.publicUrl) {
+		console.error('[users/upload-avatar] Failed to generate public URL');
 		throw error(500, 'Upload succeeded but the public URL could not be generated.');
 	}
 

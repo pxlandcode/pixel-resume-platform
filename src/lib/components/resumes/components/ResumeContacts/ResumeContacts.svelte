@@ -19,10 +19,10 @@
 </script>
 
 {#if isEditing}
-	<div class="space-y-3 rounded-xs border border-slate-200 bg-slate-50 p-4">
-		<p class="text-xs font-semibold tracking-wide text-slate-600 uppercase">Contacts</p>
+	<div class="space-y-3 rounded-xs border border-border bg-muted p-4">
+		<p class="text-xs font-semibold tracking-wide text-secondary-text uppercase">Contacts</p>
 		{#each contacts as contact, index}
-			<div class="space-y-2 rounded-xs border border-slate-200 bg-white p-3">
+			<div class="space-y-2 rounded-xs border border-border bg-card p-3">
 				<div class="flex justify-end">
 					<Button
 						variant="ghost"
@@ -35,21 +35,21 @@
 					<Input
 						bind:value={contact.name}
 						placeholder="Name"
-						class="border-slate-300 bg-white text-slate-900"
+						class="border-border bg-card text-foreground"
 					/>
 				</FormControl>
 				<FormControl label="Phone">
 					<Input
 						bind:value={contact.phone}
 						placeholder="Phone"
-						class="border-slate-300 bg-white text-slate-900"
+						class="border-border bg-card text-foreground"
 					/>
 				</FormControl>
 				<FormControl label="Email">
 					<Input
 						bind:value={contact.email}
 						placeholder="Email"
-						class="border-slate-300 bg-white text-slate-900"
+						class="border-border bg-card text-foreground"
 					/>
 				</FormControl>
 			</div>
@@ -57,17 +57,17 @@
 		<Button variant="outline" size="sm" class="w-full" onclick={onAdd}>+ Add Contact</Button>
 	</div>
 {:else if contacts.length > 0}
-	<div class="flex-shrink-0 space-y-3 rounded-xs bg-slate-50 p-4">
+	<div class="flex-shrink-0 space-y-3 rounded-xs bg-muted p-4">
 		{#each contacts as contact}
 			<div class="space-y-1">
-				<p class="text-xs font-semibold tracking-wide text-slate-600 uppercase">
+				<p class="text-xs font-semibold tracking-wide text-secondary-text uppercase">
 					{language === 'sv' ? 'Kontakt' : 'Contact'}
 				</p>
-				<div class="space-y-2 text-sm text-slate-800">
+				<div class="space-y-2 text-sm text-foreground">
 					<div class="leading-tight">
 						<p class="text-sm font-medium">{contact.name}</p>
-						{#if contact.phone}<p class="text-xs text-slate-600">{contact.phone}</p>{/if}
-						{#if contact.email}<p class="text-xs text-slate-600">{contact.email}</p>{/if}
+						{#if contact.phone}<p class="text-xs text-secondary-text">{contact.phone}</p>{/if}
+						{#if contact.email}<p class="text-xs text-secondary-text">{contact.email}</p>{/if}
 					</div>
 				</div>
 			</div>

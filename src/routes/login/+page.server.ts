@@ -1,8 +1,13 @@
-import { fail, redirect, type Actions, type PageServerLoad } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
-import { SUPABASE_ANON_KEY, SUPABASE_URL } from '$env/static/private';
-import { AUTH_COOKIE_NAMES, createSupabaseServerClient } from '$lib/server/supabase';
+import {
+	AUTH_COOKIE_NAMES,
+	createSupabaseServerClient,
+	getSupabasePublishableKey,
+	getSupabaseUrl
+} from '$lib/server/supabase';
 import { dev } from '$app/environment';
+import type { Actions, PageServerLoad } from './$types';
 
 const cookieOptions = {
 	path: '/',
@@ -13,7 +18,9 @@ const cookieOptions = {
 
 const isAllowedAppRedirect = (value: unknown): value is string =>
 	typeof value === 'string' &&
-	/^\/(?:$|users(?:\/.*)?$|employees(?:\/.*)?$|resumes(?:\/.*)?$)/.test(value);
+	/^\/(?:$|users(?:\/.*)?$|talents(?:\/.*)?$|resumes(?:\/.*)?$|organisations(?:\/.*)?$)/.test(
+		value
+	);
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
@@ -41,7 +48,16 @@ export const actions: Actions = {
 			return fail(400, { message: 'Email and password are required.' });
 		}
 
-		const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+		const supabaseUrl = getSupabaseUrl();
+		const publishableKey = getSupabasePublishableKey();
+		if (!supabaseUrl || !publishableKey) {
+			return fail(500, {
+				message:
+					'Supabase keys are not configured (SUPABASE_PUBLISHABLE_KEY / legacy SUPABASE_ANON_KEY).'
+			});
+		}
+
+		const supabase = createClient(supabaseUrl, publishableKey, {
 			auth: {
 				persistSession: false,
 				autoRefreshToken: false

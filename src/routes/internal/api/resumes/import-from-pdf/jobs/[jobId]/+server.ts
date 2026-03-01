@@ -12,7 +12,7 @@ type JobStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
 
 type ResumeImportJobRow = {
 	id: string;
-	person_id: string;
+	talent_id: string;
 	requested_by_user_id: string;
 	status: JobStatus;
 	error_message: string | null;
@@ -47,7 +47,7 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 	const { data: row, error } = await adminClient
 		.from('resume_import_jobs')
 		.select(
-			'id, person_id, requested_by_user_id, status, error_message, resume_id, resume_version_name, created_at, started_at, completed_at'
+			'id, talent_id, requested_by_user_id, status, error_message, resume_id, resume_version_name, created_at, started_at, completed_at'
 		)
 		.eq('id', jobId)
 		.maybeSingle();
@@ -61,7 +61,7 @@ export const GET: RequestHandler = async ({ params, cookies }) => {
 	}
 
 	const typedRow = row as ResumeImportJobRow;
-	const permissions = await getResumeEditPermissions(supabase, adminClient, typedRow.person_id);
+	const permissions = await getResumeEditPermissions(supabase, adminClient, typedRow.talent_id);
 	const canView =
 		permissions.canEdit ||
 		(permissions.userId && permissions.userId === typedRow.requested_by_user_id);

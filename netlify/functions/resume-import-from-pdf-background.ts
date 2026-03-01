@@ -22,7 +22,7 @@ type ResumeImportJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
 
 type ResumeImportJobRow = {
 	id: string;
-	person_id: string;
+	talent_id: string;
 	requested_by_user_id: string;
 	status: ResumeImportJobStatus;
 	source_filename: string;
@@ -61,22 +61,23 @@ const getCookieValue = (cookieHeader: string | undefined, key: string): string |
 	return null;
 };
 
-const getRequiredEnv = (name: string): string => {
-	const value = process.env[name]?.trim();
-	if (!value) {
-		throw new Error(`${name} is required.`);
+const getRequiredEnv = (names: string | string[]): string => {
+	const keys = Array.isArray(names) ? names : [names];
+	for (const name of keys) {
+		const value = process.env[name]?.trim();
+		if (value) return value;
 	}
-	return value;
+	throw new Error(`${keys.join(' or ')} is required.`);
 };
 
 const createSupabaseClients = (
 	accessToken: string
 ): { supabase: SupabaseClient; adminClient: SupabaseClient } => {
 	const supabaseUrl = getRequiredEnv('SUPABASE_URL');
-	const supabaseAnonKey = getRequiredEnv('SUPABASE_ANON_KEY');
-	const serviceRoleKey = getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY');
+	const supabasePublishableKey = getRequiredEnv(['SUPABASE_PUBLISHABLE_KEY', 'SUPABASE_ANON_KEY']);
+	const secretKey = getRequiredEnv(['SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_ROLE_KEY']);
 
-	const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+	const supabase = createClient(supabaseUrl, supabasePublishableKey, {
 		global: {
 			headers: {
 				Authorization: `Bearer ${accessToken}`
@@ -88,7 +89,7 @@ const createSupabaseClients = (
 		}
 	});
 
-	const adminClient = createClient(supabaseUrl, serviceRoleKey, {
+	const adminClient = createClient(supabaseUrl, secretKey, {
 		auth: {
 			persistSession: false,
 			autoRefreshToken: false
@@ -176,7 +177,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 	const startedAtMs = Date.now();
 
 	let jobId = '';
-	let personId = '';
+	let talentId = '';
 	let filename = '';
 	let sizeBytes = 0;
 	let adminClient: SupabaseClient | null = null;
@@ -190,20 +191,22 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 			path: event.path || null
 		});
 
-		const [{ getResumeEditPermissions }, { importResumeFromPdf }] = await Promise.all([
-			import('../../src/lib/server/resumes/permissions'),
-			import('../../src/lib/server/resumes/pdfImport')
-		]);
+		const [{ getResumeEditPermissions }, { importResumeFromPdf }, { saveResumeData }] =
+			await Promise.all([
+				import('../../src/lib/server/resumes/permissions'),
+				import('../../src/lib/server/resumes/pdfImport'),
+				import('../../src/lib/server/resumes/store')
+			]);
 
 		const request = toRequest(event);
 		const payload = (await request.json().catch(() => null)) as {
 			job_id?: unknown;
-			person_id?: unknown;
+			talent_id?: unknown;
 		} | null;
 
 		jobId = typeof payload?.job_id === 'string' ? payload.job_id.trim() : '';
-		const requestedPersonId =
-			typeof payload?.person_id === 'string' ? payload.person_id.trim() : '';
+		const requestedTalentId =
+			typeof payload?.talent_id === 'string' ? payload.talent_id.trim() : '';
 
 		if (!jobId) {
 			return jsonResponse(400, { message: 'Missing job_id.' });
@@ -220,7 +223,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 		const { data: jobRow, error: jobError } = await adminClient
 			.from('resume_import_jobs')
 			.select(
-				'id, person_id, requested_by_user_id, status, source_filename, source_size_bytes, source_bucket, source_object_path'
+				'id, talent_id, requested_by_user_id, status, source_filename, source_size_bytes, source_bucket, source_object_path'
 			)
 			.eq('id', jobId)
 			.maybeSingle();
@@ -234,28 +237,28 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 		}
 
 		const job = jobRow as ResumeImportJobRow;
-		personId = job.person_id;
+		talentId = job.talent_id;
 		filename = job.source_filename || 'resume.pdf';
 		logPhase('job:loaded', {
 			job_id: jobId,
-			person_id: personId,
+			talent_id: talentId,
 			status: job.status,
 			source_bucket: job.source_bucket,
 			source_object_path: job.source_object_path,
 			request_id: requestId
 		});
 
-		if (requestedPersonId && requestedPersonId !== personId) {
-			await failJob(adminClient, jobId, 'Import job does not match target profile.', {
+		if (requestedTalentId && requestedTalentId !== talentId) {
+			await failJob(adminClient, jobId, 'Import job does not match target talent.', {
 				request_id: requestId
 			});
-			return jsonResponse(400, { message: 'Import job does not match target profile.' });
+			return jsonResponse(400, { message: 'Import job does not match target talent.' });
 		}
 
 		if (job.status === 'succeeded') {
 			logPhase('job:duplicate-succeeded', {
 				job_id: jobId,
-				person_id: personId,
+				talent_id: talentId,
 				request_id: requestId
 			});
 			return jsonResponse(202, { ok: true, status: 'succeeded' });
@@ -264,7 +267,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 		if (job.status === 'processing') {
 			logPhase('job:duplicate-processing', {
 				job_id: jobId,
-				person_id: personId,
+				talent_id: talentId,
 				request_id: requestId
 			});
 			return jsonResponse(202, { ok: true, status: 'processing' });
@@ -291,12 +294,12 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 		cleanupBucket = job.source_bucket;
 		cleanupObjectPath = job.source_object_path;
 
-		const permissions = await getResumeEditPermissions(clients.supabase, adminClient, personId);
+		const permissions = await getResumeEditPermissions(clients.supabase, adminClient, talentId);
 		if (!permissions.canEdit || !permissions.userId) {
-			await failJob(adminClient, jobId, 'Not authorized to create resumes for this user.', {
+			await failJob(adminClient, jobId, 'Not authorized to create resumes for this talent.', {
 				request_id: requestId
 			});
-			return jsonResponse(403, { message: 'Not authorized to create resumes for this user.' });
+			return jsonResponse(403, { message: 'Not authorized to create resumes for this talent.' });
 		}
 
 		if (permissions.userId !== job.requested_by_user_id) {
@@ -306,19 +309,19 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 			return jsonResponse(403, { message: 'Import job requester mismatch.' });
 		}
 
-		const { data: profile, error: profileError } = await adminClient
-			.from('profiles')
+		const { data: talent, error: talentError } = await adminClient
+			.from('talents')
 			.select('id, first_name, last_name')
-			.eq('id', personId)
+			.eq('id', talentId)
 			.maybeSingle();
 
-		if (profileError || !profile?.id) {
-			await failJob(adminClient, jobId, 'Profile not found.', { request_id: requestId });
-			return jsonResponse(404, { message: 'Profile not found.' });
+		if (talentError || !talent?.id) {
+			await failJob(adminClient, jobId, 'Talent not found.', { request_id: requestId });
+			return jsonResponse(404, { message: 'Talent not found.' });
 		}
 
 		const personName =
-			[profile.first_name, profile.last_name].filter(Boolean).join(' ').trim() || 'Consultant';
+			[talent.first_name, talent.last_name].filter(Boolean).join(' ').trim() || 'Talent';
 		const model =
 			process.env.LLM_MODEL_PDF_IMPORT?.trim() || process.env.LLM_MODEL?.trim() || 'gpt-4o-mini';
 
@@ -333,7 +336,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 
 		logPhase('job:started', {
 			job_id: jobId,
-			person_id: personId,
+			talent_id: talentId,
 			filename,
 			size_bytes: sizeBytes,
 			model,
@@ -342,7 +345,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 
 		logPhase('storage:download:start', {
 			job_id: jobId,
-			person_id: personId,
+			talent_id: talentId,
 			source_bucket: cleanupBucket,
 			source_object_path: cleanupObjectPath,
 			request_id: requestId
@@ -385,12 +388,12 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 
 		logPhase('storage:download:done', {
 			job_id: jobId,
-			person_id: personId,
+			talent_id: talentId,
 			size_bytes: sizeBytes,
 			request_id: requestId
 		});
 
-		logPhase('openai:import:start', { job_id: jobId, person_id: personId, request_id: requestId });
+		logPhase('openai:import:start', { job_id: jobId, talent_id: talentId, request_id: requestId });
 		const imported = await importResumeFromPdf({
 			pdfBytes: fileBytes,
 			filename,
@@ -398,7 +401,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 		});
 		logPhase('openai:import:done', {
 			job_id: jobId,
-			person_id: personId,
+			talent_id: talentId,
 			request_id: requestId,
 			usage: imported.usage ?? null
 		});
@@ -407,12 +410,11 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 		const { data: createdResume, error: createResumeError } = await adminClient
 			.from('resumes')
 			.insert({
-				user_id: personId,
+				talent_id: talentId,
 				version_name: versionName,
 				is_main: false,
 				is_active: true,
 				allow_word_export: false,
-				content: imported.content,
 				preview_html: null
 			})
 			.select('id, version_name')
@@ -422,9 +424,11 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 			throw new Error(createResumeError?.message ?? 'Failed to create imported resume.');
 		}
 
+		await saveResumeData(adminClient, String(createdResume.id), talentId, imported.content);
+
 		logPhase('resume:inserted', {
 			job_id: jobId,
-			person_id: personId,
+			talent_id: talentId,
 			resume_id: createdResume.id,
 			request_id: requestId
 		});
@@ -440,7 +444,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 
 		logPhase('job:succeeded', {
 			job_id: jobId,
-			person_id: personId,
+			talent_id: talentId,
 			resume_id: createdResume.id,
 			duration_ms: Date.now() - startedAtMs,
 			request_id: requestId
@@ -490,7 +494,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 			'job:failed',
 			{
 				job_id: jobId || null,
-				person_id: personId || null,
+				talent_id: talentId || null,
 				filename: filename || null,
 				size_bytes: sizeBytes || null,
 				status,
@@ -513,7 +517,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 					'storage:delete:failed',
 					{
 						job_id: jobId || null,
-						person_id: personId || null,
+						talent_id: talentId || null,
 						source_bucket: cleanupBucket,
 						source_object_path: cleanupObjectPath,
 						message: toSafeMessage(removeError.message, 'Failed to delete staged PDF.'),
@@ -545,7 +549,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 
 				logPhase('storage:delete:ok', {
 					job_id: jobId || null,
-					person_id: personId || null,
+					talent_id: talentId || null,
 					source_bucket: cleanupBucket,
 					source_object_path: cleanupObjectPath,
 					request_id: requestId

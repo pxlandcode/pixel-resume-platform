@@ -1,8 +1,9 @@
 <script lang="ts">
-	import type { HighlightedExperience } from '$lib/types/resume';
+	import type { HighlightedExperience, ExperienceLibraryItem } from '$lib/types/resume';
 	import { Button, Input, FormControl } from '@pixelcode_/blocks/components';
 	import { QuillEditor, TechStackSelector } from '$lib/components';
 	import { ResumeAiWriterDrawer } from '../ResumeAiWriterDrawer';
+	import { SvelteSet } from 'svelte/reactivity';
 	import {
 		t,
 		getLocalizedValue,
@@ -16,7 +17,9 @@
 		experiences = $bindable(),
 		isEditing = false,
 		language = 'sv',
+		libraryExperiences = [],
 		onAdd,
+		onAddFromLibrary,
 		onRemove,
 		onMove,
 		onReorder,
@@ -25,7 +28,9 @@
 		experiences: HighlightedExperience[];
 		isEditing?: boolean;
 		language?: Language;
+		libraryExperiences?: ExperienceLibraryItem[];
 		onAdd?: () => void;
+		onAddFromLibrary?: (libraryId: string) => void;
 		onRemove?: (index: number) => void;
 		onMove?: (index: number, direction: 'up' | 'down') => void;
 		onReorder?: (fromIndex: number, toIndex: number) => void;
@@ -33,9 +38,11 @@
 	} = $props();
 	const debugLoggingEnabled = import.meta.env.DEV;
 	let aiDescriptionRevisionByRow = $state<Record<string, number>>({});
+	let showLibraryPicker = $state(false);
+	let librarySearch = $state('');
 
 	// Collapse state - track which items are expanded
-	let expandedIds = $state<Set<string>>(new Set());
+	let expandedIds = new SvelteSet<string>();
 	let allCollapsed = $state(true);
 
 	const getRowId = (exp: HighlightedExperience, index: number) => exp._id ?? `row-${index}`;
@@ -53,15 +60,18 @@
 		} else {
 			expandedIds.add(id);
 		}
-		expandedIds = new Set(expandedIds);
 	};
 
 	const toggleAll = () => {
 		if (allCollapsed) {
-			expandedIds = new Set(experiences.map((exp) => exp._id ?? ''));
+			expandedIds.clear();
+			for (const exp of experiences) {
+				const id = exp._id ?? '';
+				if (id) expandedIds.add(id);
+			}
 			allCollapsed = false;
 		} else {
-			expandedIds = new Set();
+			expandedIds.clear();
 			allCollapsed = true;
 		}
 	};
@@ -105,38 +115,122 @@
 		draggedIndex = null;
 		dragOverIndex = null;
 	};
+
+	const filteredLibraryExperiences = $derived.by(() => {
+		const needle = librarySearch.trim().toLowerCase();
+		if (!needle) return libraryExperiences;
+		return libraryExperiences.filter((entry) => {
+			const company = (entry.company ?? '').toLowerCase();
+			const roleSv = getLocalizedValue(entry.role, 'sv').toLowerCase();
+			const roleEn = getLocalizedValue(entry.role, 'en').toLowerCase();
+			const techs = (entry.technologies ?? []).join(' ').toLowerCase();
+			return (
+				company.includes(needle) ||
+				roleSv.includes(needle) ||
+				roleEn.includes(needle) ||
+				techs.includes(needle)
+			);
+		});
+	});
+
+	const isLibrarySelected = (exp: HighlightedExperience) =>
+		Boolean(exp.libraryId) || Boolean(exp.saveToLibrary);
+
+	const getLibraryButtonLabel = (exp: HighlightedExperience) => {
+		if (exp.libraryId) return 'Already in library';
+		if (exp.saveToLibrary) return 'Will be added to library';
+		return 'Add to library';
+	};
+
+	const toggleLibrarySelection = (index: number) => {
+		const target = experiences[index];
+		if (!target || target.libraryId) return;
+		const nextValue = !Boolean(target.saveToLibrary);
+		experiences = experiences.map((item, itemIndex) =>
+			itemIndex === index ? { ...item, saveToLibrary: nextValue } : item
+		);
+	};
 </script>
 
 <div class="space-y-4">
 	{#if !isEditing && experiences.length > 0}
-		<h3 class="pt-4 text-base font-bold tracking-wide text-slate-900 uppercase">
+		<h3 class="pt-4 text-base font-bold uppercase tracking-wide text-foreground">
 			{language === 'sv' ? 'Utvald Erfarenhet' : 'Highlighted Experience'}
 		</h3>
 	{/if}
 
 	{#if isEditing}
-		<div class="rounded-xs border border-slate-200 bg-slate-50 p-4">
-			<h3 class="mb-4 text-sm font-semibold text-slate-700">Highlighted Experiences</h3>
+		<div class="rounded-xs border border-border bg-muted p-4">
+			<h3 class="mb-4 text-sm font-semibold text-secondary-text">Highlighted Experiences</h3>
 			<div class="mb-4 flex gap-2">
 				<Button
 					variant="outline"
-					class="flex-1 border-dashed border-slate-300 text-slate-700 hover:bg-white"
+					class="flex-1 border-dashed border-border text-secondary-text hover:bg-card"
 					onclick={onAdd}
 				>
 					+ Add Highlighted Experience
 				</Button>
-				<Button variant="ghost" size="sm" class="text-slate-600" onclick={toggleAll}>
+				<Button
+					variant="outline"
+					class="border-border text-secondary-text hover:bg-card"
+					onclick={() => (showLibraryPicker = !showLibraryPicker)}
+				>
+					Add from Library
+				</Button>
+				<Button variant="ghost" size="sm" class="text-secondary-text" onclick={toggleAll}>
 					{allCollapsed ? 'Expand All' : 'Collapse All'}
 				</Button>
 			</div>
+			{#if showLibraryPicker}
+				<div class="rounded-xs mb-4 border border-border bg-muted p-3">
+					<div class="mb-2 flex items-center justify-between gap-2">
+						<p class="text-xs font-semibold uppercase tracking-wide text-secondary-text">
+							Experience Library
+						</p>
+						<Button variant="ghost" size="sm" onclick={() => (showLibraryPicker = false)}>
+							Close
+						</Button>
+					</div>
+					<Input
+						placeholder="Search company, role, or tech..."
+						bind:value={librarySearch}
+						class="mb-3"
+					/>
+					<div class="max-h-56 space-y-2 overflow-auto">
+						{#if filteredLibraryExperiences.length === 0}
+							<p class="text-sm text-secondary-text">No saved experiences found.</p>
+						{:else}
+							{#each filteredLibraryExperiences as entry (entry.id)}
+								<div
+									class="rounded-xs flex items-center justify-between border border-border bg-card px-3 py-2"
+								>
+									<div class="min-w-0">
+										<p class="truncate text-sm font-semibold text-foreground">
+											{entry.company || 'Untitled'}
+										</p>
+										<p class="truncate text-xs text-secondary-text">
+											{getLocalizedValue(entry.role, language) ||
+												getLocalizedValue(entry.role, 'en')}
+										</p>
+									</div>
+									<Button size="sm" variant="outline" onclick={() => onAddFromLibrary?.(entry.id)}>
+										Add
+									</Button>
+								</div>
+							{/each}
+						{/if}
+					</div>
+				</div>
+			{/if}
 			<div class="space-y-3">
 				{#each experiences as exp, index (exp._id ?? index)}
 					{@const rowId = getRowId(exp, index)}
 					<div
-						class="rounded-xs border border-slate-200 bg-white transition-all {draggedIndex === index
+						class="rounded-xs border border-border bg-card transition-all {draggedIndex ===
+						index
 							? 'opacity-50'
 							: ''} {dragOverIndex === index && draggedIndex !== index
-							? 'border-2 border-primary'
+							? 'border-primary border-2'
 							: ''}"
 						ondragover={handleDragOver(index)}
 						ondragleave={handleDragLeave}
@@ -144,12 +238,12 @@
 					>
 						<div
 							class="flex items-center justify-between p-3 {isExpanded(exp._id)
-								? 'border-b border-slate-200'
+								? 'border-b border-border'
 								: ''}"
 						>
 							<div class="flex min-w-0 flex-1 items-center gap-2">
 								<div
-									class="flex-shrink-0 cursor-grab rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 active:cursor-grabbing"
+									class="flex-shrink-0 cursor-grab rounded p-1 text-secondary-text hover:bg-muted hover:text-foreground active:cursor-grabbing"
 									draggable="true"
 									ondragstart={handleDragStart(index)}
 									ondragend={handleDragEnd}
@@ -181,7 +275,7 @@
 									</svg>
 								</div>
 								<button
-									class="flex-shrink-0 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+									class="flex-shrink-0 rounded p-1 text-secondary-text hover:bg-muted hover:text-foreground"
 									onclick={() => toggleExpanded(exp._id ?? '')}
 									aria-label={isExpanded(exp._id) ? 'Collapse' : 'Expand'}
 								>
@@ -201,11 +295,11 @@
 									</svg>
 								</button>
 								<div class="min-w-0 flex-1">
-									<span class="truncate font-semibold text-slate-700">
+									<span class="truncate font-semibold text-secondary-text">
 										{exp.company || `Experience ${index + 1}`}
 									</span>
 									{#if exp.hidden}
-										<span class="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+										<span class="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-secondary-text">
 											Hidden
 										</span>
 									{/if}
@@ -241,7 +335,11 @@
 												'sv',
 												payload.drafts.roleByLanguage.sv
 											);
-											nextRole = setLocalizedValue(nextRole, 'en', payload.drafts.roleByLanguage.en);
+											nextRole = setLocalizedValue(
+												nextRole,
+												'en',
+												payload.drafts.roleByLanguage.en
+											);
 
 											const nextExp: HighlightedExperience = {
 												...exp,
@@ -267,6 +365,31 @@
 									/>
 								{/if}
 								<Button
+									variant="ghost"
+									size="sm"
+									class={isLibrarySelected(exp)
+										? 'bg-amber-100 text-amber-700 hover:bg-amber-100'
+										: 'text-secondary-text'}
+									onclick={() => toggleLibrarySelection(index)}
+									aria-label={getLibraryButtonLabel(exp)}
+									title={getLibraryButtonLabel(exp)}
+									disabled={Boolean(exp.libraryId)}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill={isLibrarySelected(exp) ? 'currentColor' : 'none'}
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
+										<path d="M19 21 12 16 5 21V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+									</svg>
+								</Button>
+								<Button
 									variant={exp.hidden ? 'outline' : 'ghost'}
 									size="sm"
 									onclick={() => (exp.hidden = !exp.hidden)}
@@ -285,11 +408,7 @@
 									disabled={index === experiences.length - 1}
 									onclick={() => onMove?.(index, 'down')}>↓</Button
 								>
-								<Button
-									variant="ghost"
-									size="sm"
-									onclick={() => onRemove?.(index)}>✕</Button
-								>
+								<Button variant="ghost" size="sm" onclick={() => onRemove?.(index)}>✕</Button>
 							</div>
 						</div>
 
@@ -299,7 +418,7 @@
 									<Input
 										bind:value={exp.company}
 										placeholder="Company"
-										class="border-slate-300 bg-white text-slate-900"
+										class="border-border bg-card text-foreground"
 									/>
 								</FormControl>
 								<div class="grid grid-cols-2 gap-4">
@@ -309,7 +428,7 @@
 											oninput={(e) =>
 												(exp.role = setLocalizedValue(exp.role, 'sv', e.currentTarget.value))}
 											placeholder="Role (SV)"
-											class="border-slate-300 bg-white text-slate-900"
+											class="border-border bg-card text-foreground"
 										/>
 									</FormControl>
 									<FormControl label="Role (EN)">
@@ -318,13 +437,15 @@
 											oninput={(e) =>
 												(exp.role = setLocalizedValue(exp.role, 'en', e.currentTarget.value))}
 											placeholder="Role (EN)"
-											class="border-slate-300 bg-white text-slate-900"
+											class="border-border bg-card text-foreground"
 										/>
 									</FormControl>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-slate-700">Description (SV)</label>
-									<div class="rounded-xs border border-slate-300 bg-white">
+									<label class="mb-1 block text-sm font-medium text-secondary-text"
+										>Description (SV)</label
+									>
+									<div class="rounded-xs border border-border bg-card">
 										{#key `sv-${rowId}-${getDescriptionRevision(rowId)}`}
 											<QuillEditor
 												content={getLocalizedValue(exp.description, 'sv')}
@@ -336,8 +457,10 @@
 									</div>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-slate-700">Description (EN)</label>
-									<div class="rounded-xs border border-slate-300 bg-white">
+									<label class="mb-1 block text-sm font-medium text-secondary-text"
+										>Description (EN)</label
+									>
+									<div class="rounded-xs border border-border bg-card">
 										{#key `en-${rowId}-${getDescriptionRevision(rowId)}`}
 											<QuillEditor
 												content={getLocalizedValue(exp.description, 'en')}
@@ -349,7 +472,9 @@
 									</div>
 								</div>
 								<div>
-									<label class="mb-1 block text-sm font-medium text-slate-700">Key Technologies</label>
+									<label class="mb-1 block text-sm font-medium text-secondary-text"
+										>Key Technologies</label
+									>
 									<TechStackSelector
 										bind:value={exp.technologies}
 										onchange={(techs) => (exp.technologies = techs ?? [])}
@@ -362,24 +487,24 @@
 			</div>
 		</div>
 	{:else}
-		{#each experiences.filter((exp) => !exp.hidden) as exp}
-			<div class="space-y-3 border-l border-primary pl-4">
+		{#each experiences.filter((exp) => !exp.hidden) as exp, index (`view-highlighted-${exp._id ?? exp.libraryId ?? exp.company}-${index}`)}
+			<div class="border-primary space-y-3 border-l pl-4">
 				<div>
-					<p class="text-sm font-semibold text-slate-900">{exp.company}</p>
-					<p class="text-sm text-slate-700 italic">{t(exp.role, language)}</p>
+					<p class="text-sm font-semibold text-foreground">{exp.company}</p>
+					<p class="text-sm italic text-secondary-text">{t(exp.role, language)}</p>
 				</div>
-				<div class="experience-description text-sm leading-relaxed text-slate-700">
+				<div class="experience-description text-sm leading-relaxed text-secondary-text">
 					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 					{@html t(exp.description, language)}
 				</div>
 				{#if exp.technologies.length > 0}
 					<div class="space-y-1">
-						<p class="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+						<p class="text-xs font-semibold uppercase tracking-wide text-secondary-text">
 							{language === 'sv' ? 'Nyckeltekniker' : 'Key Technologies'}
 						</p>
 						<div class="flex flex-wrap gap-2">
-							{#each exp.technologies as tech}
-								<span class="rounded-xs bg-slate-100 px-3 py-1 text-xs text-slate-800">{tech}</span>
+							{#each exp.technologies as tech, techIndex (`${tech}-${techIndex}`)}
+								<span class="rounded-xs bg-muted px-3 py-1 text-xs text-foreground">{tech}</span>
 							{/each}
 						</div>
 					</div>

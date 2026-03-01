@@ -15,17 +15,13 @@
 	const canEdit = data.canEdit ?? false;
 	let showDownloadOptions = $state(false);
 	let viewLanguage: 'sv' | 'en' = $state((data.language as 'sv' | 'en') ?? 'sv');
-	let downloadLanguage: 'sv' | 'en' = $state((data.language as 'sv' | 'en') ?? 'sv');
+	let downloadLanguageOverride: 'sv' | 'en' | null = $state(null);
+	const downloadLanguage = $derived(downloadLanguageOverride ?? viewLanguage);
 	let isEditing = $state(false);
 	let saving = $state(false);
 	let downloading: 'pdf' | 'word' | null = $state(null);
 	let errorMessage = $state<string | null>(null);
 	let resumeViewRef: ReturnType<typeof ResumeView> | null = $state(null);
-
-	// Sync downloadLanguage when viewLanguage changes
-	$effect(() => {
-		downloadLanguage = viewLanguage;
-	});
 
 	$effect(() => {
 		if (!canEdit) {
@@ -170,12 +166,20 @@
 				throw new Error(detail?.message ?? 'Failed to save resume');
 			}
 			isEditing = false;
-			toast.success?.('Resume saved!') ?? toast('Resume saved!');
+			if (typeof toast.success === 'function') {
+				toast.success('Resume saved!');
+			} else {
+				toast('Resume saved!');
+			}
 			// Refetch page data to update the view with saved content
 			await invalidateAll();
 		} catch (err) {
 			errorMessage = err instanceof Error ? err.message : 'Failed to save resume';
-			toast.error?.(errorMessage) ?? toast(errorMessage);
+			if (typeof toast.error === 'function') {
+				toast.error(errorMessage);
+			} else {
+				toast(errorMessage);
+			}
 		} finally {
 			saving = false;
 			loading(false);
@@ -185,7 +189,8 @@
 	const downloadFile = async (type: 'pdf' | 'word') => {
 		const extension = type === 'pdf' ? 'pdf' : 'doc';
 		const label = type === 'pdf' ? 'Generating PDF...' : 'Generating Word file...';
-		const url = `/api/resumes/${data.resume.id}/${type}?lang=${downloadLanguage}`;
+		const debugParam = type === 'pdf' ? '&debug=1' : '';
+		const url = `/api/resumes/${data.resume.id}/${type}?lang=${downloadLanguage}${debugParam}`;
 		const filename = `${downloadBaseName}.${extension}`;
 
 		downloading = type;
@@ -210,7 +215,11 @@
 			URL.revokeObjectURL(objectUrl);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to download file';
-			toast.error?.(message) ?? toast(message);
+			if (typeof toast.error === 'function') {
+				toast.error(message);
+			} else {
+				toast(message);
+			}
 		} finally {
 			downloading = null;
 			loading(false);
@@ -220,11 +229,7 @@
 
 <div class="flex items-center justify-between">
 	<div>
-		<Button
-			variant="ghost"
-			href="/resumes"
-			class=" pl-0 hover:bg-transparent hover:text-indigo-600"
-		>
+		<Button variant="ghost" href="/resumes" class=" hover:text-primary pl-0 hover:bg-transparent">
 			<ArrowLeft size={16} class="mr-2" />
 			Back to resumes
 		</Button>
@@ -238,7 +243,7 @@
 <Toaster richColors position="top-center" closeButton />
 
 <!-- Fixed Edit/Save/Download Buttons in Bottom Right -->
-<div class="fixed right-6 bottom-6 z-50 flex gap-2 print:hidden">
+<div class="fixed bottom-6 right-6 z-50 flex gap-2 print:hidden">
 	{#if isEditing && canEdit}
 		<Button variant="inverted" onclick={handleCancel}>
 			<Icon icon={X} size="sm" />
@@ -251,26 +256,26 @@
 	{:else}
 		<div class="relative flex items-center gap-2">
 			{#if showDownloadOptions}
-				<div class="absolute right-0 bottom-14 flex flex-col items-end gap-2">
+				<div class="absolute bottom-14 right-0 flex flex-col items-end gap-2">
 					<div transition:fly={{ y: 12, duration: 120 }}>
 						<div
-							class="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs font-medium shadow-sm"
+							class="border-border bg-card flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium shadow-sm"
 						>
 							<button
 								type="button"
 								class={downloadLanguage === 'sv'
-									? 'rounded-full bg-indigo-600 px-2 py-0.5 text-white'
-									: 'px-2 py-0.5 text-slate-500 hover:text-slate-700'}
-								onclick={() => (downloadLanguage = 'sv')}
+									? 'bg-primary rounded-full px-2 py-0.5 text-white'
+									: 'text-muted-fg hover:text-foreground px-2 py-0.5'}
+								onclick={() => (downloadLanguageOverride = 'sv')}
 							>
 								SV
 							</button>
 							<button
 								type="button"
 								class={downloadLanguage === 'en'
-									? 'rounded-full bg-indigo-600 px-2 py-0.5 text-white'
-									: 'px-2 py-0.5 text-slate-500 hover:text-slate-700'}
-								onclick={() => (downloadLanguage = 'en')}
+									? 'bg-primary rounded-full px-2 py-0.5 text-white'
+									: 'text-muted-fg hover:text-foreground px-2 py-0.5'}
+								onclick={() => (downloadLanguageOverride = 'en')}
 							>
 								EN
 							</button>
@@ -319,7 +324,7 @@
 </div>
 
 <div class="mt-6 space-y-4">
-	<Card class="bg-white text-slate-900">
+	<Card class="bg-card text-foreground">
 		<div class="mt-4">
 			<ResumeView
 				data={data.resume.data}
@@ -328,6 +333,11 @@
 				person={data.resumePerson ?? undefined}
 				image={avatarImage ?? undefined}
 				profileTechStack={data.resumePerson?.techStack}
+				templateMainLogotypeUrl={data.templateContext?.mainLogotypeUrl}
+				templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
+				templateEndLogoUrl={data.templateContext?.endLogoUrl}
+				templateHomepageUrl={data.templateContext?.homepageUrl}
+				experienceLibrary={data.experienceLibrary ?? []}
 				onGenerateDescription={generateDescription}
 				{isEditing}
 			/>

@@ -4,7 +4,7 @@
 	import LockOpen from 'lucide-svelte/icons/lock-open';
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { QuillEditor, TechStackSelector } from '$lib/components';
-	import PixelDrawer from '$lib/components/PixelDrawer.svelte';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { confirm } from '$lib/utils/confirm';
 	import type {
 		Language,
@@ -332,8 +332,8 @@
 
 	const getInputClass = (field: ResumeAiFieldKey) =>
 		isLocked(field)
-			? 'border-slate-200 bg-slate-100 text-slate-600'
-			: 'border-slate-300 bg-white text-slate-900';
+			? 'border-border bg-muted text-secondary-text'
+			: 'border-border bg-card text-foreground';
 
 	const handleBodyWheel = (event: WheelEvent) => {
 		if (!scrollContainer) return;
@@ -629,17 +629,11 @@
 	<Sparkles size={16} />
 </Button>
 
-<PixelDrawer
-	bind:open
-	variant="bottom"
-	title={rowTitle}
-	subtitle="AI writer"
-	beforeClose={requestClose}
->
+<Drawer bind:open variant="bottom" title={rowTitle} subtitle="AI writer" beforeClose={requestClose}>
 	<div class="relative flex min-h-0 flex-1 flex-col gap-4">
 		<button
 			type="button"
-			class="pointer-events-none absolute top-0 right-0 h-0 w-0 opacity-0"
+			class="pointer-events-none absolute right-0 top-0 h-0 w-0 opacity-0"
 			aria-hidden="true"
 			bind:this={closeConfirmTrigger}
 			use:confirm={{
@@ -660,8 +654,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'sv'
-							? 'rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600'}
+							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -673,8 +667,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'en'
-							? 'rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600'}
+							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
+							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
 						disabled={generating || translating}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -684,7 +678,7 @@
 						EN
 					</button>
 				</div>
-				<p class="text-xs text-slate-500">
+				<p class="text-xs text-secondary-text">
 					{showFieldPanel
 						? 'Locked fields and description still guide AI context.'
 						: 'Fields and description appear after first generation.'}
@@ -696,7 +690,7 @@
 					bind:value={prompt}
 					rows="5"
 					placeholder="Describe the project, ownership, solution, and outcomes..."
-					class="w-full resize-y rounded-xs border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-indigo-400"
+					class="rounded-xs w-full resize-y border border-border bg-card p-3 text-sm text-foreground outline-none focus:border-primary"
 				></textarea>
 			</FormControl>
 
@@ -740,9 +734,9 @@
 			{/if}
 
 			{#if showFieldPanel}
-				<div class="grid gap-3 rounded-xs border border-slate-200 bg-slate-50 p-3">
+				<div class="rounded-xs grid gap-3 border border-border bg-muted p-3">
 					<div class="flex items-center justify-between gap-3">
-						<p class="text-sm font-medium text-slate-700">Fields</p>
+						<p class="text-sm font-medium text-secondary-text">Fields</p>
 						<div class="flex gap-2">
 							<Button type="button" size="sm" variant="ghost" onclick={unlockAllVisibleFields}
 								>Unlock all</Button
@@ -752,16 +746,16 @@
 							>
 						</div>
 					</div>
-					<p class="text-xs text-slate-500">
+					<p class="text-xs text-secondary-text">
 						AI can only update unlocked fields. Locked fields remain unchanged.
 					</p>
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-slate-700">Company</label>
+							<label class="text-xs font-medium text-secondary-text">Company</label>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => toggleFieldLock('company')}
 							>
 								{#if isLocked('company')}
@@ -783,12 +777,12 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-slate-700"
+							<label class="text-xs font-medium text-secondary-text"
 								>Role ({activeLanguage.toUpperCase()})</label
 							>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => toggleFieldLock('role')}
 							>
 								{#if isLocked('role')}
@@ -812,12 +806,12 @@
 					{#if sectionType === 'experience'}
 						<div class="space-y-1">
 							<div class="flex items-center justify-between gap-3">
-								<label class="text-xs font-medium text-slate-700"
+								<label class="text-xs font-medium text-secondary-text"
 									>Location ({activeLanguage.toUpperCase()})</label
 								>
 								<button
 									type="button"
-									class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+									class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 									onclick={() => toggleFieldLock('location')}
 								>
 									{#if isLocked('location')}
@@ -841,10 +835,10 @@
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
 								<div class="flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-slate-700">Start Date (YYYY-MM-DD)</label>
+									<label class="text-xs font-medium text-secondary-text">Start Date (YYYY-MM-DD)</label>
 									<button
 										type="button"
-										class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 										onclick={() => toggleFieldLock('startDate')}
 									>
 										{#if isLocked('startDate')}
@@ -865,12 +859,12 @@
 							</div>
 							<div class="space-y-1">
 								<div class="flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-slate-700"
+									<label class="text-xs font-medium text-secondary-text"
 										>End Date (empty = Present)</label
 									>
 									<button
 										type="button"
-										class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 										onclick={() => toggleFieldLock('endDate')}
 									>
 										{#if isLocked('endDate')}
@@ -899,12 +893,12 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-slate-700"
+							<label class="text-xs font-medium text-secondary-text"
 								>Description ({activeLanguage.toUpperCase()})</label
 							>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => (descriptionLocked = !descriptionLocked)}
 							>
 								{#if descriptionLocked}
@@ -918,17 +912,17 @@
 						</div>
 						<div
 							class={descriptionLocked
-								? 'rounded-xs border border-slate-200 bg-slate-100 text-slate-600'
-								: 'rounded-xs border border-slate-300 bg-white'}
+								? 'rounded-xs border border-border bg-muted text-secondary-text'
+								: 'rounded-xs border border-border bg-card'}
 						>
 							{#if descriptionLocked}
 								{#if normalizeDescription(draftByLanguage[activeLanguage])}
-									<div class="p-3 text-sm text-slate-600">
+									<div class="p-3 text-sm text-secondary-text">
 										<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 										{@html draftByLanguage[activeLanguage]}
 									</div>
 								{:else}
-									<p class="p-3 text-sm text-slate-500">No description yet.</p>
+									<p class="p-3 text-sm text-secondary-text">No description yet.</p>
 								{/if}
 							{:else}
 								{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}`}
@@ -945,10 +939,10 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-slate-700">Key Technologies</label>
+							<label class="text-xs font-medium text-secondary-text">Key Technologies</label>
 							<button
 								type="button"
-								class="inline-flex items-center gap-1 rounded-xs px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200"
+								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
 								onclick={() => toggleFieldLock('technologies')}
 							>
 								{#if isLocked('technologies')}
@@ -978,11 +972,11 @@
 			{/if}
 		</div>
 
-		<div class="flex justify-end gap-2 border-t border-slate-200 pt-4">
+		<div class="flex justify-end gap-2 border-t border-border pt-4">
 			<Button type="button" variant="ghost" onclick={closeDrawer}>Close</Button>
 			<Button type="button" variant="primary" disabled={generating || translating} onclick={accept}
 				>Apply changes</Button
 			>
 		</div>
 	</div>
-</PixelDrawer>
+</Drawer>

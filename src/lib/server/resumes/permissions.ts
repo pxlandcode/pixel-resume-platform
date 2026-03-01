@@ -1,46 +1,63 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { getActorAccessContext, getTalentAccess, type AppRole } from '$lib/server/access';
 
 export type ResumeEditPermissions = {
+	canView: boolean;
 	canEdit: boolean;
 	canEditAll: boolean;
 	isOwnProfile: boolean;
 	userId: string | null;
+	roles: AppRole[];
+	homeOrganisationId: string | null;
+	accessibleOrganisationIds: string[];
+	talentOrganisationId: string | null;
 };
-
-const EDIT_ROLES = new Set(['admin', 'cms_admin', 'employer']);
 
 export const getResumeEditPermissions = async (
 	supabase: SupabaseClient | null,
 	adminClient: SupabaseClient | null,
-	targetUserId: string
+	targetTalentId: string
 ): Promise<ResumeEditPermissions> => {
 	if (!supabase || !adminClient) {
-		return { canEdit: false, canEditAll: false, isOwnProfile: false, userId: null };
+		return {
+			canView: false,
+			canEdit: false,
+			canEditAll: false,
+			isOwnProfile: false,
+			userId: null,
+			roles: [],
+			homeOrganisationId: null,
+			accessibleOrganisationIds: [],
+			talentOrganisationId: null
+		};
 	}
 
-	const {
-		data: { user }
-	} = await supabase.auth.getUser();
-
-	const currentUserId = user?.id ?? null;
-
-	if (!currentUserId) {
-		return { canEdit: false, canEditAll: false, isOwnProfile: false, userId: null };
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId) {
+		return {
+			canView: false,
+			canEdit: false,
+			canEditAll: false,
+			isOwnProfile: false,
+			userId: null,
+			roles: [],
+			homeOrganisationId: null,
+			accessibleOrganisationIds: [],
+			talentOrganisationId: null
+		};
 	}
 
-	const { data: userRoles } = await adminClient
-		.from('user_roles')
-		.select('role')
-		.eq('user_id', currentUserId);
-
-	const roles = (userRoles ?? []).map((r) => r.role);
-	const canEditAll = roles.some((role) => EDIT_ROLES.has(role));
-	const isOwnProfile = currentUserId === targetUserId;
+	const talentAccess = await getTalentAccess(adminClient, actor, targetTalentId);
 
 	return {
-		canEdit: canEditAll || isOwnProfile,
-		canEditAll,
-		isOwnProfile,
-		userId: currentUserId
+		canView: talentAccess.canView,
+		canEdit: talentAccess.canEdit,
+		canEditAll: talentAccess.canEditAll,
+		isOwnProfile: talentAccess.isOwnProfile,
+		userId: actor.userId,
+		roles: actor.roles,
+		homeOrganisationId: actor.homeOrganisationId,
+		accessibleOrganisationIds: actor.accessibleOrganisationIds,
+		talentOrganisationId: talentAccess.talentOrganisationId
 	};
 };

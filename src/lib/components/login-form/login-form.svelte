@@ -20,13 +20,13 @@
 
 <form
 	method="POST"
-	class="mx-auto w-full max-w-sm space-y-6 rounded-lg border border-gray-200 bg-white p-8 shadow"
+	class="border-border bg-card mx-auto w-full max-w-sm space-y-6 rounded-lg border p-8 shadow"
 	use:enhance={handleEnhance}
 	{...rest}
 >
 	<header class="space-y-1 text-center">
-		<h1 class="text-xl font-semibold text-gray-900">Resume Platform</h1>
-		<p class="text-sm text-gray-500">Sign in with your work email to continue.</p>
+		<h1 class="text-foreground text-xl font-semibold">Resume Platform</h1>
+		<p class="text-muted-fg text-sm">Sign in with your work email to continue.</p>
 	</header>
 
 	<FormControl label="Email" required class="text-text gap-2">
@@ -35,7 +35,7 @@
 			name="email"
 			type="email"
 			autocomplete="email"
-			class="text-gray-900 placeholder:text-gray-400 bg-white"
+			class="bg-input text-foreground placeholder:text-muted-fg"
 			required
 		/>
 	</FormControl>
@@ -45,7 +45,7 @@
 			id="password"
 			name="password"
 			type="password"
-			class="text-gray-900 placeholder:text-gray-400 bg-white"
+			class="bg-input text-foreground placeholder:text-muted-fg"
 			required
 			autocomplete={dev ? 'off' : 'current-password'}
 		/>
@@ -72,7 +72,7 @@
 	:global(input:-webkit-autofill),
 	:global(input:-webkit-autofill:hover),
 	:global(input:-webkit-autofill:focus) {
-		-webkit-text-fill-color: rgb(17 24 39);
+		-webkit-text-fill-color: var(--color-foreground);
 		transition: background-color 9999s ease-out 0s;
 	}
 </style>

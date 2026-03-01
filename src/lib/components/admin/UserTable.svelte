@@ -10,16 +10,18 @@
 		Cell,
 		type SuperTableHead
 	} from '@pixelcode_/blocks/components';
-	type Role = 'admin' | 'cms_admin' | 'employee' | 'employer';
+	type Role = 'admin' | 'broker' | 'talent' | 'employer' | string;
 
-	export type UserRow = {
+	type UserRow = {
 		id: string;
 		first_name: string | null;
 		last_name: string | null;
-		email?: string | null;
-		avatar_url?: string | null;
+		email: string | null;
+		avatar_url: string | null;
 		active: boolean;
 		roles: Role[];
+		linked_talent_id?: string | null;
+		organisation_name?: string | null;
 	};
 
 	type UserTableFormData = {
@@ -31,18 +33,21 @@
 	export let users: UserRow[] = [];
 	export let form: UserTableFormData | null = null;
 	export let onEdit: (user: UserRow) => void;
+	export let showEdit = true;
 
 	type TableRow = UserRow & {
 		source: UserRow;
 		fullName: string;
 		roleLabel: string;
 		emailText: string;
+		organisationLabel: string;
 	};
 
 	const headings: SuperTableHead<TableRow>[] = [
 		{ heading: 'Name', sortable: 'fullName', width: 32 },
-		{ heading: 'Roles', sortable: 'roleLabel', width: 28 },
-		{ heading: 'Status', width: 12 },
+		{ heading: 'Organisation', sortable: 'organisationLabel', width: 22 },
+		{ heading: 'Roles', sortable: 'roleLabel', width: 22 },
+		{ heading: 'Status', width: 10 },
 		{ heading: 'Actions', width: 8 }
 	];
 
@@ -52,14 +57,16 @@
 				[user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'Unknown';
 
 			const emailText = user.email ?? 'Email not provided';
-			const roleLabel = user.roles?.length ? user.roles.join(', ') : 'employee';
+			const roleLabel = user.roles?.length ? user.roles.join(', ') : 'talent';
+			const organisationLabel = user.organisation_name?.trim() || 'Unassigned';
 
 			return {
 				...user,
 				source: user,
 				fullName,
 				roleLabel,
-				emailText
+				emailText,
+				organisationLabel
 			};
 		});
 
@@ -76,10 +83,10 @@
 	);
 </script>
 
-<Card class="space-y-4 border-border/20 bg-white p-4">
+<Card class="border-border/20 bg-card space-y-4 p-4">
 	<SuperTable instance={tableInstance} selectable={false} class="user-table w-full">
 		{#each tableInstance.data as row (row.id)}
-			<Row.Root class="border-b border-slate-200 last:border-b-0">
+			<Row.Root>
 				<Cell.Value class="py-4 align-top">
 					<div class="flex gap-3">
 						{#if row.avatar_url}
@@ -89,26 +96,29 @@
 								class="h-10 w-10 rounded-full object-cover"
 							/>
 						{:else}
-							<div class="h-10 w-10 rounded-full bg-slate-100" />
+							<div class="bg-muted h-10 w-10 rounded-full" />
 						{/if}
-						<div class="space-y-2">
+						<div class="space-y-1">
 							<div>
-								<p class="text-sm font-semibold text-gray-900">{row.fullName}</p>
-								<p class="text-xs font-medium text-gray-700">{row.emailText}</p>
+								<p class="text-foreground text-sm font-semibold">{row.fullName}</p>
+								<p class="text-muted-fg text-xs font-medium">{row.emailText}</p>
 							</div>
-							<p class="text-xs text-gray-600">ID: {row.id}</p>
 						</div>
 					</div>
 				</Cell.Value>
 
 				<Cell.Value class="py-4 align-top">
+					<p class="text-foreground text-sm font-medium">{row.organisationLabel}</p>
+				</Cell.Value>
+
+				<Cell.Value class="py-4 align-top">
 					<div class="flex flex-wrap gap-2">
-						{#each row.roles as role}
-							<Badge variant="default" size="xs" class="tracking-wide uppercase">
+						{#each row.roles as role (role)}
+							<Badge variant="default" size="xs" class="uppercase tracking-wide">
 								{role.replace('_', ' ')}
 							</Badge>
 						{:else}
-							<Badge variant="default" size="xs" class="uppercase tracking-wide">employee</Badge>
+							<Badge variant="default" size="xs" class="uppercase tracking-wide">talent</Badge>
 						{/each}
 					</div>
 				</Cell.Value>
@@ -122,18 +132,20 @@
 				</Cell.Value>
 
 				<Cell.Value class="py-4 align-top">
-					<div class="flex justify-end">
-						<Button variant="primary" size="sm" type="button" onclick={() => onEdit?.(row.source)}>
-							Edit
-						</Button>
-					</div>
+					{#if showEdit}
+						<div class="flex justify-end">
+							<Button variant="primary" size="sm" type="button" onclick={() => onEdit?.(row.source)}>
+								Edit
+							</Button>
+						</div>
+					{/if}
 				</Cell.Value>
 			</Row.Root>
 		{/each}
 	</SuperTable>
 
 	{#if users.length === 0}
-		<p class="text-sm font-medium text-gray-700">
+		<p class="text-muted-fg text-sm font-medium">
 			No users yet. Invite your first teammate with Create user.
 		</p>
 	{/if}
@@ -141,7 +153,7 @@
 
 {#if form?.message && form?.type === 'updateRole'}
 	<Alert class="mt-4" variant={form.ok ? 'success' : 'destructive'} size="sm">
-		<p class="text-sm font-medium text-gray-900">{form.message}</p>
+		<p class="text-foreground text-sm font-medium">{form.message}</p>
 	</Alert>
 {/if}
 
@@ -151,7 +163,7 @@
 	}
 
 	.user-table :global(tr) {
-		border-bottom: 1px solid #e2e8f0;
+		border-bottom: 1px solid var(--color-border);
 		transition: background-color 0.15s ease;
 	}
 
@@ -160,7 +172,7 @@
 	}
 
 	.user-table :global(tr:hover) {
-		background-color: #f8fafc;
+		background-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
 	}
 
 	.user-table :global(td) {

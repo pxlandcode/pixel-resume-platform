@@ -9,6 +9,24 @@ import {
 	PROFILE_AVAILABILITY_SELECT,
 	normalizeAvailabilityRow
 } from '$lib/server/consultantAvailability';
+import { getActorAccessContext, getAccessibleTalentIds } from '$lib/server/access';
+
+const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
+
+const resolveStoragePublicUrl = (
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+	value: string | null | undefined
+) => {
+	if (!value || typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	const normalizedPath = trimmed.replace(/^\/+/, '').replace(/^organisation-images\//, '');
+	const { data } = adminClient.storage
+		.from(ORGANISATION_IMAGES_BUCKET)
+		.getPublicUrl(normalizedPath);
+	return data.publicUrl ?? null;
+};
 
 const toStringArray = (value: unknown): string[] => {
 	if (!Array.isArray(value)) return [];
@@ -29,7 +47,7 @@ const uniq = (values: string[]) => {
 	return uniqueValues;
 };
 
-const extractProfileTechs = (techStack: unknown): string[] => {
+const extractTalentTechs = (techStack: unknown): string[] => {
 	if (!Array.isArray(techStack)) return [];
 
 	const skills: string[] = [];
@@ -41,168 +59,376 @@ const extractProfileTechs = (techStack: unknown): string[] => {
 	return uniq(skills);
 };
 
-const extractExperienceTechs = (items: unknown): string[] => {
-	if (!Array.isArray(items)) return [];
-
-	const skills: string[] = [];
-	for (const item of items) {
-		if (!item || typeof item !== 'object') continue;
-		skills.push(...toStringArray((item as { technologies?: unknown }).technologies));
+const getSafeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+const normalizeId = (value: unknown): string | null => {
+	if (typeof value === 'string') {
+		const normalized = value.trim();
+		return normalized || null;
 	}
-
-	return skills;
-};
-
-const extractResumeTechs = (content: unknown): string[] => {
-	if (!content || typeof content !== 'object') return [];
-
-	const data = content as {
-		techniques?: unknown;
-		methods?: unknown;
-		exampleSkills?: unknown;
-		highlightedExperiences?: unknown;
-		experiences?: unknown;
-	};
-
-	return uniq([
-		...toStringArray(data.techniques),
-		...toStringArray(data.methods),
-		...toStringArray(data.exampleSkills),
-		...extractExperienceTechs(data.highlightedExperiences),
-		...extractExperienceTechs(data.experiences)
-	]);
+	if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+		return String(value);
+	}
+	return null;
 };
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 
 	if (!supabase) {
-		return { employees: [], meta: null };
+		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
 	}
 
 	const adminClient = getSupabaseAdminClient();
 
 	if (!adminClient) {
-		return { employees: [], meta: null };
+		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
 	}
 
-	const [{ data: profiles }, rolesResult, authUsersResult] = await Promise.all([
-		adminClient
-			.from('profiles')
-			.select('id, first_name, last_name, avatar_url, tech_stack')
-			.order('last_name', { ascending: true }),
-		(async () => {
-			if (!adminClient) return { data: null, error: new Error('Admin client unavailable') };
-			return adminClient.from('user_roles').select('user_id, role').eq('role', 'employee');
-		})(),
-		(async () => {
-			if (!adminClient) return { data: null, error: new Error('Admin client unavailable') };
-			const { data, error } = await adminClient.auth.admin.listUsers();
-			return { data: data?.users ?? null, error };
-		})()
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId) {
+		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
+	}
+
+	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
+
+	const [{ data: talents }, authUsersResult] = await Promise.all([
+		accessibleTalentIds === null
+			? adminClient
+					.from('talents')
+					.select('id, user_id, first_name, last_name, avatar_url, tech_stack')
+					.order('last_name', { ascending: true })
+			: accessibleTalentIds.length === 0
+				? Promise.resolve({
+						data: [] as Array<{
+							id: string;
+							user_id: string | null;
+							first_name: string | null;
+							last_name: string | null;
+							avatar_url: string | null;
+							tech_stack: unknown;
+						}>,
+						error: null
+					})
+				: adminClient
+						.from('talents')
+						.select('id, user_id, first_name, last_name, avatar_url, tech_stack')
+						.in('id', accessibleTalentIds)
+						.order('last_name', { ascending: true }),
+		adminClient.auth.admin.listUsers()
 	]);
 
-	const roles = rolesResult.data ?? [];
-	const employeeIds = new Set<string>();
-	for (const row of roles ?? []) {
-		if (row.role === 'employee') {
-			employeeIds.add(row.user_id);
+	const talentRows = talents ?? [];
+	const talentIds = talentRows.map((row) => row.id);
+
+	const availabilityByTalentId = new Map<string, ReturnType<typeof normalizeAvailabilityRow>>();
+	if (talentIds.length > 0) {
+		const { data: availabilityRows, error: availabilityError } = await adminClient
+			.from('profile_availability')
+			.select(PROFILE_AVAILABILITY_SELECT)
+			.in('profile_id', talentIds);
+
+		if (availabilityError) {
+			console.warn('[resumes index] profile_availability error', availabilityError);
+		}
+
+		for (const row of availabilityRows ?? []) {
+			const profileId = (row as { profile_id?: unknown }).profile_id;
+			if (typeof profileId !== 'string' || profileId.length === 0) continue;
+			availabilityByTalentId.set(profileId, normalizeAvailabilityRow(row));
 		}
 	}
 
-	const authMap = new Map<string, { email?: string; isEmployee?: boolean }>();
-	for (const user of authUsersResult.data ?? []) {
-		const rolesFromAuth = Array.isArray(user.app_metadata?.roles)
-			? (user.app_metadata?.roles as string[])
-			: typeof user.app_metadata?.role === 'string'
-				? [user.app_metadata.role as string]
-				: [];
-		const isEmployee = rolesFromAuth.includes('employee') || rolesFromAuth.includes('employees');
-
-		if (isEmployee) {
-			employeeIds.add(user.id);
-		}
-
-		authMap.set(user.id, {
-			email: user.email ?? undefined,
-			isEmployee
-		});
-	}
-
-	const employeeIdList = Array.from(employeeIds);
-	const resumesResult =
-		employeeIdList.length === 0
-			? { data: [] as Array<{ user_id: string; content: unknown }>, error: null }
-			: await adminClient.from('resumes').select('user_id, content').in('user_id', employeeIdList);
-
-	const profileAvailabilityResult =
-		employeeIdList.length === 0
-			? {
-					data: [] as Array<{
-						profile_id: string;
-						availability_now_percent: number | null;
-						availability_future_percent: number | null;
-						availability_notice_period_days: number | null;
-						availability_planned_from_date: string | null;
-					}>,
-					error: null
-				}
+	// Fetch organisation memberships for talents
+	const orgMembershipsResult =
+		talentIds.length === 0
+			? { data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
 			: await adminClient
-					.from('profile_availability')
-					.select(PROFILE_AVAILABILITY_SELECT)
-					.in('profile_id', employeeIdList);
+					.from('organisation_talents')
+					.select('talent_id, organisation_id')
+					.in('talent_id', talentIds);
+
+	if (orgMembershipsResult.error) {
+		console.warn('[resumes index] organisation_talents error', orgMembershipsResult.error);
+	}
+
+	const orgIdByTalentId = new Map<string, string>();
+	for (const row of orgMembershipsResult.data ?? []) {
+		orgIdByTalentId.set(row.talent_id, row.organisation_id);
+	}
+
+	const orgIds = Array.from(new Set(orgIdByTalentId.values()));
+
+	// Fetch organisations and templates for logos
+	const [orgsResult, templatesResult] =
+		orgIds.length === 0
+			? [
+					{ data: [] as Array<{ id: string; name: string }>, error: null },
+					{
+						data: [] as Array<{ organisation_id: string; main_logotype_path: string | null }>,
+						error: null
+					}
+				]
+			: await Promise.all([
+					adminClient.from('organisations').select('id, name').in('id', orgIds),
+					adminClient
+						.from('organisation_templates')
+						.select('organisation_id, main_logotype_path')
+						.in('organisation_id', orgIds)
+				]);
+
+	if (orgsResult.error) {
+		console.warn('[resumes index] organisations error', orgsResult.error);
+	}
+	if (templatesResult.error) {
+		console.warn('[resumes index] organisation_templates error', templatesResult.error);
+	}
+
+	const orgById = new Map<string, { name: string; logoUrl: string | null }>();
+	for (const org of orgsResult.data ?? []) {
+		orgById.set(org.id, { name: org.name, logoUrl: null });
+	}
+	for (const template of templatesResult.data ?? []) {
+		const existing = orgById.get(template.organisation_id);
+		if (existing) {
+			existing.logoUrl = resolveStoragePublicUrl(adminClient, template.main_logotype_path);
+		}
+	}
+
+	const authMap = new Map<string, { email?: string }>();
+	for (const user of authUsersResult.data?.users ?? []) {
+		authMap.set(user.id, { email: user.email ?? undefined });
+	}
+
+	const resumesResult =
+		talentIds.length === 0
+			? { data: [] as Array<{ id: string; talent_id: string }>, error: null }
+			: await adminClient.from('resumes').select('id, talent_id').in('talent_id', talentIds);
 
 	if (resumesResult.error) {
 		console.warn('[resumes index] resumes error', resumesResult.error);
 	}
-	if (profileAvailabilityResult.error) {
+
+	const resumeRows = resumesResult.data ?? [];
+	const resumeMetadata = resumeRows
+		.map((row) => ({
+			id: normalizeId((row as { id: unknown }).id) ?? '',
+			talentId: typeof row.talent_id === 'string' ? row.talent_id : ''
+		}))
+		.filter((row) => row.id.length > 0 && row.talentId.length > 0);
+	const resumeIds = resumeMetadata.map((row) => row.id);
+	const resumeIdToTalentId = new Map<string, string>(
+		resumeMetadata.map((row) => [row.id, row.talentId])
+	);
+
+	const [resumeSkillRowsResult, resumeExperienceRowsResult] =
+		resumeIds.length === 0
+			? [
+					{ data: [] as Array<{ resume_id: string; value: string }>, error: null },
+					{
+						data: [] as Array<{
+							id: string;
+							resume_id: string;
+							experience_id: string | null;
+							use_tech_override: boolean;
+						}>,
+						error: null
+					}
+				]
+			: await Promise.all([
+					adminClient
+						.from('resume_skill_items')
+						.select('resume_id, value')
+						.in('resume_id', resumeIds),
+					adminClient
+						.from('resume_experience_items')
+						.select('id, resume_id, experience_id, use_tech_override')
+						.in('resume_id', resumeIds)
+				]);
+
+	if (resumeSkillRowsResult.error) {
+		console.warn('[resumes index] resume_skill_items error', resumeSkillRowsResult.error);
+	}
+	if (resumeExperienceRowsResult.error) {
+		console.warn('[resumes index] resume_experience_items error', resumeExperienceRowsResult.error);
+	}
+
+	const resumeExperienceRows = resumeExperienceRowsResult.data ?? [];
+	const experienceIds = Array.from(
+		new Set(
+			resumeExperienceRows
+				.map((row) => normalizeId((row as { experience_id: unknown }).experience_id))
+				.filter((id): id is string => Boolean(id))
+		)
+	);
+	const resumeExperienceItemIds = resumeExperienceRows
+		.map((row) => normalizeId((row as { id: unknown }).id))
+		.filter((id): id is string => Boolean(id));
+
+	const [libraryRowsResult, libraryTechRowsResult, overrideTechRowsResult] = await Promise.all([
+		experienceIds.length === 0
+			? {
+					data: [] as Array<{ id: string; company: string; role_sv: string; role_en: string }>,
+					error: null
+				}
+			: adminClient
+					.from('experience_library')
+					.select('id, company, role_sv, role_en')
+					.in('id', experienceIds),
+		experienceIds.length === 0
+			? { data: [] as Array<{ experience_id: string; value: string }>, error: null }
+			: adminClient
+					.from('experience_library_technologies')
+					.select('experience_id, value')
+					.in('experience_id', experienceIds),
+		resumeExperienceItemIds.length === 0
+			? { data: [] as Array<{ resume_experience_item_id: string; value: string }>, error: null }
+			: adminClient
+					.from('resume_experience_tech_overrides')
+					.select('resume_experience_item_id, value')
+					.in('resume_experience_item_id', resumeExperienceItemIds)
+	]);
+
+	if (libraryRowsResult.error) {
+		console.warn('[resumes index] experience_library error', libraryRowsResult.error);
+	}
+	if (libraryTechRowsResult.error) {
 		console.warn(
-			'[resumes index] profile_availability error',
-			profileAvailabilityResult.error
+			'[resumes index] experience_library_technologies error',
+			libraryTechRowsResult.error
+		);
+	}
+	if (overrideTechRowsResult.error) {
+		console.warn(
+			'[resumes index] resume_experience_tech_overrides error',
+			overrideTechRowsResult.error
 		);
 	}
 
-	const resumeTechMap = new Map<string, Set<string>>();
-	for (const row of resumesResult.data ?? []) {
-		const userId = typeof row.user_id === 'string' ? row.user_id : '';
-		if (!userId) continue;
-
-		if (!resumeTechMap.has(userId)) {
-			resumeTechMap.set(userId, new Set<string>());
-		}
-
-		const techSet = resumeTechMap.get(userId)!;
-		for (const tech of extractResumeTechs(row.content)) {
-			techSet.add(tech);
-		}
+	const libraryById = new Map<string, { company: string; role_sv: string; role_en: string }>();
+	for (const row of libraryRowsResult.data ?? []) {
+		const libraryId = normalizeId((row as { id: unknown }).id);
+		if (!libraryId) continue;
+		libraryById.set(libraryId, {
+			company: getSafeText(row.company),
+			role_sv: getSafeText(row.role_sv),
+			role_en: getSafeText(row.role_en)
+		});
 	}
 
-	const profileMap = new Map((profiles ?? []).map((p) => [p.id, p]));
-	const availabilityMap = new Map<string, ReturnType<typeof normalizeAvailabilityRow>>();
-	for (const row of profileAvailabilityResult.data ?? []) {
-		const profileId = typeof row.profile_id === 'string' ? row.profile_id : '';
-		if (!profileId) continue;
-		availabilityMap.set(profileId, normalizeAvailabilityRow(row));
+	const libraryTechByExperienceId = new Map<string, Set<string>>();
+	for (const row of libraryTechRowsResult.data ?? []) {
+		const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
+		if (!experienceId) continue;
+		const value = getSafeText(row.value);
+		if (!value) continue;
+		const set = libraryTechByExperienceId.get(experienceId) ?? new Set<string>();
+		set.add(value);
+		libraryTechByExperienceId.set(experienceId, set);
 	}
 
-	const employees = employeeIdList.map((id) => {
-		const profile = profileMap.get(id);
-		const profileTechs = extractProfileTechs(profile?.tech_stack);
-		const resumeTechs = Array.from(resumeTechMap.get(id) ?? []);
+	const overrideTechByItemId = new Map<string, Set<string>>();
+	for (const row of overrideTechRowsResult.data ?? []) {
+		const itemId = normalizeId(
+			(row as { resume_experience_item_id: unknown }).resume_experience_item_id
+		);
+		if (!itemId) continue;
+		const value = getSafeText(row.value);
+		if (!value) continue;
+		const set = overrideTechByItemId.get(itemId) ?? new Set<string>();
+		set.add(value);
+		overrideTechByItemId.set(itemId, set);
+	}
+
+	const resumeSearchMap = new Map<string, Set<string>>();
+	for (const row of resumeSkillRowsResult.data ?? []) {
+		const resumeId = normalizeId((row as { resume_id: unknown }).resume_id);
+		if (!resumeId) continue;
+		const value = getSafeText(row.value);
+		if (!value) continue;
+		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
+		set.add(value);
+		resumeSearchMap.set(resumeId, set);
+	}
+
+	for (const item of resumeExperienceRows) {
+		const resumeId = normalizeId((item as { resume_id: unknown }).resume_id);
+		const experienceId = normalizeId((item as { experience_id: unknown }).experience_id);
+		const itemId = normalizeId((item as { id: unknown }).id);
+		if (!resumeId || !experienceId || !itemId) continue;
+
+		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
+		const library = libraryById.get(experienceId);
+		if (library) {
+			if (library.company) set.add(library.company);
+			if (library.role_sv) set.add(library.role_sv);
+			if (library.role_en) set.add(library.role_en);
+		}
+
+		if (item.use_tech_override) {
+			for (const tech of overrideTechByItemId.get(itemId) ?? []) {
+				set.add(tech);
+			}
+		} else {
+			for (const tech of libraryTechByExperienceId.get(experienceId) ?? []) {
+				set.add(tech);
+			}
+		}
+
+		resumeSearchMap.set(resumeId, set);
+	}
+
+	const resumeSearchByTalentId = new Map<string, Set<string>>();
+	for (const [resumeId, set] of resumeSearchMap.entries()) {
+		const talentId = resumeIdToTalentId.get(resumeId);
+		if (!talentId) continue;
+		const talentSet = resumeSearchByTalentId.get(talentId) ?? new Set<string>();
+		for (const value of set) talentSet.add(value);
+		resumeSearchByTalentId.set(talentId, talentSet);
+	}
+
+	const talentsWithSearch = talentRows.map((talent) => {
+		const profileTechs = extractTalentTechs(talent.tech_stack);
+		const resumeTechs = Array.from(resumeSearchByTalentId.get(talent.id) ?? []);
+		const orgId = orgIdByTalentId.get(talent.id);
+		const org = orgId ? orgById.get(orgId) : undefined;
 
 		return {
-			id,
-			first_name: profile?.first_name ?? '',
-			last_name: profile?.last_name ?? '',
-			avatar_url: profile?.avatar_url ?? null,
-			email: authMap.get(id)?.email ?? null,
+			id: talent.id,
+			first_name: talent.first_name ?? '',
+			last_name: talent.last_name ?? '',
+			avatar_url: talent.avatar_url ?? null,
+			email: talent.user_id ? (authMap.get(talent.user_id)?.email ?? null) : null,
+			availability: availabilityByTalentId.get(talent.id) ?? normalizeAvailabilityRow(null),
 			search_techs: uniq([...profileTechs, ...resumeTechs]),
-			availability: availabilityMap.get(id) ?? normalizeAvailabilityRow(null)
+			organisation_id: orgId ?? null,
+			organisation_name: org?.name ?? null,
+			organisation_logo_url: org?.logoUrl ?? null
 		};
 	});
 
+	const accessibleOrgRowsResult = actor.isAdmin
+		? await adminClient.from('organisations').select('id, name').order('name', { ascending: true })
+		: actor.accessibleOrganisationIds.length === 0
+			? { data: [] as Array<{ id: string; name: string }>, error: null }
+			: await adminClient
+					.from('organisations')
+					.select('id, name')
+					.in('id', actor.accessibleOrganisationIds)
+					.order('name', { ascending: true });
+
+	if (accessibleOrgRowsResult.error) {
+		console.warn('[resumes index] accessible organisations error', accessibleOrgRowsResult.error);
+	}
+
+	const organisationOptions = (accessibleOrgRowsResult.data ?? []).map((org) => ({
+		id: org.id,
+		name: org.name
+	}));
+
 	return {
-		employees,
+		talents: talentsWithSearch,
+		organisationOptions,
+		homeOrganisationId: actor.homeOrganisationId ?? null,
 		meta: {
 			title: `${siteMeta.name} — Resumes`,
 			description: 'Manage consultant resumes and export packages.',

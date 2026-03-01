@@ -4,8 +4,10 @@
 	import { page, navigating } from '$app/stores';
 	import { siteMeta, withMetaDefaults } from '$lib/seo';
 	import ResumeLayout from '$lib/components/resume-layout/resume-layout.svelte';
+	import type { AdminRole } from '$lib/components/resume-layout/resume-layout.svelte';
 	import { Mode } from '@pixelcode_/blocks/components';
 	import { loadingStore } from '$lib/stores/loading';
+	import { userSettingsStore } from '$lib/stores/userSettings';
 	import {
 		pdfImportStore,
 		isImportActive,
@@ -16,6 +18,12 @@
 	import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
 	import { browser } from '$app/environment';
+	import {
+		DEFAULT_ORGANISATION_BRANDING_THEME,
+		organisationBrandingThemeToInlineStyle,
+		organisationBrandingThemeToVarEntries,
+		type OrganisationBrandingTheme
+	} from '$lib/branding/theme';
 	import '$lib/styles/resume-app-overrides.css';
 	import '$lib/styles/resume-app.css';
 
@@ -35,16 +43,18 @@
 				: [resolvedMeta.jsonLd]
 			: []
 	);
+	const jsonLdScripts = $derived(jsonLdEntries.map((schema) => JSON.stringify(schema)));
+	const jsonLdIndexes = $derived(jsonLdScripts.map((_schema, index) => index));
 
-	const isBusy = $derived(useAppShell && (Boolean($navigating) || $loadingStore.isLoading));
+	const isBusy = $derived(useAppShell && ($navigating !== null || $loadingStore.isLoading));
 	const loadingLabel = $derived(
-		$loadingStore.loadingText ?? (Boolean($navigating) ? 'Loading page...' : 'Loading...')
+		$loadingStore.loadingText ?? ($navigating !== null ? 'Loading page...' : 'Loading...')
 	);
 
 	const showImportIndicator = $derived(useAppShell && $isImportActive);
 	const importHasError = $derived(!!$pdfImportStore.error && $pdfImportStore.status === 'idle');
 	const importIsSuccess = $derived($isImportSucceeded);
-	const importPersonId = $derived($pdfImportStore.personId);
+	const importTalentId = $derived($pdfImportStore.talentId);
 	const importResumeId = $derived($pdfImportStore.resumeId);
 	const importFilename = $derived($pdfImportStore.sourceFilename);
 	const importError = $derived($pdfImportStore.error);
@@ -54,6 +64,14 @@
 			? 'You do not have permission to view that section.'
 			: null
 	);
+	const layoutRole = $derived((data.role ?? null) as AdminRole | null);
+	const layoutRoles = $derived((data.roles ?? []) as AdminRole[]);
+	const authenticatedUserId = $derived(typeof data.user?.id === 'string' ? data.user.id : null);
+	const brandingTheme = $derived(
+		(data.brandingTheme ?? DEFAULT_ORGANISATION_BRANDING_THEME) as OrganisationBrandingTheme
+	);
+	const brandingInlineStyle = $derived(organisationBrandingThemeToInlineStyle(brandingTheme));
+	const brandingVarEntries = $derived(organisationBrandingThemeToVarEntries(brandingTheme));
 
 	let successDismissing = $state(false);
 	let successDismissTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -78,16 +96,6 @@
 			}
 		}
 	});
-
-	function getImportLink(): string {
-		if (!importPersonId) return '/resumes';
-		return `/resumes/${encodeURIComponent(importPersonId)}?openImport=1`;
-	}
-
-	function getSuccessResumeLink(): string {
-		if (!importPersonId || !importResumeId) return '/resumes';
-		return `/resumes/${encodeURIComponent(importPersonId)}/resume/${encodeURIComponent(importResumeId)}`;
-	}
 
 	function handleSuccessClick() {
 		if (successDismissTimeout) {
@@ -133,11 +141,14 @@
 		importPollAbortController = controller;
 
 		try {
-			const response = await fetch(resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]', { jobId }), {
-				method: 'GET',
-				credentials: 'include',
-				signal: controller.signal
-			});
+			const response = await fetch(
+				resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]', { jobId }),
+				{
+					method: 'GET',
+					credentials: 'include',
+					signal: controller.signal
+				}
+			);
 
 			if (!response.ok) {
 				const text = await response.text().catch(() => '');
@@ -184,6 +195,14 @@
 	};
 
 	$effect(() => {
+		const userId = authenticatedUserId;
+		userSettingsStore.setCurrentUser(userId);
+		if (userId) {
+			void userSettingsStore.syncFromServer(userId);
+		}
+	});
+
+	$effect(() => {
 		if (!useAppShell) {
 			if (isPollingActive) stopImportPolling();
 			return;
@@ -210,15 +229,6 @@
 	let hideTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	$effect(() => {
-		if (typeof document === 'undefined') return;
-		if (useAppShell) {
-			document.body.classList.add('internal-light');
-			return () => document.body.classList.remove('internal-light');
-		}
-		document.body.classList.remove('internal-light');
-	});
-
-	$effect(() => {
 		if (isBusy && !wasBusy) {
 			if (hideTimeout) {
 				clearTimeout(hideTimeout);
@@ -240,6 +250,23 @@
 		}
 
 		wasBusy = isBusy;
+	});
+
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+		const html = document.documentElement;
+		const body = document.body;
+		body.classList.toggle('app-shell-theme', useAppShell);
+		for (const [name, value] of brandingVarEntries) {
+			html.style.setProperty(name, value);
+		}
+
+		return () => {
+			body.classList.remove('app-shell-theme');
+			for (const [name] of brandingVarEntries) {
+				html.style.removeProperty(name);
+			}
+		};
 	});
 
 	onDestroy(() => {
@@ -271,10 +298,10 @@
 	{/if}
 	<meta name="theme-color" content="#0f172a" />
 	<link rel="icon" href={favicon} />
-	{#if jsonLdEntries.length}
-		{#each jsonLdEntries as schema}
+	{#if jsonLdScripts.length}
+		{#each jsonLdIndexes as index (`jsonld-${index}`)}
 			<script type="application/ld+json">
-{JSON.stringify(schema)}
+{@html jsonLdScripts[index]}
 			</script>
 		{/each}
 	{/if}
@@ -288,7 +315,10 @@
 	>
 		{#if importIsSuccess}
 			<a
-				href={getSuccessResumeLink()}
+				href={resolve('/resumes/[personId]/resume/[resumeId]', {
+					personId: importTalentId ?? '',
+					resumeId: importResumeId ?? ''
+				})}
 				onclick={handleSuccessClick}
 				class="flex items-center gap-3 rounded-lg bg-emerald-500 px-4 py-3 text-white shadow-lg transition-all hover:scale-105 hover:bg-emerald-600"
 				title="Click to open resume"
@@ -304,11 +334,11 @@
 		{:else}
 			<div class="group relative">
 				<a
-					href={getImportLink()}
+					href={resolve('/resumes/[personId]', { personId: importTalentId ?? '' })}
 					class={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 ${
 						importHasError
 							? 'bg-red-500 text-white hover:bg-red-600'
-							: 'bg-primary text-white hover:bg-primary/90'
+							: 'bg-primary hover:bg-primary/90 text-white'
 					}`}
 					title="View import status"
 				>
@@ -320,9 +350,9 @@
 				</a>
 
 				<div
-					class="pointer-events-none invisible absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-slate-200 bg-white p-3 text-left text-sm text-slate-700 opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+					class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-56 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
 				>
-					<p class="mb-1 font-semibold text-slate-900">
+					<p class="text-foreground mb-1 font-semibold">
 						{#if importHasError}
 							Import Failed
 						{:else}
@@ -330,14 +360,14 @@
 						{/if}
 					</p>
 					{#if importFilename}
-						<p class="mb-1 truncate text-xs text-slate-500">{importFilename}</p>
+						<p class="text-muted-fg mb-1 truncate text-xs">{importFilename}</p>
 					{/if}
 					{#if importError}
 						<p class="text-xs text-red-600">{importError}</p>
 					{:else}
-						<p class="text-xs text-slate-500">{statusLabel || 'Processing...'}</p>
+						<p class="text-muted-fg text-xs">{statusLabel || 'Processing...'}</p>
 					{/if}
-					<p class="mt-2 text-[11px] text-slate-400">Click to view details</p>
+					<p class="text-muted-fg mt-2 text-[11px]">Click to view details</p>
 				</div>
 			</div>
 		{/if}
@@ -364,11 +394,11 @@
 {:else if isPlainRoute}
 	{@render children?.()}
 {:else}
-	<div class="internal-root">
+	<div class="internal-root" style={brandingInlineStyle}>
 		<ResumeLayout
 			profile={data.profile}
-			role={data.role}
-			roles={data.roles}
+			role={layoutRole}
+			roles={layoutRoles}
 			userEmail={data.user?.email ?? null}
 			{unauthorizedMessage}
 		>

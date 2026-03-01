@@ -38,6 +38,8 @@ export type ContactPerson = {
 
 export type HighlightedExperience = {
 	_id?: string; // Internal ID for tracking in UI
+	libraryId?: string | null;
+	saveToLibrary?: boolean;
 	company: string;
 	role: LocalizedText;
 	description: LocalizedText;
@@ -47,6 +49,8 @@ export type HighlightedExperience = {
 
 export type ExperienceItem = {
 	_id?: string; // Internal ID for tracking in UI
+	libraryId?: string | null;
+	saveToLibrary?: boolean;
 	startDate: string;
 	endDate?: string | null;
 	company: string;
@@ -100,4 +104,15 @@ export type Resume = {
 	isMain: boolean;
 	data: ResumeData;
 	avatar_url?: string | null;
+};
+
+export type ExperienceLibraryItem = {
+	id: string;
+	startDate: string;
+	endDate?: string | null;
+	company: string;
+	location: LocalizedText;
+	role: LocalizedText;
+	description: LocalizedText;
+	technologies: string[];
 };

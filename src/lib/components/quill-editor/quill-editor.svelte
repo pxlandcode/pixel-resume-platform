@@ -110,31 +110,33 @@
 </script>
 
 <div class="quill-wrapper">
-	<div bind:this={quillContainer} class="bg-white text-slate-900"></div>
+	<div bind:this={quillContainer} class="bg-input text-foreground"></div>
 </div>
 
 <style>
-	/* Quill editor text color override if needed */
 	:global(.ql-editor) {
-		color: rgb(15 23 42) !important; /* text-slate-900 */
+		color: var(--color-foreground, #0f172a) !important;
+		background: var(--color-input, #ffffff) !important;
 		min-height: 100px;
 	}
 	:global(.ql-toolbar) {
 		border-top-left-radius: 0.375rem;
 		border-top-right-radius: 0.375rem;
-		border-color: #e2e8f0 !important;
+		border-color: var(--color-border, #e2e8f0) !important;
+		background: var(--color-card, #ffffff) !important;
 	}
 	:global(.ql-container) {
 		border-bottom-left-radius: 0.375rem;
 		border-bottom-right-radius: 0.375rem;
-		border-color: #e2e8f0 !important;
+		border-color: var(--color-border, #e2e8f0) !important;
+		background: var(--color-input, #ffffff) !important;
 	}
 	:global(.ql-editor blockquote) {
 		border-left-width: 2px;
-		border-color: rgb(251 146 60) !important; /* orange-400 */
+		border-color: var(--color-primary, #f35b3f) !important;
 		padding-left: 0.75rem; /* pl-3 */
 		font-size: 0.875rem; /* text-sm */
-		color: rgb(51 65 85) !important; /* text-slate-700 */
+		color: var(--color-muted-fg, #2e333a) !important;
 		font-style: italic;
 		margin-top: 0.5rem;
 		margin-bottom: 0.5rem;

@@ -4,7 +4,8 @@
 		HighlightedExperience,
 		ExperienceItem,
 		LabeledItem,
-		LocalizedText
+		LocalizedText,
+		ExperienceLibraryItem
 	} from '$lib/types/resume';
 	import { soloImages } from '$lib/images/manifest';
 	import worldclassUrl from '$lib/assets/worldclass.svg?url';
@@ -27,6 +28,7 @@
 	} from './components';
 	import type { Person, TechCategory } from '$lib/types/resume';
 	import type { ResumeAiGenerateParams, ResumeAiGenerateResult } from './components/utils';
+	import andLogo from '$lib/assets/and.svg?url';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
 
@@ -37,6 +39,11 @@
 		isEditing = false,
 		person,
 		profileTechStack,
+		templateMainLogotypeUrl = null,
+		templateAccentLogoUrl = null,
+		templateEndLogoUrl = null,
+		templateHomepageUrl = null,
+		experienceLibrary = [],
 		onGenerateDescription
 	}: {
 		data: ResumeData;
@@ -45,14 +52,33 @@
 		isEditing?: boolean;
 		person?: Person;
 		profileTechStack?: TechCategory[];
+		templateMainLogotypeUrl?: string | null;
+		templateAccentLogoUrl?: string | null;
+		templateEndLogoUrl?: string | null;
+		templateHomepageUrl?: string | null;
+		experienceLibrary?: ExperienceLibraryItem[];
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
 	} = $props();
 
+	// eslint-disable-next-line svelte/prefer-writable-derived
 	let profileCategories = $state(structuredClone(profileTechStack ?? person?.techStack ?? []));
 	const displayName = $derived(person?.name ?? data.name ?? '');
 
 	const resolvedImage: ImageResource | string | null = $derived.by(() => {
 		return image ?? person?.avatar_url ?? null;
+	});
+	const resolvedAccentLogo = $derived(templateAccentLogoUrl ?? andLogo);
+	const resolvedEndLogo = $derived(templateEndLogoUrl ?? worldclassUrl);
+	const resolvedHomepage = $derived.by(() => {
+		const homepage = templateHomepageUrl?.trim() ?? '';
+		if (!homepage) return 'www.pixelcode.se';
+		try {
+			const parsed = new URL(homepage);
+			const path = parsed.pathname === '/' ? '' : parsed.pathname;
+			return `${parsed.host}${path}`;
+		} catch {
+			return homepage;
+		}
 	});
 
 	$effect(() => {
@@ -284,13 +310,13 @@
 			profile: number;
 			current: number;
 		};
-		const signalByKey = new Map<string, SkillSignal>();
+		const signalByKey: Record<string, SkillSignal> = {};
 		const addSignal = (raw: string, source: SkillSignalSource, weight: number) => {
 			const cleaned = clip(raw, 80);
 			const normalizedSkill = normalize(cleaned);
 			if (!normalizedSkill) return;
 			const key = normalizedSkill.toLowerCase();
-			const current = signalByKey.get(key) ?? {
+			const current = signalByKey[key] ?? {
 				label: normalizedSkill,
 				score: 0,
 				highlighted: 0,
@@ -303,7 +329,7 @@
 				score: current.score + weight,
 				[source]: current[source] + 1
 			};
-			signalByKey.set(key, next);
+			signalByKey[key] = next;
 		};
 
 		const highlightedVisible = editingData.highlightedExperiences.filter((exp) => !exp.hidden);
@@ -396,7 +422,7 @@
 			);
 		}
 
-		const rankedSignals = Array.from(signalByKey.values())
+		const rankedSignals = Object.values(signalByKey)
 			.sort((a, b) => {
 				if (b.score !== a.score) return b.score - a.score;
 				if (b.highlighted !== a.highlighted) return b.highlighted - a.highlighted;
@@ -443,6 +469,7 @@
 	const addExperience = () => {
 		const newExp: ExperienceItem = {
 			_id: crypto.randomUUID(),
+			saveToLibrary: false,
 			startDate: '',
 			endDate: '',
 			company: '',
@@ -450,6 +477,24 @@
 			role: { sv: '', en: '' },
 			description: { sv: '', en: '' },
 			technologies: []
+		};
+		editingData.experiences = [newExp, ...editingData.experiences];
+	};
+
+	const addExperienceFromLibrary = (libraryId: string) => {
+		const selected = experienceLibrary.find((entry) => entry.id === libraryId);
+		if (!selected) return;
+		const newExp: ExperienceItem = {
+			_id: crypto.randomUUID(),
+			libraryId: selected.id,
+			saveToLibrary: true,
+			startDate: selected.startDate ?? '',
+			endDate: selected.endDate ?? '',
+			company: selected.company ?? '',
+			location: selected.location ?? { sv: '', en: '' },
+			role: selected.role ?? { sv: '', en: '' },
+			description: selected.description ?? { sv: '', en: '' },
+			technologies: Array.isArray(selected.technologies) ? [...selected.technologies] : []
 		};
 		editingData.experiences = [newExp, ...editingData.experiences];
 	};
@@ -477,10 +522,26 @@
 	const addHighlightedExperience = () => {
 		const newExp: HighlightedExperience = {
 			_id: crypto.randomUUID(),
+			saveToLibrary: false,
 			company: '',
 			role: { sv: '', en: '' },
 			description: { sv: '', en: '' },
 			technologies: []
+		};
+		editingData.highlightedExperiences = [...editingData.highlightedExperiences, newExp];
+	};
+
+	const addHighlightedExperienceFromLibrary = (libraryId: string) => {
+		const selected = experienceLibrary.find((entry) => entry.id === libraryId);
+		if (!selected) return;
+		const newExp: HighlightedExperience = {
+			_id: crypto.randomUUID(),
+			libraryId: selected.id,
+			saveToLibrary: true,
+			company: selected.company ?? '',
+			role: selected.role ?? { sv: '', en: '' },
+			description: selected.description ?? { sv: '', en: '' },
+			technologies: Array.isArray(selected.technologies) ? [...selected.technologies] : []
 		};
 		editingData.highlightedExperiences = [...editingData.highlightedExperiences, newExp];
 	};
@@ -554,7 +615,7 @@
 	export const getEditedData = () => editingData;
 </script>
 
-<div class="resume-print-page relative bg-white p-10 text-slate-900 shadow-sm">
+<div class="resume-print-page bg-card text-foreground relative p-10 shadow-sm">
 	<!-- Language Toggle -->
 	{#if !isEditing}
 		<ResumeLanguageToggle {language} onToggle={toggleLanguage} />
@@ -563,7 +624,10 @@
 	<!-- Header Section -->
 	<div class="header-top">
 		<!-- Brand -->
-		<ResumeBrand />
+		<ResumeBrand
+			logoUrl={templateMainLogotypeUrl}
+			logoAlt={person?.name ? `${person.name} organisation logo` : 'Organisation logo'}
+		/>
 
 		{#if isEditing}
 			<!-- Edit Mode: Single column layout for easier editing -->
@@ -575,7 +639,7 @@
 					</div>
 					<div class="flex-1">
 						<!-- Name fixed from profile; allow title editing -->
-						<h1 class="mb-2 text-4xl font-bold text-slate-900">{displayName}</h1>
+						<h1 class="mb-2 text-4xl font-bold text-foreground">{displayName}</h1>
 						<ResumeNameTitle
 							bind:title={editingData.title}
 							{isEditing}
@@ -619,7 +683,9 @@
 					{isEditing}
 					language={componentLanguage}
 					{onGenerateDescription}
+					libraryExperiences={experienceLibrary}
 					onAdd={addHighlightedExperience}
+					onAddFromLibrary={addHighlightedExperienceFromLibrary}
 					onRemove={removeHighlightedExperience}
 					onMove={moveHighlightedExperience}
 					onReorder={reorderHighlightedExperience}
@@ -676,7 +742,9 @@
 						{isEditing}
 						language={componentLanguage}
 						{onGenerateDescription}
+						libraryExperiences={experienceLibrary}
 						onAdd={addHighlightedExperience}
+						onAddFromLibrary={addHighlightedExperienceFromLibrary}
 						onRemove={removeHighlightedExperience}
 						onMove={moveHighlightedExperience}
 						onReorder={reorderHighlightedExperience}
@@ -692,7 +760,9 @@
 		{isEditing}
 		language={componentLanguage}
 		{onGenerateDescription}
+		libraryExperiences={experienceLibrary}
 		onAdd={addExperience}
+		onAddFromLibrary={addExperienceFromLibrary}
 		onRemove={removeExperience}
 		onMove={moveExperience}
 		onReorder={reorderExperience}
@@ -726,13 +796,25 @@
 	<ResumeFooter bind:footerNote={editingData.footerNote} {isEditing} language={componentLanguage} />
 
 	<!-- Worldclass Image -->
-	<div class="mt-8 flex justify-center border-t border-slate-200 pt-6">
+	<div class="mt-8 flex justify-center border-t border-border pt-6">
 		<img
-			src={worldclassUrl}
-			alt="Worldclass Tech, Worldclass People"
+			src={resolvedEndLogo}
+			alt="Brand end logo"
 			class="max-h-[200px] w-auto object-contain"
 			loading="lazy"
 		/>
+	</div>
+
+	<div class="mt-4 flex justify-start border-t border-border/70 pt-4">
+		<div class="inline-flex items-end gap-3">
+			<img
+				src={resolvedAccentLogo}
+				class="h-16 w-auto object-contain opacity-85"
+				alt="Brand accent logo"
+				loading="lazy"
+			/>
+			<p class="text-foreground pb-1 text-xs">{resolvedHomepage}</p>
+		</div>
 	</div>
 </div>
 

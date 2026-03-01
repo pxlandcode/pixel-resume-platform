@@ -4,7 +4,7 @@
 	import pdfStyles from './pdf-print.css?inline';
 	import andLogo from '$lib/assets/and.svg?url';
 	import pixelcodeLogoDark from '$lib/assets/pixelcodelogodark.svg?url';
-	import worldclassUrl from '$lib/assets/worldclass.webp?url';
+	import worldclassUrl from '$lib/assets/worldclass.svg?url';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
 	type Language = 'sv' | 'en';
@@ -14,14 +14,39 @@
 		image,
 		language = 'sv',
 		person,
-		profileTechStack: initialProfileTechStack
+		profileTechStack: initialProfileTechStack,
+		templateKey = 'default',
+		templateMainLogotypeUrl = null,
+		templateAccentLogoUrl = null,
+		templateEndLogoUrl = null,
+		templateHomepageUrl = null
 	}: {
 		data: ResumeData;
 		image?: ImageResource | string | null;
 		language?: Language;
 		person?: Person;
 		profileTechStack?: TechCategory[];
+		templateKey?: string;
+		templateMainLogotypeUrl?: string | null;
+		templateAccentLogoUrl?: string | null;
+		templateEndLogoUrl?: string | null;
+		templateHomepageUrl?: string | null;
 	} = $props();
+
+	const resolvedBrandLogo = $derived(templateMainLogotypeUrl ?? pixelcodeLogoDark);
+	const resolvedAccentLogo = $derived(templateAccentLogoUrl ?? andLogo);
+	const resolvedEndLogo = $derived(templateEndLogoUrl ?? worldclassUrl);
+	const resolvedHomepage = $derived.by(() => {
+		const homepage = templateHomepageUrl?.trim() ?? '';
+		if (!homepage) return 'www.pixelcode.se';
+		try {
+			const parsed = new URL(homepage);
+			const path = parsed.pathname === '/' ? '' : parsed.pathname;
+			return `${parsed.host}${path}`;
+		} catch {
+			return homepage;
+		}
+	});
 
 	const resolvedImage: ImageResource | { src: string; srcset?: string } | null = $derived.by(() => {
 		const source = image ?? person?.avatar_url ?? null;
@@ -77,15 +102,31 @@
 		profileTechStack = initialProfileTechStack ?? person?.techStack ?? [];
 	});
 
-	const visibleHighlighted = $derived(data.highlightedExperiences.filter((exp) => !exp.hidden));
-	const visibleExperiences = $derived(data.experiences.filter((exp) => !exp.hidden));
-
 	// Helper to resolve localized text
 	const t = (text: LocalizedText | undefined): string => {
 		if (!text) return '';
 		if (typeof text === 'string') return text;
 		return text[language] ?? text.sv ?? '';
 	};
+
+	const visibleHighlighted = $derived.by(() => {
+		const items = data.highlightedExperiences ?? [];
+		const nonHidden = items.filter((exp) => !exp.hidden);
+		if (nonHidden.length > 0) return nonHidden;
+		return items;
+	});
+
+	const visibleExperiences = $derived.by(() => {
+		const items = data.experiences ?? [];
+		const nonHidden = items.filter((exp) => !exp.hidden);
+		if (nonHidden.length > 0) return nonHidden;
+		return items;
+	});
+
+	const displayName = $derived((data.name ?? '').trim() || (person?.name ?? '').trim());
+	const displayTitle = $derived((t(data.title) ?? '').trim() || (person?.title ?? '').trim());
+	const displaySummary = $derived((t(data.summary) ?? '').trim() || (person?.bio ?? '').trim());
+	const displayFooterNote = $derived((t(data.footerNote) ?? '').trim());
 
 	// Format date for display (e.g., "Jan 2020")
 	const formatDate = (dateString: string | null | undefined): string => {
@@ -104,16 +145,16 @@
 	{@html `<style>${pdfStyles}</style>`}
 </svelte:head>
 
-<div class="pdf-mode">
+<div class="pdf-mode" data-template-key={templateKey}>
 	<!-- PAGE 1: COVER PAGE -->
 	<div class="resume-print-page page-1 bg-white text-slate-900">
 		<!-- Header Section -->
 		<div class="header-top">
 			<!-- Brand -->
 			<div class="header-brand mb-6 text-center">
-				<img src={pixelcodeLogoDark} alt="Pixel & Code" class="mx-auto h-8" />
+				<img src={resolvedBrandLogo} alt="Brand logo" class="mx-auto h-8" />
 				<p
-					class="-mt-1 -rotate-10 text-2xl text-primary"
+					class="-rotate-10 text-primary -mt-1 text-2xl"
 					style="font-family: 'Fave Script', cursive;"
 				>
 					proudly presents
@@ -126,14 +167,15 @@
 				<div class="consultant-profile">
 					<!-- Profile Image (matching ConsultantProfile.svelte) -->
 					<div
-						class="relative aspect-square w-full flex-shrink-0 overflow-hidden rounded-xs border border-slate-200 bg-white"
+						class="rounded-xs relative aspect-square w-full flex-shrink-0 overflow-hidden border border-slate-200 bg-white"
 					>
 						{#if resolvedImage}
 							<img
 								src={resolvedImage.src}
 								srcset={resolvedImage.srcset ?? resolvedImage.src}
-								alt={data.name || 'Profile'}
+								alt={displayName || 'Profile'}
 								class="h-full w-full object-cover object-center"
+								data-debug="avatar-image"
 								loading="lazy"
 								decoding="async"
 							/>
@@ -161,8 +203,8 @@
 
 					<!-- Example Skills (pills that wrap) -->
 					{#if data.exampleSkills.length > 0}
-						<div class="flex-shrink-0 rounded-xs p-4">
-							<p class="mb-3 text-xs font-semibold tracking-wide text-slate-700 uppercase">
+						<div class="rounded-xs flex-shrink-0 p-4">
+							<p class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-700">
 								{language === 'sv' ? 'Exempel på färdigheter' : 'Examples of skills'}
 							</p>
 							<div class="flex flex-wrap gap-1">
@@ -177,10 +219,10 @@
 
 					<!-- Contact (matching ConsultantProfile.svelte) -->
 					{#if data.contacts.length > 0}
-						<div class="flex-shrink-0 space-y-3 rounded-xs bg-slate-50 p-4">
+						<div class="rounded-xs flex-shrink-0 space-y-3 bg-slate-50 p-4">
 							{#each data.contacts as contact}
 								<div class="space-y-1">
-									<p class="text-xs font-semibold tracking-wide text-slate-600 uppercase">
+									<p class="text-xs font-semibold uppercase tracking-wide text-slate-600">
 										{language === 'sv' ? 'Kontakt' : 'Contact'}
 									</p>
 									<div class="space-y-2 text-sm text-slate-800">
@@ -200,30 +242,32 @@
 				<div class="space-y-6">
 					<!-- Name and Title -->
 					<div>
-						{#if data.name}
-							<h1 class="mb-2 text-4xl font-bold text-slate-900">{data.name}</h1>
+						{#if displayName}
+							<h1 class="mb-2 text-4xl font-bold text-slate-900">{displayName}</h1>
 						{/if}
-						<h2 class="text-xl font-medium text-slate-700">{t(data.title)}</h2>
+						{#if displayTitle}
+							<h2 class="text-xl font-medium text-slate-700">{displayTitle}</h2>
+						{/if}
 					</div>
 
 					<!-- Summary -->
-					<div class="text-sm leading-relaxed text-slate-700">
+					<div class="text-sm leading-relaxed text-slate-700" data-debug="summary">
 						<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-						{@html t(data.summary)}
+						{@html displaySummary}
 					</div>
 
 					<!-- Highlighted Experience (matching HighlightedExperience.svelte) -->
 					{#if visibleHighlighted.length > 0}
 						<div class="space-y-4">
-							<h3 class="pt-4 text-base font-bold tracking-wide text-slate-900 uppercase">
+							<h3 class="pt-4 text-base font-bold uppercase tracking-wide text-slate-900">
 								{language === 'sv' ? 'Utvald Erfarenhet' : 'Highlighted Experience'}
 							</h3>
 
 							{#each visibleHighlighted as exp}
-								<div class="space-y-3 border-l border-primary pl-4">
+								<div class="border-primary space-y-3 border-l pl-4" data-debug="highlighted-item">
 									<div>
 										<p class="text-sm font-semibold text-slate-900">{exp.company}</p>
-										<p class="text-sm text-slate-700 italic">{t(exp.role)}</p>
+										<p class="text-sm italic text-slate-700">{t(exp.role)}</p>
 									</div>
 									<div class="experience-description text-sm leading-relaxed text-slate-700">
 										<!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -231,7 +275,7 @@
 									</div>
 									{#if exp.technologies.length > 0}
 										<div class="space-y-1">
-											<p class="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+											<p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
 												{language === 'sv' ? 'Nyckeltekniker' : 'Key Technologies'}
 											</p>
 											<div class="flex flex-wrap gap-2">
@@ -253,8 +297,12 @@
 
 		<!-- Ampersand at bottom left -->
 		<div class="ampersand-container">
-			<img src={andLogo} class="ampersand-logo h-20 w-auto opacity-80" alt="&" />
-			<p class="ampersand-url">www.pixelcode.se</p>
+			<img
+				src={resolvedAccentLogo}
+				class="ampersand-logo h-20 w-auto opacity-80"
+				alt="Brand accent logo"
+			/>
+			<p class="ampersand-url">{resolvedHomepage}</p>
 		</div>
 	</div>
 
@@ -267,7 +315,7 @@
 			<section class="resume-print-section mb-8">
 				<!-- Section Header with dividers (matching ExperienceSection.svelte) -->
 				<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-					<h2 class="text-base font-bold text-slate-900 uppercase">
+					<h2 class="text-base font-bold uppercase text-slate-900">
 						{language === 'sv' ? 'Tidigare Erfarenheter' : 'Previous Experience'}
 					</h2>
 					<div class="flex items-center">
@@ -278,7 +326,7 @@
 				<div class="mt-4 space-y-6">
 					{#each visibleExperiences as exp}
 						<!-- Experience Item (matching ExperienceItem.svelte) -->
-						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]" data-debug="experience-item">
 							<!-- Column 1: Period, Company, Location -->
 							<div class="space-y-1">
 								<p class="text-sm font-semibold text-slate-900">
@@ -294,11 +342,11 @@
 
 							<!-- Column 2: Role, Description, Technologies -->
 							<div class="space-y-3">
-								<h3 class="text-base font-bold break-words hyphens-auto text-slate-900" lang="en">
+								<h3 class="hyphens-auto break-words text-base font-bold text-slate-900" lang="en">
 									{t(exp.role)}
 								</h3>
 								<div
-									class="text-sm leading-relaxed break-words hyphens-auto text-slate-700"
+									class="hyphens-auto break-words text-sm leading-relaxed text-slate-700"
 									lang="en"
 								>
 									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
@@ -325,7 +373,7 @@
 			<section class="resume-print-section mb-8">
 				<!-- Section Header with dividers -->
 				<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-					<h2 class="text-base font-bold text-slate-900 uppercase">
+					<h2 class="text-base font-bold uppercase text-slate-900">
 						{language === 'sv' ? 'Kompetenser' : 'Skills'}
 					</h2>
 					<div class="flex items-center">
@@ -334,9 +382,9 @@
 				</div>
 
 				<div class="mt-4 space-y-4">
-					{#each displayCategories() as category (category.id)}
+					{#each displayCategories() as category, categoryIndex (`${category.id}-${categoryIndex}`)}
 						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+							<p class="pt-1 text-xs font-bold uppercase tracking-wide text-slate-700">
 								{labelFor(category.name)}
 							</p>
 							<div class="flex flex-wrap gap-2">
@@ -357,7 +405,7 @@
 			<section class="resume-print-section mb-8">
 				<!-- Section Header with dividers -->
 				<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-					<h2 class="text-base font-bold text-slate-900 uppercase">
+					<h2 class="text-base font-bold uppercase text-slate-900">
 						{language === 'sv' ? 'Övrigt' : 'Other'}
 					</h2>
 					<div class="flex items-center">
@@ -369,7 +417,7 @@
 					{#if data.languages.length > 0}
 						<!-- Languages Row (matching SkillsCategorized isLanguage) -->
 						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+							<p class="pt-1 text-xs font-bold uppercase tracking-wide text-slate-700">
 								{language === 'sv' ? 'Språk' : 'Languages'}
 							</p>
 							<div class="flex flex-col gap-1 text-sm text-slate-800">
@@ -385,7 +433,7 @@
 					{#if data.education.length > 0}
 						<!-- Education Row (matching SkillsCategorized isEducation) -->
 						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+							<p class="pt-1 text-xs font-bold uppercase tracking-wide text-slate-700">
 								{language === 'sv' ? 'Utbildning' : 'Education'}
 							</p>
 							<div class="flex flex-col gap-1 text-sm text-slate-800">
@@ -402,7 +450,7 @@
 					{#if data.portfolio && data.portfolio.length > 0}
 						<!-- Portfolio Row (matching SkillsCategorized isPortfolio) -->
 						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-							<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">Portfolio</p>
+							<p class="pt-1 text-xs font-bold uppercase tracking-wide text-slate-700">Portfolio</p>
 							<div class="flex flex-wrap gap-2 text-sm text-slate-800">
 								{#each data.portfolio as url}
 									<a
@@ -421,24 +469,28 @@
 		{/if}
 
 		<!-- Footer -->
-		{#if data.footerNote}
-			<div class="mt-8 border-t border-slate-200 pt-4 text-center text-sm text-slate-500 italic">
-				{t(data.footerNote)}
+		{#if displayFooterNote}
+			<div class="mt-8 border-t border-slate-200 pt-4 text-center text-sm italic text-slate-500">
+				{displayFooterNote}
 			</div>
 		{/if}
 
 		<!-- Worldclass image at bottom -->
 		<div class="mt-8 flex justify-center border-t border-slate-200 pt-6">
 			<img
-				src={worldclassUrl}
+				src={resolvedEndLogo}
 				alt="Worldclass Tech, Worldclass People"
 				class="max-h-[200px] w-auto object-contain"
 			/>
 		</div>
 		<!-- Ampersand at bottom left -->
 		<div class="ampersand-container">
-			<img src={andLogo} class="ampersand-logo h-20 w-auto opacity-80" alt="&" />
-			<p class="ampersand-url">www.pixelcode.se</p>
+			<img
+				src={resolvedAccentLogo}
+				class="ampersand-logo h-20 w-auto opacity-80"
+				alt="Brand accent logo"
+			/>
+			<p class="ampersand-url">{resolvedHomepage}</p>
 		</div>
 	</div>
 </div>

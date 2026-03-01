@@ -1,14 +1,19 @@
-import { redirect, type LayoutServerLoad } from '@sveltejs/kit';
-import type { PostgrestError } from '@supabase/supabase-js';
+import { redirect } from '@sveltejs/kit';
 import {
 	AUTH_COOKIE_NAMES,
 	clearAuthCookies,
 	createSupabaseServerClient,
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
+import {
+	DEFAULT_ORGANISATION_BRANDING_THEME,
+	resolveOrganisationBrandingTheme,
+	type OrganisationBrandingTheme
+} from '$lib/branding/theme';
 import type { PageMetaInput } from '$lib/seo';
+import type { LayoutServerLoad } from './$types';
 
-type Role = 'admin' | 'cms_admin' | 'employee' | 'employer';
+type Role = 'admin' | 'broker' | 'talent' | 'employer';
 
 type Profile = {
 	first_name: string | null;
@@ -20,6 +25,8 @@ type LoadResult = {
 	profile: Profile | null;
 	role: Role | null;
 	roles: Role[];
+	currentTalentId: string | null;
+	brandingTheme: OrganisationBrandingTheme;
 	meta?: PageMetaInput;
 };
 
@@ -29,11 +36,27 @@ const isPublicPagePath = (pathname: string) =>
 	pathname === '/login' || pathname === '/reset-password' || pathname.startsWith('/print/');
 
 const roleGuards: Array<{ pattern: RegExp; roles: Role[] }> = [
-	{ pattern: /^\/$/, roles: ['admin', 'cms_admin', 'employee', 'employer'] },
-	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'employer'] },
-	{ pattern: /^\/employees(\/.*)?$/, roles: ['admin', 'employer', 'employee'] },
-	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'cms_admin', 'employee', 'employer'] }
+	{ pattern: /^\/$/, roles: ['admin', 'broker', 'talent', 'employer'] },
+	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'broker', 'employer'] },
+	{ pattern: /^\/organisations(\/.*)?$/, roles: ['admin'] },
+	{ pattern: /^\/talents(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
+	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] }
 ];
+
+const normalizeRolesFromJoin = (
+	rows: Array<{ roles?: { key?: string | null } | Array<{ key?: string | null }> | null }>
+): Role[] =>
+	rows
+		.flatMap((row) => {
+			if (Array.isArray(row.roles)) {
+				return row.roles
+					.map((roleRow) => normalizeRole(roleRow?.key))
+					.filter((value): value is Role => value !== null);
+			}
+			const role = normalizeRole(row.roles?.key);
+			return role ? [role] : [];
+		})
+		.filter((value, index, all) => all.indexOf(value) === index);
 
 const normalizeRole = (role: string | null | undefined): Role | null => {
 	if (!role) return null;
@@ -42,13 +65,10 @@ const normalizeRole = (role: string | null | undefined): Role | null => {
 	switch (value) {
 		case 'admin':
 			return 'admin';
-		case 'cms_admin':
-		case 'cms-admin':
-		case 'cmsadmin':
-			return 'cms_admin';
-		case 'employee':
-		case 'employees':
-			return 'employee';
+		case 'broker':
+			return 'broker';
+		case 'talent':
+			return 'talent';
 		case 'employer':
 		case 'employers':
 			return 'employer';
@@ -64,7 +84,7 @@ const guardRoute = (pathname: string, roles: Role[]): string | null => {
 	const allowed = roles.some((role) => match.roles.includes(role));
 	if (allowed) return null;
 
-	if (roles.includes('employee') || roles.includes('employer')) {
+	if (roles.includes('talent') || roles.includes('employer')) {
 		return '/';
 	}
 
@@ -73,7 +93,7 @@ const guardRoute = (pathname: string, roles: Role[]): string | null => {
 
 const appMeta = (pathname: string): PageMetaInput => ({
 	title: 'Resume Platform',
-	description: 'Secure workspace for managing employees and consultant resumes.',
+	description: 'Secure workspace for managing talents and consultant resumes.',
 	path: pathname,
 	noindex: true
 });
@@ -89,6 +109,8 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 				profile: null,
 				role: null,
 				roles: [],
+				currentTalentId: null,
+				brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
 				meta: appMeta(pathname)
 			} satisfies LoadResult;
 		}
@@ -97,13 +119,14 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 		throw redirect(303, `/login?redirect=${redirectParam}`);
 	}
 
-	// Let /login and /reset-password render, their own route loads handle redirect behavior.
 	if (isPublicPagePath(pathname)) {
 		return {
 			user: null,
 			profile: null,
 			role: null,
 			roles: [],
+			currentTalentId: null,
+			brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
 			meta: appMeta(pathname)
 		} satisfies LoadResult;
 	}
@@ -130,27 +153,40 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 
 		const adminClient = getSupabaseAdminClient();
 
-		const [{ data: profileData }, rolesResult] = await Promise.all([
-			supabase.from('profiles').select('first_name, last_name').eq('id', userId).maybeSingle(),
-			(async () => {
-				if (!adminClient) {
-					const fallbackError: PostgrestError = {
-						message: 'Admin client unavailable',
-						details: null,
-						hint: null,
-						code: 'PGRST'
-					};
-					return { data: null, error: fallbackError };
-				}
-
-				return adminClient.from('user_roles').select('role, user_id').eq('user_id', userId);
-			})()
+		const [{ data: profileData }, roleResult, talentResult, homeOrgResult] = await Promise.all([
+			supabase
+				.from('user_profiles')
+				.select('first_name, last_name')
+				.eq('user_id', userId)
+				.maybeSingle(),
+			adminClient
+				? adminClient.from('user_roles').select('roles(key)').eq('user_id', userId)
+				: Promise.resolve({ data: null, error: null }),
+			supabase.from('talents').select('id').eq('user_id', userId).maybeSingle(),
+			adminClient
+				? adminClient
+						.from('organisation_users')
+						.select('organisation_id')
+						.eq('user_id', userId)
+						.order('updated_at', { ascending: false })
+						.order('created_at', { ascending: false })
+						.limit(1)
+						.maybeSingle()
+				: Promise.resolve({ data: null, error: null })
 		]);
 
-		const roleRows = (rolesResult.data as { role: string }[] | null) ?? [];
-		const rolesFromTable = roleRows
-			.map((row) => normalizeRole(row.role))
-			.filter(Boolean) as Role[];
+		if (roleResult.error) {
+			console.warn('[layout] could not load user roles', roleResult.error);
+		}
+		if (homeOrgResult.error) {
+			console.warn('[layout] could not load home organisation branding', homeOrgResult.error);
+		}
+
+		const roleRows =
+			(roleResult.data as Array<{
+				roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
+			}> | null) ?? [];
+		const rolesFromTable = normalizeRolesFromJoin(roleRows);
 
 		let roles = rolesFromTable;
 		if (roles.length === 0) {
@@ -159,7 +195,7 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 					? (userData.user.app_metadata?.roles as string[])
 					: []
 			)
-				.map((r) => normalizeRole(r))
+				.map((value) => normalizeRole(value))
 				.filter(Boolean) as Role[];
 
 			if (appRolesNormalized.length > 0) {
@@ -171,17 +207,56 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 		}
 
 		roles = Array.from(new Set(roles));
-		const primaryRole = (roles[0] as Role | undefined) ?? 'employee';
-		const effectiveRoles = roles.length ? roles : ['employee'];
+		const primaryRole = (roles[0] as Role | undefined) ?? 'talent';
+		const effectiveRoles: Role[] = roles.length ? roles : ['talent'];
 		const redirectTo = guardRoute(pathname, effectiveRoles);
 
 		if (redirectTo) throw redirect(303, redirectTo);
+
+			const currentTalentId =
+				talentResult.data && typeof talentResult.data.id === 'string' ? talentResult.data.id : null;
+			let homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
+			let brandingTheme = DEFAULT_ORGANISATION_BRANDING_THEME;
+
+			if (!homeOrganisationId && adminClient && currentTalentId) {
+				const { data: talentHomeRow, error: talentHomeError } = await adminClient
+					.from('organisation_talents')
+					.select('organisation_id')
+					.eq('talent_id', currentTalentId)
+					.order('updated_at', { ascending: false })
+					.order('created_at', { ascending: false })
+					.limit(1)
+					.maybeSingle();
+				if (talentHomeError) {
+					console.warn(
+						'[layout] could not resolve home organisation from talent membership',
+						talentHomeError
+					);
+				} else {
+					homeOrganisationId = talentHomeRow?.organisation_id ?? null;
+				}
+			}
+
+			if (adminClient && homeOrganisationId) {
+			const { data: organisationRow, error: organisationError } = await adminClient
+				.from('organisations')
+				.select('brand_settings')
+				.eq('id', homeOrganisationId)
+				.maybeSingle();
+			if (organisationError) {
+				console.warn('[layout] could not resolve organisation brand settings', organisationError);
+			} else {
+				brandingTheme = resolveOrganisationBrandingTheme(organisationRow?.brand_settings ?? null);
+			}
+		}
 
 		return {
 			user: { id: userId, email: userData.user.email ?? undefined },
 			profile: (profileData as Profile | null) ?? null,
 			role: primaryRole,
 			roles: effectiveRoles,
+			currentTalentId,
+			brandingTheme,
 			meta: appMeta(pathname)
 		} satisfies LoadResult;
 	} catch (error) {

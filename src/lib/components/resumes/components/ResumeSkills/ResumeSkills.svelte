@@ -64,18 +64,18 @@
 	<section class="resume-print-section mt-8">
 		<!-- Section Header with dividers -->
 		<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-			<h2 class="text-base font-bold text-slate-900 uppercase">
+			<h2 class="text-base font-bold text-foreground uppercase">
 				{language === 'sv' ? 'Kompetenser' : 'Skills'}
 			</h2>
 			<div class="flex items-center">
-				<div class="h-px flex-1 bg-slate-300"></div>
+				<div class="h-px flex-1 bg-border"></div>
 			</div>
 		</div>
 
 		<div class="mt-4 space-y-4">
 			{#if isEditing}
-				<div class="rounded-xs border border-slate-200 bg-slate-50 p-4">
-					<p class="mb-2 text-sm font-semibold text-slate-700">
+				<div class="rounded-xs border border-border bg-muted p-4">
+					<p class="mb-2 text-sm font-semibold text-secondary-text">
 						{language === 'sv'
 							? 'Teknikstack (ändra och dra/ släpp kategorier och skills)'
 							: 'Tech stack (drag/drop between categories)'}
@@ -85,12 +85,12 @@
 			{:else}
 				{#each displayCategories() as category (category.id)}
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
 							{labelFor(category.name, language)}
 						</p>
 						<div class="flex flex-wrap gap-2">
 							{#each category.skills as tech}
-								<span class="rounded-xs bg-slate-100 px-3 py-1 text-xs text-slate-800">{tech}</span>
+								<span class="rounded-xs bg-muted px-3 py-1 text-xs text-foreground">{tech}</span>
 							{/each}
 						</div>
 					</div>

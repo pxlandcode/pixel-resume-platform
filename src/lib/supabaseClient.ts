@@ -9,22 +9,22 @@ let browserClient: SupabaseClient | null = null;
  */
 export const getSupabaseClient = () => {
 	const url = env.PUBLIC_SUPABASE_URL;
-	const anonKey = env.PUBLIC_SUPABASE_ANON_KEY;
+	const publishableKey = env.PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? env.PUBLIC_SUPABASE_ANON_KEY;
 
-	if (!url || !anonKey) {
+	if (!url || !publishableKey) {
 		throw new Error(
-			'Missing PUBLIC_SUPABASE_URL or PUBLIC_SUPABASE_ANON_KEY env vars. Update your .env to include them.'
+			'Missing PUBLIC_SUPABASE_URL or publishable key (PUBLIC_SUPABASE_PUBLISHABLE_KEY / legacy PUBLIC_SUPABASE_ANON_KEY).'
 		);
 	}
 
 	if (!browserClient) {
-		browserClient = createClient(url, anonKey, {
+		browserClient = createClient(url, publishableKey, {
 			auth: {
 				persistSession: true,
 				autoRefreshToken: true
-                        }
-                });
-        }
+			}
+		});
+	}
 
-        return browserClient;
+	return browserClient;
 };

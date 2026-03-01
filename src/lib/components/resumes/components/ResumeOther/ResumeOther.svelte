@@ -34,24 +34,24 @@
 	<section class="resume-print-section mt-8">
 		<!-- Section Header with dividers -->
 		<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-			<h2 class="text-base font-bold text-slate-900 uppercase">
+			<h2 class="text-base font-bold text-foreground uppercase">
 				{language === 'sv' ? 'Övrigt' : 'Other'}
 			</h2>
 			<div class="flex items-center">
-				<div class="h-px flex-1 bg-slate-300"></div>
+				<div class="h-px flex-1 bg-border"></div>
 			</div>
 		</div>
 
 		<div class="mt-4 space-y-4">
 			{#if isEditing}
 				<!-- Languages Editor -->
-				<div class="rounded-xs border border-slate-200 bg-slate-50 p-4">
-					<p class="mb-2 text-sm font-semibold text-slate-700">
+				<div class="rounded-xs border border-border bg-muted p-4">
+					<p class="mb-2 text-sm font-semibold text-secondary-text">
 						{language === 'sv' ? 'Språk' : 'Languages'}
 					</p>
 					<div class="space-y-3">
 						{#each languages as lang, index}
-							<div class="rounded-xs border border-slate-200 bg-white p-3">
+							<div class="rounded-xs border border-border bg-card p-3">
 								<div class="mb-2 flex justify-end">
 									<Button variant="ghost" size="sm" onclick={() => onRemoveLanguage?.(index)}
 										>Remove</Button
@@ -64,14 +64,14 @@
 											oninput={(e) =>
 												(lang.label = setLocalizedValue(lang.label, 'sv', e.currentTarget.value))}
 											placeholder="Language (SV)"
-											class="border-slate-300 bg-white"
+											class="border-border bg-card"
 										/>
 										<Input
 											value={getLocalizedValue(lang.label, 'en')}
 											oninput={(e) =>
 												(lang.label = setLocalizedValue(lang.label, 'en', e.currentTarget.value))}
 											placeholder="Language (EN)"
-											class="border-slate-300 bg-white"
+											class="border-border bg-card"
 										/>
 									</div>
 									<div class="space-y-2">
@@ -80,14 +80,14 @@
 											oninput={(e) =>
 												(lang.value = setLocalizedValue(lang.value, 'sv', e.currentTarget.value))}
 											placeholder="Proficiency (SV)"
-											class="border-slate-300 bg-white"
+											class="border-border bg-card"
 										/>
 										<Input
 											value={getLocalizedValue(lang.value, 'en')}
 											oninput={(e) =>
 												(lang.value = setLocalizedValue(lang.value, 'en', e.currentTarget.value))}
 											placeholder="Proficiency (EN)"
-											class="border-slate-300 bg-white"
+											class="border-border bg-card"
 										/>
 									</div>
 								</div>
@@ -98,13 +98,13 @@
 				</div>
 
 				<!-- Education Editor -->
-				<div class="rounded-xs border border-slate-200 bg-slate-50 p-4">
-					<p class="mb-2 text-sm font-semibold text-slate-700">
+				<div class="rounded-xs border border-border bg-muted p-4">
+					<p class="mb-2 text-sm font-semibold text-secondary-text">
 						{language === 'sv' ? 'Utbildning' : 'Education'}
 					</p>
 					<div class="space-y-3">
 						{#each education as edu, index}
-							<div class="rounded-xs border border-slate-200 bg-white p-3">
+							<div class="rounded-xs border border-border bg-card p-3">
 								<div class="mb-2 flex justify-end">
 									<Button variant="ghost" size="sm" onclick={() => onRemoveEducation?.(index)}
 										>Remove</Button
@@ -115,7 +115,7 @@
 										value={typeof edu.label === 'string' ? edu.label : edu.label.sv}
 										oninput={(e) => (edu.label = e.currentTarget.value)}
 										placeholder="Institution"
-										class="border-slate-300 bg-white"
+										class="border-border bg-card"
 									/>
 									<div class="space-y-2">
 										<Input
@@ -123,14 +123,14 @@
 											oninput={(e) =>
 												(edu.value = setLocalizedValue(edu.value, 'sv', e.currentTarget.value))}
 											placeholder="Program (SV)"
-											class="border-slate-300 bg-white"
+											class="border-border bg-card"
 										/>
 										<Input
 											value={getLocalizedValue(edu.value, 'en')}
 											oninput={(e) =>
 												(edu.value = setLocalizedValue(edu.value, 'en', e.currentTarget.value))}
 											placeholder="Program (EN)"
-											class="border-slate-300 bg-white"
+											class="border-border bg-card"
 										/>
 									</div>
 								</div>
@@ -141,8 +141,8 @@
 				</div>
 
 				<!-- Portfolio Editor -->
-				<div class="rounded-xs border border-slate-200 bg-slate-50 p-4">
-					<p class="mb-2 text-sm font-semibold text-slate-700">Portfolio</p>
+				<div class="rounded-xs border border-border bg-muted p-4">
+					<p class="mb-2 text-sm font-semibold text-secondary-text">Portfolio</p>
 					<div class="space-y-2">
 						{#each portfolio ?? [] as url, index}
 							<div class="flex gap-2">
@@ -152,7 +152,7 @@
 										portfolio[index] = e.currentTarget.value;
 									}}
 									placeholder="https://..."
-									class="flex-1 border-slate-300 bg-white"
+									class="flex-1 border-border bg-card"
 								/>
 								<Button variant="ghost" size="sm" onclick={() => onRemovePortfolioUrl?.(index)}
 									>Remove</Button
@@ -166,10 +166,10 @@
 				{#if languages.length > 0}
 					<!-- Languages Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
 							{language === 'sv' ? 'Språk' : 'Languages'}
 						</p>
-						<div class="flex flex-col gap-1 text-sm text-slate-800">
+						<div class="flex flex-col gap-1 text-sm text-foreground">
 							{#each languages as lang}
 								<p>
 									<span class="font-bold">{t(lang.label, language)}</span>: {t(
@@ -185,10 +185,10 @@
 				{#if education.length > 0}
 					<!-- Education Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
 							{language === 'sv' ? 'Utbildning' : 'Education'}
 						</p>
-						<div class="flex flex-col gap-1 text-sm text-slate-800">
+						<div class="flex flex-col gap-1 text-sm text-foreground">
 							{#each education as edu}
 								<p>
 									<span class="font-semibold">{edu.label}</span>
@@ -202,8 +202,8 @@
 				{#if portfolio && portfolio.length > 0}
 					<!-- Portfolio Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-slate-700 uppercase">Portfolio</p>
-						<div class="flex flex-wrap gap-2 text-sm text-slate-800">
+						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">Portfolio</p>
+						<div class="flex flex-wrap gap-2 text-sm text-foreground">
 							{#each portfolio as url}
 								<a
 									href={url}
