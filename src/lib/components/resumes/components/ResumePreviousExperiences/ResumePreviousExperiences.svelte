@@ -140,14 +140,20 @@
 		Boolean(exp.libraryId) || Boolean(exp.saveToLibrary);
 
 	const getLibraryButtonLabel = (exp: ExperienceItem) => {
-		if (exp.libraryId) return 'Already in library';
+		if (exp.libraryId) return 'Remove from library';
 		if (exp.saveToLibrary) return 'Will be added to library';
 		return 'Add to library';
 	};
 
 	const toggleLibrarySelection = (index: number) => {
 		const target = experiences[index];
-		if (!target || target.libraryId) return;
+		if (!target) return;
+		if (target.libraryId) {
+			experiences = experiences.map((item, itemIndex) =>
+				itemIndex === index ? { ...item, libraryId: null, saveToLibrary: false } : item
+			);
+			return;
+		}
 		const nextValue = !Boolean(target.saveToLibrary);
 		experiences = experiences.map((item, itemIndex) =>
 			itemIndex === index ? { ...item, saveToLibrary: nextValue } : item
@@ -408,7 +414,6 @@
 									onclick={() => toggleLibrarySelection(index)}
 									aria-label={getLibraryButtonLabel(exp)}
 									title={getLibraryButtonLabel(exp)}
-									disabled={Boolean(exp.libraryId)}
 								>
 									<svg
 										xmlns="http://www.w3.org/2000/svg"
