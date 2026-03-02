@@ -33,18 +33,16 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		throw error(404, 'Resume not found');
 	}
 
-	const permissions = await getResumeEditPermissions(
-		supabase,
-		adminClient,
-		resume.personId
-	);
+	const permissions = await getResumeEditPermissions(supabase, adminClient, resume.personId);
 	const { canView, canEdit, canEditAll, isOwnProfile } = permissions;
 	if (!canView) {
 		throw error(403, 'Not authorized to view this resume.');
 	}
 
 	const actor = await getActorAccessContext(supabase, adminClient);
-	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId);
+	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId, {
+		templateMode: 'org'
+	});
 	const auditOrganisationId = permissions.talentOrganisationId ?? actor.homeOrganisationId ?? null;
 	if (actor.userId && auditOrganisationId) {
 		const auditResult = await writeAuditLog({

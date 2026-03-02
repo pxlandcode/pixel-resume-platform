@@ -1,5 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { create as createFont, type Font, type FontCollection } from 'fontkit';
 import {
 	AUTH_COOKIE_NAMES,
 	createSupabaseServerClient,
@@ -12,10 +13,42 @@ import {
 	parseOrganisationBrandingThemeFormData,
 	resolveOrganisationBrandingTheme
 } from '$lib/branding/theme';
+import {
+	DEFAULT_ORGANISATION_MAIN_FONT_KEY,
+	mergeOrganisationBrandingTypography,
+	resolveOrganisationBrandingTypography,
+	type OrganisationMainFontKey,
+	type OrganisationUploadedFontConfig,
+	type OrganisationUploadedFontFiles,
+	sanitizeFontFamilyName,
+	isSupportedFontFilename,
+	isSupportedFontMime,
+	normalizeFontUploadFilename,
+	ORGANISATION_UPLOADED_FONT_FIELD_NAMES,
+	ORGANISATION_BUILT_IN_MAIN_FONT_KEYS,
+	isUploadedFontConfigUsable,
+	getOrganisationUploadedFontPaths
+} from '$lib/branding/font';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 const SHARING_SCOPES = new Set(['view', 'export_org_template', 'export_broker_template']);
+const MAX_UPLOADED_FONT_SIZE_BYTES = 20 * 1024 * 1024;
+const MAIN_FONT_KEY_OPTIONS = new Set<OrganisationMainFontKey>([
+	...ORGANISATION_BUILT_IN_MAIN_FONT_KEYS,
+	'uploaded'
+]);
+const FONT_UPLOAD_FIELD_NAMES = ORGANISATION_UPLOADED_FONT_FIELD_NAMES;
+
+type FontFaceSlot = keyof typeof FONT_UPLOAD_FIELD_NAMES;
+
+type ParsedFontMetadata = {
+	family: string;
+	subfamily: string;
+	weight: number;
+	italic: boolean;
+	variationAxes: NonNullable<Font['variationAxes']>;
+};
 
 const isValidUuid = (value: string | null | undefined) =>
 	typeof value === 'string' && UUID_REGEX.test(value);
@@ -29,6 +62,141 @@ const normalizeSlug = (value: string) =>
 
 const normalizeOptionalText = (value: FormDataEntryValue | null) =>
 	typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+
+const normalizeFontKey = (value: FormDataEntryValue | null): OrganisationMainFontKey => {
+	if (typeof value !== 'string') return DEFAULT_ORGANISATION_MAIN_FONT_KEY;
+	const normalized = value.trim().toLowerCase();
+	if (!MAIN_FONT_KEY_OPTIONS.has(normalized as OrganisationMainFontKey)) {
+		return DEFAULT_ORGANISATION_MAIN_FONT_KEY;
+	}
+	return normalized as OrganisationMainFontKey;
+};
+
+const sanitizeStorageObjectName = (value: string) =>
+	value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '') || 'file';
+
+const getFontFileExtension = (file: File) => {
+	const rawName = file.name?.trim() ?? '';
+	const dotIndex = rawName.lastIndexOf('.');
+	if (dotIndex >= 0 && dotIndex < rawName.length - 1) {
+		return rawName.slice(dotIndex).toLowerCase();
+	}
+	const mime = file.type?.trim().toLowerCase() ?? '';
+	if (mime.includes('woff2')) return '.woff2';
+	if (mime.includes('woff')) return '.woff';
+	if (mime.includes('ttf')) return '.ttf';
+	if (mime.includes('otf') || mime.includes('opentype')) return '.otf';
+	return '';
+};
+
+const inferWeightFromName = (value: string): number | null => {
+	const name = value.toLowerCase();
+	if (name.includes('black')) return 900;
+	if (name.includes('extra bold') || name.includes('extrabold') || name.includes('ultrabold')) {
+		return 800;
+	}
+	if (name.includes('bold')) return 700;
+	if (name.includes('semi bold') || name.includes('semibold') || name.includes('demi bold')) {
+		return 600;
+	}
+	if (name.includes('medium')) return 500;
+	if (name.includes('regular') || name.includes('normal') || name.includes('book')) return 400;
+	if (name.includes('light')) return 300;
+	if (name.includes('thin')) return 100;
+	return null;
+};
+
+const inferItalicFromName = (value: string) => {
+	const lower = value.toLowerCase();
+	return lower.includes('italic') || lower.includes('oblique');
+};
+
+const resolveFontFromFile = async (file: File): Promise<Font> => {
+	const fileBuffer = Buffer.from(await file.arrayBuffer());
+	const parsed = createFont(fileBuffer) as Font | FontCollection;
+	if ('fonts' in parsed) {
+		const firstFont = parsed.fonts?.[0] ?? null;
+		if (!firstFont) throw new Error('Font file does not contain a readable font.');
+		return firstFont;
+	}
+	return parsed;
+};
+
+const parseUploadedFontMetadata = async (file: File): Promise<ParsedFontMetadata> => {
+	const font = await resolveFontFromFile(file);
+	const rawFamily = font.familyName?.trim() || font.fullName?.trim() || '';
+	const family = sanitizeFontFamilyName(rawFamily);
+	if (!family) {
+		throw new Error('Font family name could not be read from the uploaded file.');
+	}
+	const subfamily = font.subfamilyName?.trim() ?? '';
+	const weightFromTable = Number(font['OS/2']?.usWeightClass);
+	const inferredWeight = inferWeightFromName(subfamily) ?? inferWeightFromName(font.fullName ?? '');
+	const weight =
+		Number.isFinite(weightFromTable) && weightFromTable > 0
+			? weightFromTable
+			: (inferredWeight ?? 400);
+	const italic = Boolean(
+		font['OS/2']?.fsSelection?.italic ||
+			font['OS/2']?.fsSelection?.oblique ||
+			font.italicAngle !== 0 ||
+			inferItalicFromName(subfamily) ||
+			inferItalicFromName(font.fullName ?? '')
+	);
+	return {
+		family,
+		subfamily,
+		weight,
+		italic,
+		variationAxes: font.variationAxes ?? {}
+	};
+};
+
+const validateFontFileInput = (file: File, label: string) => {
+	const extension = getFontFileExtension(file);
+	const extensionLooksLikeFont = isSupportedFontFilename(`x${extension}`);
+	const mimeLooksLikeFont = isSupportedFontMime(file.type);
+	if (!extensionLooksLikeFont && !mimeLooksLikeFont) {
+		throw new Error(`${label} must be a .ttf, .otf, .woff, or .woff2 font file.`);
+	}
+	if (file.size <= 0) {
+		throw new Error(`${label} is empty.`);
+	}
+	if (file.size > MAX_UPLOADED_FONT_SIZE_BYTES) {
+		throw new Error(`${label} must be 20MB or smaller.`);
+	}
+};
+
+const uploadFontFile = async (
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+	organisationId: string,
+	file: File,
+	slot: FontFaceSlot
+) => {
+	validateFontFileInput(file, file.name || 'Font file');
+	const extension = getFontFileExtension(file);
+	const normalizedName = sanitizeStorageObjectName(
+		normalizeFontUploadFilename(file.name || 'font')
+	);
+	const objectPath = `${organisationId}/fonts/${slot}/${Date.now()}-${normalizedName}${extension}`;
+	const payload = new Uint8Array(await file.arrayBuffer());
+	const { error: uploadError } = await adminClient.storage
+		.from(ORGANISATION_IMAGES_BUCKET)
+		.upload(objectPath, payload, {
+			contentType: file.type || 'application/octet-stream',
+			cacheControl: '3600',
+			upsert: false
+		});
+	if (uploadError) throw new Error(uploadError.message);
+	return objectPath;
+};
+
+const isRegularWeight = (weight: number) => weight >= 350 && weight <= 500;
+const isBoldWeight = (weight: number) => weight >= 600 && weight <= 900;
 
 const parseOptionalHomepageUrl = (value: FormDataEntryValue | null): string | null => {
 	const raw = normalizeOptionalText(value);
@@ -265,7 +433,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		membershipsTalentsResult,
 		accessGrantsResult,
 		dataSharingPermissionsResult,
-		legalDocumentsResult,
 		usersResult,
 		userRolesResult,
 		talentsResult
@@ -294,11 +461,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 				'id, source_organisation_id, target_organisation_id, sharing_scope, approved_by_admin_id, approved_at'
 			),
 		adminClient
-			.from('legal_documents')
-			.select('id, doc_type, version, content_html, effective_date, is_active, created_at')
-			.order('doc_type', { ascending: true })
-			.order('effective_date', { ascending: false }),
-		adminClient
 			.from('user_profiles')
 			.select('user_id, first_name, last_name, email')
 			.order('last_name', { ascending: true })
@@ -318,7 +480,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	if (accessGrantsResult.error) throw error(500, accessGrantsResult.error.message);
 	if (dataSharingPermissionsResult.error)
 		throw error(500, dataSharingPermissionsResult.error.message);
-	if (legalDocumentsResult.error) throw error(500, legalDocumentsResult.error.message);
 	if (usersResult.error) throw error(500, usersResult.error.message);
 	if (userRolesResult.error) throw error(500, userRolesResult.error.message);
 	if (talentsResult.error) throw error(500, talentsResult.error.message);
@@ -353,7 +514,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		membershipsTalents: membershipsTalentsResult.data ?? [],
 		accessGrants: accessGrantsResult.data ?? [],
 		dataSharingPermissions: dataSharingPermissionsResult.data ?? [],
-		legalDocuments: legalDocumentsResult.data ?? [],
 		users,
 		talents: talentsResult.data ?? []
 	};
@@ -412,7 +572,11 @@ export const actions: Actions = {
 				name,
 				slug,
 				homepage_url: homepageUrl,
-				brand_settings: {},
+				brand_settings: {
+					typography: {
+						mainFontKey: DEFAULT_ORGANISATION_MAIN_FONT_KEY
+					}
+				},
 				created_by_user_id: context.actor.userId
 			})
 			.select('id')
@@ -565,10 +729,253 @@ export const actions: Actions = {
 			});
 		}
 
-		const mergedBrandSettings = mergeOrganisationBrandingTheme(
-			organisationRow.brand_settings,
-			theme
+		const existingTypography = resolveOrganisationBrandingTypography(
+			organisationRow.brand_settings
 		);
+		let nextMainFontKey = normalizeFontKey(formData.get('main_font_key'));
+		let uploadedFontUpdate: OrganisationUploadedFontConfig | undefined;
+		const uploadedPathsForRollback: string[] = [];
+		const existingUploadedFontPaths = getOrganisationUploadedFontPaths(
+			organisationRow.brand_settings
+		);
+
+		const variableFileEntry = formData.get(FONT_UPLOAD_FIELD_NAMES.variable);
+		const regularFileEntry = formData.get(FONT_UPLOAD_FIELD_NAMES.regular);
+		const italicFileEntry = formData.get(FONT_UPLOAD_FIELD_NAMES.italic);
+		const boldFileEntry = formData.get(FONT_UPLOAD_FIELD_NAMES.bold);
+		const boldItalicFileEntry = formData.get(FONT_UPLOAD_FIELD_NAMES.boldItalic);
+
+		const variableFile =
+			variableFileEntry instanceof File && variableFileEntry.size > 0 ? variableFileEntry : null;
+		const staticFiles: Partial<Record<FontFaceSlot, File>> = {
+			regular:
+				regularFileEntry instanceof File && regularFileEntry.size > 0
+					? regularFileEntry
+					: undefined,
+			italic:
+				italicFileEntry instanceof File && italicFileEntry.size > 0 ? italicFileEntry : undefined,
+			bold: boldFileEntry instanceof File && boldFileEntry.size > 0 ? boldFileEntry : undefined,
+			boldItalic:
+				boldItalicFileEntry instanceof File && boldItalicFileEntry.size > 0
+					? boldItalicFileEntry
+					: undefined
+		};
+
+		const staticFileCount = Object.values(staticFiles).filter(Boolean).length;
+		if (variableFile && staticFileCount > 0) {
+			return fail(400, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message:
+					'Upload either one variable font file or four static files (Regular, Italic, Bold, Bold Italic), not both at the same time.'
+			});
+		}
+
+		if (variableFile) {
+			try {
+				validateFontFileInput(variableFile, 'Variable font');
+				const metadata = await parseUploadedFontMetadata(variableFile);
+				const variationAxes = metadata.variationAxes ?? {};
+				const weightAxis = variationAxes.wght;
+				const italAxis = variationAxes.ital;
+				const slantAxis = variationAxes.slnt;
+
+				const hasRequiredWeightRange = Boolean(
+					weightAxis &&
+						Number.isFinite(weightAxis.min) &&
+						Number.isFinite(weightAxis.max) &&
+						weightAxis.min <= 400 &&
+						weightAxis.max >= 700
+				);
+				if (!hasRequiredWeightRange) {
+					throw new Error(
+						'Variable font must include a `wght` axis that supports at least 400 and 700.'
+					);
+				}
+
+				const hasItalicSupport = Boolean(
+					(italAxis &&
+						Number.isFinite(italAxis.max) &&
+						Number.isFinite(italAxis.min) &&
+						italAxis.max > italAxis.min) ||
+						(slantAxis &&
+							Number.isFinite(slantAxis.max) &&
+							Number.isFinite(slantAxis.min) &&
+							slantAxis.max > slantAxis.min)
+				);
+				if (!hasItalicSupport) {
+					throw new Error(
+						'Variable font must include italic support (`ital` or `slnt` axis) so italic styles render correctly.'
+					);
+				}
+
+				const variablePath = await uploadFontFile(
+					context.adminClient,
+					organisationId,
+					variableFile,
+					'variable'
+				);
+				uploadedPathsForRollback.push(variablePath);
+				uploadedFontUpdate = {
+					mode: 'variable',
+					family: metadata.family,
+					files: { variablePath }
+				};
+				nextMainFontKey = 'uploaded';
+			} catch (fontError) {
+				return fail(400, {
+					type: 'updateOrganisationBranding',
+					ok: false,
+					message: fontError instanceof Error ? fontError.message : 'Invalid variable font upload.'
+				});
+			}
+		} else if (staticFileCount > 0) {
+			if (staticFileCount !== 4) {
+				return fail(400, {
+					type: 'updateOrganisationBranding',
+					ok: false,
+					message:
+						'Static font uploads require all four files: Regular (400), Italic (400), Bold (700), and Bold Italic (700).'
+				});
+			}
+
+			const requiredSlots: FontFaceSlot[] = ['regular', 'italic', 'bold', 'boldItalic'];
+			for (const slot of requiredSlots) {
+				const file = staticFiles[slot];
+				if (!(file instanceof File)) {
+					return fail(400, {
+						type: 'updateOrganisationBranding',
+						ok: false,
+						message:
+							'Static font uploads require all four files: Regular (400), Italic (400), Bold (700), and Bold Italic (700).'
+					});
+				}
+			}
+
+			try {
+				const metadataBySlot = await Promise.all(
+					requiredSlots.map(async (slot) => ({
+						slot,
+						file: staticFiles[slot] as File,
+						metadata: await parseUploadedFontMetadata(staticFiles[slot] as File)
+					}))
+				);
+
+				const baseFamily = sanitizeFontFamilyName(metadataBySlot[0].metadata.family).toLowerCase();
+				const familyMismatch = metadataBySlot.find(
+					({ metadata }) => sanitizeFontFamilyName(metadata.family).toLowerCase() !== baseFamily
+				);
+				if (familyMismatch) {
+					throw new Error(
+						'All static uploads must belong to the same font family (Regular, Italic, Bold, Bold Italic).'
+					);
+				}
+
+				const slotChecks: Array<{
+					slot: FontFaceSlot;
+					label: string;
+					weightMatch: (weight: number) => boolean;
+					italic: boolean;
+				}> = [
+					{
+						slot: 'regular',
+						label: 'Regular',
+						weightMatch: isRegularWeight,
+						italic: false
+					},
+					{
+						slot: 'italic',
+						label: 'Italic',
+						weightMatch: isRegularWeight,
+						italic: true
+					},
+					{
+						slot: 'bold',
+						label: 'Bold',
+						weightMatch: isBoldWeight,
+						italic: false
+					},
+					{
+						slot: 'boldItalic',
+						label: 'Bold Italic',
+						weightMatch: isBoldWeight,
+						italic: true
+					}
+				];
+
+				for (const check of slotChecks) {
+					const current = metadataBySlot.find((item) => item.slot === check.slot);
+					if (!current) continue;
+					if (
+						!check.weightMatch(current.metadata.weight) ||
+						current.metadata.italic !== check.italic
+					) {
+						throw new Error(
+							`${check.label} file does not match expected style metadata (${check.italic ? 'italic' : 'normal'}, weight ${check.italic ? '400/700' : check.slot === 'bold' ? '700' : '400'}).`
+						);
+					}
+				}
+
+				const files: OrganisationUploadedFontFiles = {};
+				for (const slot of requiredSlots) {
+					const path = await uploadFontFile(
+						context.adminClient,
+						organisationId,
+						staticFiles[slot] as File,
+						slot
+					);
+					uploadedPathsForRollback.push(path);
+					if (slot === 'regular') files.regularPath = path;
+					if (slot === 'italic') files.italicPath = path;
+					if (slot === 'bold') files.boldPath = path;
+					if (slot === 'boldItalic') files.boldItalicPath = path;
+				}
+
+				uploadedFontUpdate = {
+					mode: 'static',
+					family: metadataBySlot[0].metadata.family,
+					files
+				};
+				nextMainFontKey = 'uploaded';
+			} catch (fontError) {
+				if (uploadedPathsForRollback.length > 0) {
+					await context.adminClient.storage
+						.from(ORGANISATION_IMAGES_BUCKET)
+						.remove(uploadedPathsForRollback);
+				}
+				return fail(400, {
+					type: 'updateOrganisationBranding',
+					ok: false,
+					message: fontError instanceof Error ? fontError.message : 'Invalid static font upload.'
+				});
+			}
+		}
+
+		const effectiveUploadedFont = uploadedFontUpdate ?? existingTypography.uploadedFont;
+		if (nextMainFontKey === 'uploaded' && !isUploadedFontConfigUsable(effectiveUploadedFont)) {
+			if (uploadedPathsForRollback.length > 0) {
+				await context.adminClient.storage
+					.from(ORGANISATION_IMAGES_BUCKET)
+					.remove(uploadedPathsForRollback);
+			}
+			return fail(400, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message:
+					'Uploaded font selection requires either one valid variable font or all four static files (Regular, Italic, Bold, Bold Italic).'
+			});
+		}
+
+		let mergedBrandSettings = mergeOrganisationBrandingTheme(organisationRow.brand_settings, theme);
+		mergedBrandSettings = mergeOrganisationBrandingTypography(mergedBrandSettings, {
+			mainFontKey: nextMainFontKey,
+			...(uploadedFontUpdate ? { uploadedFont: uploadedFontUpdate } : {})
+		});
+
+		// Handle isPixelCode flag
+		const isPixelCodeRaw = formData.get('is_pixel_code');
+		const isPixelCode = isPixelCodeRaw === 'true';
+		mergedBrandSettings.isPixelCode = isPixelCode;
 
 		const { error: updateError } = await context.adminClient
 			.from('organisations')
@@ -578,11 +985,26 @@ export const actions: Actions = {
 			})
 			.eq('id', organisationId);
 		if (updateError) {
+			if (uploadedPathsForRollback.length > 0) {
+				await context.adminClient.storage
+					.from(ORGANISATION_IMAGES_BUCKET)
+					.remove(uploadedPathsForRollback);
+			}
 			return fail(500, {
 				type: 'updateOrganisationBranding',
 				ok: false,
 				message: updateError.message
 			});
+		}
+
+		if (uploadedFontUpdate) {
+			const newUploadedPaths = getOrganisationUploadedFontPaths(mergedBrandSettings);
+			const stalePaths = existingUploadedFontPaths.filter(
+				(existingPath) => !newUploadedPaths.includes(existingPath)
+			);
+			if (stalePaths.length > 0) {
+				await context.adminClient.storage.from(ORGANISATION_IMAGES_BUCKET).remove(stalePaths);
+			}
 		}
 
 		return {
@@ -905,18 +1327,20 @@ export const actions: Actions = {
 			});
 		}
 
-		const { error: upsertError } = await context.adminClient.from('data_sharing_permissions').upsert(
-			{
-				source_organisation_id: sourceOrganisationId,
-				target_organisation_id: targetOrganisationId,
-				sharing_scope: sharingScope,
-				approved_by_admin_id: context.actor.userId,
-				approved_at: new Date().toISOString()
-			},
-			{
-				onConflict: 'source_organisation_id,target_organisation_id,sharing_scope'
-			}
-		);
+		const { error: upsertError } = await context.adminClient
+			.from('data_sharing_permissions')
+			.upsert(
+				{
+					source_organisation_id: sourceOrganisationId,
+					target_organisation_id: targetOrganisationId,
+					sharing_scope: sharingScope,
+					approved_by_admin_id: context.actor.userId,
+					approved_at: new Date().toISOString()
+				},
+				{
+					onConflict: 'source_organisation_id,target_organisation_id,sharing_scope'
+				}
+			);
 		if (upsertError) {
 			return fail(500, {
 				type: 'approveDataSharingPermission',

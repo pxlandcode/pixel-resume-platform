@@ -5,6 +5,10 @@
 	import { fly } from 'svelte/transition';
 	import { invalidateAll } from '$app/navigation';
 	import { loading } from '$lib/stores/loading';
+	import {
+		DEFAULT_ORGANISATION_BRANDING_THEME,
+		organisationBrandingThemeToInlineStyle
+	} from '$lib/branding/theme';
 	import type {
 		ResumeAiGenerateParams,
 		ResumeAiGenerateResult
@@ -31,6 +35,11 @@
 
 	const personName = $derived(data.resumePerson?.name ?? 'Resume');
 	const avatarImage = $derived(data.avatarUrl ?? data.resumePerson?.avatar_url ?? null);
+	const resumeTemplateBrandingStyle = $derived.by(() => {
+		const theme = data.templateContext?.brandingTheme ?? DEFAULT_ORGANISATION_BRANDING_THEME;
+		const inlineVars = organisationBrandingThemeToInlineStyle(theme);
+		return `${inlineVars}; --color-primary: ${theme.light.primary};`;
+	});
 	const downloadBaseName = $derived(() => {
 		const name = (personName ?? 'Resume').trim();
 		const kind = downloadLanguage === 'sv' ? 'CV' : 'Resume';
@@ -227,6 +236,12 @@
 	};
 </script>
 
+<svelte:head>
+	{#if data.templateContext?.mainFontFaceCss}
+		{@html `<style id="resume-template-font-face">${data.templateContext.mainFontFaceCss}</style>`}
+	{/if}
+</svelte:head>
+
 <div class="flex items-center justify-between">
 	<div>
 		<Button variant="ghost" href="/resumes" class=" hover:text-primary pl-0 hover:bg-transparent">
@@ -325,7 +340,7 @@
 
 <div class="mt-6 space-y-4">
 	<Card class="bg-card text-foreground">
-		<div class="mt-4">
+		<div class="mt-4" style={resumeTemplateBrandingStyle}>
 			<ResumeView
 				data={data.resume.data}
 				bind:this={resumeViewRef}
@@ -337,6 +352,8 @@
 				templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
 				templateEndLogoUrl={data.templateContext?.endLogoUrl}
 				templateHomepageUrl={data.templateContext?.homepageUrl}
+				templateMainFontCssStack={data.templateContext?.mainFontCssStack}
+				templateIsPixelCode={data.templateContext?.isPixelCode}
 				experienceLibrary={data.experienceLibrary ?? []}
 				onGenerateDescription={generateDescription}
 				{isEditing}

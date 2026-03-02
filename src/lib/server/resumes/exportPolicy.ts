@@ -39,6 +39,7 @@ export const resolveResumeExportPolicy = async (
 
 	const isBroker = hasRole(permissions.roles, 'broker');
 	const isEmployer = hasRole(permissions.roles, 'employer');
+	const isAdmin = hasRole(permissions.roles, 'admin');
 	const sourceOrganisationId = permissions.talentOrganisationId ?? null;
 	const targetOrganisationId = permissions.homeOrganisationId ?? null;
 	const crossOrganisation = Boolean(
@@ -46,6 +47,16 @@ export const resolveResumeExportPolicy = async (
 	);
 
 	let templateUsed: ExportTemplateUsed = 'org';
+
+	if (isAdmin) {
+		return {
+			actorUserId: permissions.userId,
+			sourceOrganisationId,
+			targetOrganisationId,
+			crossOrganisation,
+			templateUsed
+		};
+	}
 
 	if (isBroker) {
 		const canUseBrokerTemplate = await ensureExportScope(

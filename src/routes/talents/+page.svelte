@@ -261,7 +261,7 @@
 					<Card
 						class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
 					>
-						<div class="bg-muted aspect-square w-full overflow-hidden">
+						<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
 							{#if talent.avatar_url}
 								<img
 									src={talent.avatar_url}
@@ -280,7 +280,7 @@
 								<p class="text-muted-fg mt-1 text-sm">{talent.title}</p>
 							{/if}
 							{#if talent.email}
-								<p class="text-muted-fg mt-2 text-xs">{talent.email}</p>
+								<p class="text-muted-fg mt-2 hidden text-xs sm:block">{talent.email}</p>
 							{/if}
 							{#if talent.organisation_logo_url || talent.organisation_name}
 								<div class="mt-auto pt-3">
@@ -310,23 +310,23 @@
 		<SuperList instance={talentListHandler} emptyMessage="No talents found">
 			{#each talentListHandler.data as row (row.id)}
 				<Row.Root href={resolve('/resumes/[personId]', { personId: row.id })}>
-					<Cell.Value width={6}>
+					<Cell.Value width={6} class="hidden sm:block">
 						<Cell.Avatar src={row.avatar_url} alt={row.name} size={36} />
 					</Cell.Value>
-					<Cell.Value width={28}>
+					<Cell.Value width={28} class="mobile-fill-cell">
 						<span class="text-foreground truncate text-sm font-semibold">{row.name}</span>
 					</Cell.Value>
-					<Cell.Value width={28}>
+					<Cell.Value width={28} class="mobile-fill-cell">
 						{#if row.title}
 							<span class="text-muted-fg truncate text-sm">{row.title}</span>
 						{/if}
 					</Cell.Value>
-					<Cell.Value width={22}>
+					<Cell.Value width={22} class="hidden sm:block">
 						{#if row.email}
 							<span class="text-muted-fg truncate text-xs">{row.email}</span>
 						{/if}
 					</Cell.Value>
-					<Cell.Value width={16}>
+					<Cell.Value width={16} class="mobile-logo-cell">
 						{#if row.organisation_logo_url}
 							<img
 								src={row.organisation_logo_url}
@@ -342,3 +342,17 @@
 		</SuperList>
 	{/if}
 </div>
+
+<style>
+	@media (max-width: 639px) {
+		:global(.mobile-fill-cell) {
+			width: auto !important;
+			flex: 1 1 0% !important;
+		}
+
+		:global(.mobile-logo-cell) {
+			width: auto !important;
+			flex: 0 0 auto !important;
+		}
+	}
+</style>

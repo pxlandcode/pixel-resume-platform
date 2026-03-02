@@ -19,7 +19,9 @@
 		templateMainLogotypeUrl = null,
 		templateAccentLogoUrl = null,
 		templateEndLogoUrl = null,
-		templateHomepageUrl = null
+		templateHomepageUrl = null,
+		templateMainFontCssStack = "'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+		templateIsPixelCode = false
 	}: {
 		data: ResumeData;
 		image?: ImageResource | string | null;
@@ -31,6 +33,8 @@
 		templateAccentLogoUrl?: string | null;
 		templateEndLogoUrl?: string | null;
 		templateHomepageUrl?: string | null;
+		templateMainFontCssStack?: string;
+		templateIsPixelCode?: boolean;
 	} = $props();
 
 	const resolvedBrandLogo = $derived(templateMainLogotypeUrl ?? pixelcodeLogoDark);
@@ -127,6 +131,9 @@
 	const displayTitle = $derived((t(data.title) ?? '').trim() || (person?.title ?? '').trim());
 	const displaySummary = $derived((t(data.summary) ?? '').trim() || (person?.bio ?? '').trim());
 	const displayFooterNote = $derived((t(data.footerNote) ?? '').trim());
+	const resumeRootStyle = $derived(
+		`--resume-main-font: ${templateMainFontCssStack}; font-family: var(--resume-main-font);`
+	);
 
 	// Format date for display (e.g., "Jan 2020")
 	const formatDate = (dateString: string | null | undefined): string => {
@@ -145,7 +152,7 @@
 	{@html `<style>${pdfStyles}</style>`}
 </svelte:head>
 
-<div class="pdf-mode" data-template-key={templateKey}>
+<div class="pdf-mode" data-template-key={templateKey} style={resumeRootStyle}>
 	<!-- PAGE 1: COVER PAGE -->
 	<div class="resume-print-page page-1 bg-white text-slate-900">
 		<!-- Header Section -->
@@ -153,12 +160,14 @@
 			<!-- Brand -->
 			<div class="header-brand mb-6 text-center">
 				<img src={resolvedBrandLogo} alt="Brand logo" class="mx-auto h-8" />
-				<p
-					class="-rotate-10 text-primary -mt-1 text-2xl"
-					style="font-family: 'Fave Script', cursive;"
-				>
-					proudly presents
-				</p>
+				{#if templateIsPixelCode}
+					<p
+						class="-rotate-10 text-primary -mt-1 text-2xl"
+						style="font-family: 'Fave Script', cursive;"
+					>
+						proudly presents
+					</p>
+				{/if}
 			</div>
 
 			<!-- Two Column Layout (matching ConsultantProfile) -->
@@ -545,7 +554,7 @@
 
 	:global(.experience-description blockquote) {
 		border-left-width: 2px;
-		border-color: rgb(251 146 60);
+		border-color: var(--color-primary);
 		padding-left: 0.75rem;
 		font-size: 0.875rem;
 		color: rgb(51 65 85);
@@ -562,7 +571,7 @@
 
 	:global(.resume-print-page blockquote) {
 		border-left-width: 2px;
-		border-color: rgb(251 146 60);
+		border-color: var(--color-primary);
 		padding-left: 0.75rem;
 		font-size: 0.875rem;
 		color: rgb(51 65 85);

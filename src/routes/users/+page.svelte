@@ -1,9 +1,10 @@
 <script lang="ts">
 	import UserFormModal from '$lib/components/admin/UserFormModal.svelte';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { SuperList, ListHandler, Cell, Row } from '$lib/components/super-list';
 	import type { SuperListHead } from '$lib/components/super-list';
 	import { Alert, Badge, Button } from '@pixelcode_/blocks/components';
-	import { Pencil } from 'lucide-svelte';
+	import { Pencil, User } from 'lucide-svelte';
 
 	type Role = 'admin' | 'broker' | 'talent' | 'employer';
 	type EditableUser = {
@@ -54,6 +55,8 @@
 	});
 
 	let isModalOpen = $state(false);
+	let isMobileDetailOpen = $state(false);
+	let selectedUserForDetail = $state<UsersListRow | null>(null);
 	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 	let editUser = $state<EditableUser | null>(
 		data.users[0] ? toEditableUser(data.users[0] as LoadUser) : null
@@ -120,6 +123,14 @@
 	const userListHandler = $derived(
 		new ListHandler<UsersListRow>(usersListHeadings, toListRows(data.users as LoadUser[]))
 	);
+
+	const handleRowClick = (row: UsersListRow) => {
+		// Only open drawer on mobile (sm breakpoint is 640px)
+		if (window.innerWidth < 640) {
+			selectedUserForDetail = row;
+			isMobileDetailOpen = true;
+		}
+	};
 </script>
 
 <div class="space-y-6">
@@ -169,22 +180,22 @@
 	{:else}
 		<SuperList instance={userListHandler} emptyMessage="No users found">
 			{#each userListHandler.data as row (row.id)}
-				<Row.Root>
-					<Cell.Value width={5}>
+				<Row.Root onclick={() => handleRowClick(row)} class="cursor-pointer sm:cursor-default">
+					<Cell.Value width={5} class="hidden sm:block">
 						<Cell.Avatar src={row.avatar_url} alt={row.fullName} size={36} />
 					</Cell.Value>
-					<Cell.Value width={20}>
+					<Cell.Value width={20} class="mobile-fill-cell">
 						<span class="text-foreground truncate text-sm font-semibold">{row.fullName}</span>
 					</Cell.Value>
-					<Cell.Value width={25}>
+					<Cell.Value width={25} class="hidden sm:block">
 						<span class="text-muted-fg truncate text-xs">{row.email}</span>
 					</Cell.Value>
-					<Cell.Value width={18}>
+					<Cell.Value width={18} class="mobile-fill-cell">
 						<span class="text-foreground text-sm font-medium">
 							{row.organisation_name ?? 'Unassigned'}
 						</span>
 					</Cell.Value>
-					<Cell.Value width={17}>
+					<Cell.Value width={17} class="hidden sm:block">
 						<div class="flex flex-wrap gap-1">
 							{#each row.roles as role (role)}
 								<Badge variant="default" size="xs" class="uppercase tracking-wide">
@@ -193,29 +204,30 @@
 							{/each}
 						</div>
 					</Cell.Value>
-					<Cell.Value width={5}>
+					<Cell.Value width={5} class="hidden sm:block">
 						{#if row.active}
 							<Badge variant="success" size="xs">Active</Badge>
 						{:else}
 							<Badge variant="destructive" size="xs">Inactive</Badge>
 						{/if}
 					</Cell.Value>
-					<Cell.Value width={10}>
+					<Cell.Value width={10} class="mobile-action-cell">
 						{#if canEditUsers}
 							<div class="flex justify-end">
 								<Button
 									variant="outline"
 									size="sm"
 									type="button"
+									aria-label={`Edit ${row.fullName}`}
 									onclick={() => {
 										editMode = 'edit';
 										editUser = toEditableUser(row.source);
 										isModalOpen = true;
 									}}
-									class="gap-1.5"
+									class="gap-0 sm:gap-1.5"
 								>
 									<Pencil size={14} />
-									Edit
+									<span class="sr-only sm:not-sr-only">Edit</span>
 								</Button>
 							</div>
 						{/if}
@@ -237,3 +249,96 @@
 	on:error={handleCreateError}
 	on:close={() => (isModalOpen = false)}
 />
+
+<!-- Mobile user detail drawer -->
+<Drawer variant="bottom" bind:open={isMobileDetailOpen} title="User Details" dismissable>
+	{#if selectedUserForDetail}
+		<div class="space-y-4 pb-6">
+			<div class="flex items-center gap-4">
+				{#if selectedUserForDetail.avatar_url}
+					<img
+						src={selectedUserForDetail.avatar_url}
+						alt={selectedUserForDetail.fullName}
+						class="border-border h-16 w-16 rounded-full border object-cover"
+					/>
+				{:else}
+					<div
+						class="bg-muted border-border flex h-16 w-16 items-center justify-center rounded-full border"
+					>
+						<User size={28} class="text-muted-fg" />
+					</div>
+				{/if}
+				<div class="flex-1">
+					<h3 class="text-foreground text-lg font-semibold">{selectedUserForDetail.fullName}</h3>
+					<p class="text-muted-fg text-sm">{selectedUserForDetail.email || 'No email'}</p>
+				</div>
+			</div>
+
+			<div class="border-border grid gap-4 border-t pt-4">
+				<div>
+					<p class="text-muted-fg text-xs font-medium uppercase tracking-wide">Organisation</p>
+					<p class="text-foreground text-sm font-medium">
+						{selectedUserForDetail.organisation_name ?? 'Unassigned'}
+					</p>
+				</div>
+
+				<div>
+					<p class="text-muted-fg text-xs font-medium uppercase tracking-wide">Roles</p>
+					<div class="mt-1 flex flex-wrap gap-1">
+						{#each selectedUserForDetail.roles as role (role)}
+							<Badge variant="default" size="xs" class="uppercase tracking-wide">
+								{role.replace('_', ' ')}
+							</Badge>
+						{/each}
+					</div>
+				</div>
+
+				<div>
+					<p class="text-muted-fg text-xs font-medium uppercase tracking-wide">Status</p>
+					<div class="mt-1">
+						{#if selectedUserForDetail.active}
+							<Badge variant="success" size="xs">Active</Badge>
+						{:else}
+							<Badge variant="destructive" size="xs">Inactive</Badge>
+						{/if}
+					</div>
+				</div>
+			</div>
+
+			{#if canEditUsers}
+				<div class="border-border border-t pt-4">
+					<Button
+						variant="outline"
+						size="md"
+						type="button"
+						class="w-full gap-2"
+						onclick={() => {
+							if (!selectedUserForDetail) return;
+							isMobileDetailOpen = false;
+							editMode = 'edit';
+							editUser = toEditableUser(selectedUserForDetail.source);
+							isModalOpen = true;
+						}}
+					>
+						<Pencil size={16} />
+						Edit user
+					</Button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+</Drawer>
+
+<style>
+	@media (max-width: 639px) {
+		:global(.mobile-fill-cell) {
+			width: auto !important;
+			flex: 1 1 0% !important;
+		}
+
+		:global(.mobile-action-cell) {
+			width: auto !important;
+			flex: 0 0 auto !important;
+		}
+	}
+</style>

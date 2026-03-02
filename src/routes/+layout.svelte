@@ -8,6 +8,7 @@
 	import { Mode } from '@pixelcode_/blocks/components';
 	import { loadingStore } from '$lib/stores/loading';
 	import { userSettingsStore } from '$lib/stores/userSettings';
+	import { brandingStore, DEFAULT_BRANDING_FONT_STACK } from '$lib/stores/branding';
 	import {
 		pdfImportStore,
 		isImportActive,
@@ -19,10 +20,9 @@
 	import { resolve } from '$app/paths';
 	import { browser } from '$app/environment';
 	import {
-		DEFAULT_ORGANISATION_BRANDING_THEME,
+		resolveOrganisationBrandingTheme,
 		organisationBrandingThemeToInlineStyle,
-		organisationBrandingThemeToVarEntries,
-		type OrganisationBrandingTheme
+		organisationBrandingThemeToVarEntries
 	} from '$lib/branding/theme';
 	import '$lib/styles/resume-app-overrides.css';
 	import '$lib/styles/resume-app.css';
@@ -67,11 +67,31 @@
 	const layoutRole = $derived((data.role ?? null) as AdminRole | null);
 	const layoutRoles = $derived((data.roles ?? []) as AdminRole[]);
 	const authenticatedUserId = $derived(typeof data.user?.id === 'string' ? data.user.id : null);
+	const brandingThemeFromData = $derived(
+		resolveOrganisationBrandingTheme(data.brandingTheme ?? null)
+	);
+	const brandingFontFromData = $derived(data.brandingFont ?? null);
 	const brandingTheme = $derived(
-		(data.brandingTheme ?? DEFAULT_ORGANISATION_BRANDING_THEME) as OrganisationBrandingTheme
+		$brandingStore.hydrated ? $brandingStore.theme : brandingThemeFromData
 	);
 	const brandingInlineStyle = $derived(organisationBrandingThemeToInlineStyle(brandingTheme));
 	const brandingVarEntries = $derived(organisationBrandingThemeToVarEntries(brandingTheme));
+	const brandingFontCssStack = $derived(
+		$brandingStore.hydrated
+			? $brandingStore.font.cssStack
+			: typeof data.brandingFont?.cssStack === 'string' &&
+				  data.brandingFont.cssStack.trim().length > 0
+				? data.brandingFont.cssStack
+				: DEFAULT_BRANDING_FONT_STACK
+	);
+	const brandingFontFaceCss = $derived(
+		$brandingStore.hydrated
+			? $brandingStore.font.fontFaceCss
+			: typeof data.brandingFont?.fontFaceCss === 'string' &&
+				  data.brandingFont.fontFaceCss.trim().length > 0
+				? data.brandingFont.fontFaceCss
+				: null
+	);
 
 	let successDismissing = $state(false);
 	let successDismissTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -203,6 +223,13 @@
 	});
 
 	$effect(() => {
+		brandingStore.setFromLayoutData({
+			brandingTheme: brandingThemeFromData,
+			brandingFont: brandingFontFromData
+		});
+	});
+
+	$effect(() => {
 		if (!useAppShell) {
 			if (isPollingActive) stopImportPolling();
 			return;
@@ -257,12 +284,14 @@
 		const html = document.documentElement;
 		const body = document.body;
 		body.classList.toggle('app-shell-theme', useAppShell);
+		html.style.setProperty('--org-font-sans', brandingFontCssStack);
 		for (const [name, value] of brandingVarEntries) {
 			html.style.setProperty(name, value);
 		}
 
 		return () => {
 			body.classList.remove('app-shell-theme');
+			html.style.removeProperty('--org-font-sans');
 			for (const [name] of brandingVarEntries) {
 				html.style.removeProperty(name);
 			}
@@ -298,11 +327,12 @@
 	{/if}
 	<meta name="theme-color" content="#0f172a" />
 	<link rel="icon" href={favicon} />
+	{#if brandingFontFaceCss}
+		{@html `<style id="org-uploaded-font-face">${brandingFontFaceCss}</style>`}
+	{/if}
 	{#if jsonLdScripts.length}
 		{#each jsonLdIndexes as index (`jsonld-${index}`)}
-			<script type="application/ld+json">
-{@html jsonLdScripts[index]}
-			</script>
+			{@html `<script type="application/ld+json">${jsonLdScripts[index]}</script>`}
 		{/each}
 	{/if}
 </svelte:head>
@@ -424,7 +454,12 @@
 	:global(.internal-loading-bar__fill) {
 		height: 100%;
 		width: 40%;
-		background: linear-gradient(90deg, #ea7c5d 0%, #f08b66 45%, #f59f7a 100%);
+		background: linear-gradient(
+			90deg,
+			color-mix(in oklab, var(--color-primary) 65%, white) 0%,
+			var(--color-primary) 45%,
+			color-mix(in oklab, var(--color-primary) 82%, black) 100%
+		);
 		animation: internal-loading-bar 1.1s ease-in-out infinite;
 		will-change: transform;
 	}

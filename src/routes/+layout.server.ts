@@ -10,7 +10,12 @@ import {
 	resolveOrganisationBrandingTheme,
 	type OrganisationBrandingTheme
 } from '$lib/branding/theme';
-import { isLegalExemptPath, normalizeSafeRedirect, resolveLegalAcceptanceState } from '$lib/server/legalGate';
+import { resolveOrganisationMainFont } from '$lib/branding/font';
+import {
+	isLegalExemptPath,
+	normalizeSafeRedirect,
+	resolveLegalAcceptanceState
+} from '$lib/server/legalGate';
 import type { PageMetaInput } from '$lib/seo';
 import type { LayoutServerLoad } from './$types';
 
@@ -28,6 +33,10 @@ type LoadResult = {
 	roles: Role[];
 	currentTalentId: string | null;
 	brandingTheme: OrganisationBrandingTheme;
+	brandingFont: {
+		cssStack: string;
+		fontFaceCss: string | null;
+	};
 	meta?: PageMetaInput;
 };
 
@@ -40,6 +49,7 @@ const roleGuards: Array<{ pattern: RegExp; roles: Role[] }> = [
 	{ pattern: /^\/$/, roles: ['admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'broker', 'employer'] },
 	{ pattern: /^\/organisations(\/.*)?$/, roles: ['admin'] },
+	{ pattern: /^\/settings(\/.*)?$/, roles: ['admin'] },
 	{ pattern: /^\/talents(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] }
 ];
@@ -102,6 +112,7 @@ const appMeta = (pathname: string): PageMetaInput => ({
 export const load: LayoutServerLoad = async ({ cookies, url }) => {
 	const pathname = normalizePath(url.pathname);
 	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
+	const defaultMainFont = resolveOrganisationMainFont(null);
 
 	if (!accessToken) {
 		if (isPublicPagePath(pathname)) {
@@ -112,6 +123,10 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 				roles: [],
 				currentTalentId: null,
 				brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
+				brandingFont: {
+					cssStack: defaultMainFont.cssStack,
+					fontFaceCss: defaultMainFont.fontFaceCss
+				},
 				meta: appMeta(pathname)
 			} satisfies LoadResult;
 		}
@@ -128,6 +143,10 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 			roles: [],
 			currentTalentId: null,
 			brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
+			brandingFont: {
+				cssStack: defaultMainFont.cssStack,
+				fontFaceCss: defaultMainFont.fontFaceCss
+			},
 			meta: appMeta(pathname)
 		} satisfies LoadResult;
 	}
@@ -214,6 +233,7 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 			talentResult.data && typeof talentResult.data.id === 'string' ? talentResult.data.id : null;
 		let homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
 		let brandingTheme = DEFAULT_ORGANISATION_BRANDING_THEME;
+		let brandingFont = defaultMainFont;
 
 		if (!homeOrganisationId && adminClient && currentTalentId) {
 			const { data: talentHomeRow, error: talentHomeError } = await adminClient
@@ -261,6 +281,16 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 				console.warn('[layout] could not resolve organisation brand settings', organisationError);
 			} else {
 				brandingTheme = resolveOrganisationBrandingTheme(organisationRow?.brand_settings ?? null);
+				brandingFont = resolveOrganisationMainFont(organisationRow?.brand_settings ?? null, {
+					pathToUrl: (path) => {
+						if (!adminClient) return null;
+						const normalizedPath = path.replace(/^\/+/, '').replace(/^organisation-images\//, '');
+						const { data } = adminClient.storage
+							.from('organisation-images')
+							.getPublicUrl(normalizedPath);
+						return data.publicUrl ?? null;
+					}
+				});
 			}
 		}
 
@@ -271,6 +301,10 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 			roles: effectiveRoles,
 			currentTalentId,
 			brandingTheme,
+			brandingFont: {
+				cssStack: brandingFont.cssStack,
+				fontFaceCss: brandingFont.fontFaceCss
+			},
 			meta: appMeta(pathname)
 		} satisfies LoadResult;
 	} catch (error) {

@@ -1,5 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { hasDataSharingPermission } from '$lib/server/legalService';
+import { resolveOrganisationMainFont } from '$lib/branding/font';
+import {
+	DEFAULT_ORGANISATION_BRANDING_THEME,
+	resolveOrganisationBrandingTheme,
+	type OrganisationBrandingTheme
+} from '$lib/branding/theme';
 
 export type AppRole = 'admin' | 'broker' | 'talent' | 'employer';
 
@@ -17,7 +23,10 @@ type TemplateRow = {
 	main_logotype_path: string | null;
 	accent_logo_path: string | null;
 	end_logo_path: string | null;
-	organisations?: { homepage_url?: string | null } | Array<{ homepage_url?: string | null }> | null;
+	organisations?:
+		| { homepage_url?: string | null; brand_settings?: unknown }
+		| Array<{ homepage_url?: string | null; brand_settings?: unknown }>
+		| null;
 };
 
 export type ActorAccessContext = {
@@ -65,6 +74,10 @@ export type ResolvedTemplateContext = {
 	accentLogoUrl: string | null;
 	endLogoUrl: string | null;
 	homepageUrl: string | null;
+	brandingTheme: OrganisationBrandingTheme;
+	isPixelCode: boolean;
+	mainFontCssStack: string;
+	mainFontFaceCss: string | null;
 };
 
 export type PrintTemplateMode = 'auto' | 'org' | 'broker';
@@ -106,9 +119,23 @@ const parseTemplateJson = (value: unknown): Record<string, unknown> => {
 	return value as Record<string, unknown>;
 };
 
+const resolveIsPixelCode = (brandSettings: unknown): boolean => {
+	if (!brandSettings || typeof brandSettings !== 'object' || Array.isArray(brandSettings)) {
+		return false;
+	}
+	const value = (brandSettings as Record<string, unknown>).isPixelCode;
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		return normalized === 'true' || normalized === '1';
+	}
+	if (typeof value === 'number') return value === 1;
+	return false;
+};
+
 const resolveOrganisation = (
 	organisations: TemplateRow['organisations']
-): { homepage_url?: string | null } | null => {
+): { homepage_url?: string | null; brand_settings?: unknown } | null => {
 	if (Array.isArray(organisations)) return organisations[0] ?? null;
 	return organisations ?? null;
 };
@@ -417,7 +444,7 @@ const getTemplateForOrganisation = async (
 	const { data } = await adminClient
 		.from('organisation_templates')
 		.select(
-			'organisation_id, template_key, template_json, template_version, main_logotype_path, accent_logo_path, end_logo_path, organisations(homepage_url)'
+			'organisation_id, template_key, template_json, template_version, main_logotype_path, accent_logo_path, end_logo_path, organisations(homepage_url, brand_settings)'
 		)
 		.eq('organisation_id', organisationId)
 		.maybeSingle();
@@ -431,6 +458,11 @@ const mapTemplateContext = (
 	organisationId: string | null
 ): ResolvedTemplateContext => {
 	const organisation = resolveOrganisation(row?.organisations);
+	const brandingTheme = resolveOrganisationBrandingTheme(organisation?.brand_settings ?? null);
+	const isPixelCode = resolveIsPixelCode(organisation?.brand_settings ?? null);
+	const mainFont = resolveOrganisationMainFont(organisation?.brand_settings ?? null, {
+		pathToUrl: (path) => resolveOrganisationAssetUrl(adminClient, path)
+	});
 	return {
 		source,
 		organisationId,
@@ -440,7 +472,30 @@ const mapTemplateContext = (
 		mainLogotypeUrl: resolveOrganisationAssetUrl(adminClient, row?.main_logotype_path),
 		accentLogoUrl: resolveOrganisationAssetUrl(adminClient, row?.accent_logo_path),
 		endLogoUrl: resolveOrganisationAssetUrl(adminClient, row?.end_logo_path),
-		homepageUrl: organisation?.homepage_url ?? null
+		homepageUrl: organisation?.homepage_url ?? null,
+		brandingTheme,
+		isPixelCode,
+		mainFontCssStack: mainFont.cssStack,
+		mainFontFaceCss: mainFont.fontFaceCss
+	};
+};
+
+const buildDefaultTemplateContext = (): ResolvedTemplateContext => {
+	const mainFont = resolveOrganisationMainFont(null);
+	return {
+		source: 'default',
+		organisationId: null,
+		templateKey: 'default',
+		templateJson: {},
+		templateVersion: 1,
+		mainLogotypeUrl: null,
+		accentLogoUrl: null,
+		endLogoUrl: null,
+		homepageUrl: null,
+		brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
+		isPixelCode: false,
+		mainFontCssStack: mainFont.cssStack,
+		mainFontFaceCss: null
 	};
 };
 
@@ -453,17 +508,7 @@ export const resolvePrintTemplateContext = async (
 	}
 ): Promise<ResolvedTemplateContext> => {
 	if (!adminClient) {
-		return {
-			source: 'default',
-			organisationId: null,
-			templateKey: 'default',
-			templateJson: {},
-			templateVersion: 1,
-			mainLogotypeUrl: null,
-			accentLogoUrl: null,
-			endLogoUrl: null,
-			homepageUrl: null
-		};
+		return buildDefaultTemplateContext();
 	}
 
 	const templateMode = options?.templateMode ?? 'auto';
@@ -485,22 +530,15 @@ export const resolvePrintTemplateContext = async (
 			return mapTemplateContext(adminClient, 'talent_org', talentOrgTemplate, talentOrganisationId);
 		}
 
-		return {
-			source: 'default',
-			organisationId: null,
-			templateKey: 'default',
-			templateJson: {},
-			templateVersion: 1,
-			mainLogotypeUrl: null,
-			accentLogoUrl: null,
-			endLogoUrl: null,
-			homepageUrl: null
-		};
+		return buildDefaultTemplateContext();
 	}
 
 	if (templateMode === 'broker') {
 		if (context.homeOrganisationId) {
-			const brokerTemplate = await getTemplateForOrganisation(adminClient, context.homeOrganisationId);
+			const brokerTemplate = await getTemplateForOrganisation(
+				adminClient,
+				context.homeOrganisationId
+			);
 			return mapTemplateContext(
 				adminClient,
 				'broker_home_org',
@@ -509,32 +547,12 @@ export const resolvePrintTemplateContext = async (
 			);
 		}
 
-		return {
-			source: 'default',
-			organisationId: null,
-			templateKey: 'default',
-			templateJson: {},
-			templateVersion: 1,
-			mainLogotypeUrl: null,
-			accentLogoUrl: null,
-			endLogoUrl: null,
-			homepageUrl: null
-		};
+		return buildDefaultTemplateContext();
 	}
 
 	if (context.isBroker) {
 		if (!context.homeOrganisationId) {
-			return {
-				source: 'default',
-				organisationId: null,
-				templateKey: 'default',
-				templateJson: {},
-				templateVersion: 1,
-				mainLogotypeUrl: null,
-				accentLogoUrl: null,
-				endLogoUrl: null,
-				homepageUrl: null
-			};
+			return buildDefaultTemplateContext();
 		}
 		const brokerTemplate = await getTemplateForOrganisation(
 			adminClient,
@@ -553,15 +571,5 @@ export const resolvePrintTemplateContext = async (
 		return mapTemplateContext(adminClient, 'talent_org', talentOrgTemplate, talentOrganisationId);
 	}
 
-	return {
-		source: 'default',
-		organisationId: null,
-		templateKey: 'default',
-		templateJson: {},
-		templateVersion: 1,
-		mainLogotypeUrl: null,
-		accentLogoUrl: null,
-		endLogoUrl: null,
-		homepageUrl: null
-	};
+	return buildDefaultTemplateContext();
 };

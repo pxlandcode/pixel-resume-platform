@@ -792,7 +792,7 @@
 						<Card
 							class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
 						>
-							<div class="bg-muted aspect-square w-full overflow-hidden">
+							<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
 								{#if talent.avatar_url}
 									<img
 										src={talent.avatar_url}
@@ -840,16 +840,16 @@
 			<SuperList instance={listHandler} emptyMessage="No consultants found">
 				{#each listHandler.data as row (row.id)}
 					<Row.Root href={`/resumes/${encodeURIComponent(row.id)}`}>
-						<Cell.Value width={6}>
+						<Cell.Value width={6} class="hidden sm:block">
 							<Cell.Avatar src={row.avatar_url} alt={row.name} size={36} />
 						</Cell.Value>
-						<Cell.Value width={34}>
+						<Cell.Value width={34} class="mobile-fill-cell">
 							<span class="text-foreground truncate text-sm font-semibold">{row.name}</span>
 						</Cell.Value>
-						<Cell.Value width={35}>
+						<Cell.Value width={35} class="mobile-fill-cell">
 							<ConsultantAvailabilityPills compact availability={row.availability} />
 						</Cell.Value>
-						<Cell.Value width={25}>
+						<Cell.Value width={25} class="mobile-logo-cell">
 							{#if row.organisation_logo_url}
 								<img
 									src={row.organisation_logo_url}
@@ -904,7 +904,7 @@
 											? 'ring-2 ring-emerald-200'
 											: ''}"
 									>
-										<div class="relative aspect-square w-full">
+										<div class="relative hidden aspect-square w-full sm:block">
 											<div class="bg-muted absolute inset-0 overflow-hidden">
 												{#if talent.avatar_url}
 													<img
@@ -930,7 +930,20 @@
 										</div>
 
 										<div class="flex flex-1 flex-col p-5">
-											<h3 class="text-foreground text-lg font-semibold">{getTalentName(talent)}</h3>
+											<div class="flex items-center justify-between gap-2">
+												<h3 class="text-foreground text-lg font-semibold">
+													{getTalentName(talent)}
+												</h3>
+												<span
+													class={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium sm:hidden ${getMatchPillClass(
+														talent.metCount,
+														group.total,
+														talent.insufficientCount
+													)}`}
+												>
+													{talent.metCount}/{group.total}
+												</span>
+											</div>
 											<div class="mt-2">
 												<ConsultantAvailabilityPills
 													compact
@@ -976,10 +989,10 @@
 									href={`/resumes/${encodeURIComponent(talent.id)}`}
 									highlight={isPerfectMatch(talent.metCount, group.total, talent.insufficientCount)}
 								>
-									<Cell.Value width={6}>
+									<Cell.Value width={6} class="hidden sm:block">
 										<Cell.Avatar src={talent.avatar_url} alt={getTalentName(talent)} size={36} />
 									</Cell.Value>
-									<Cell.Value width={24}>
+									<Cell.Value width={24} class="mobile-fill-cell">
 										<div class="flex flex-wrap items-center gap-2">
 											<span class="text-foreground truncate text-sm font-semibold">
 												{getTalentName(talent)}
@@ -995,13 +1008,13 @@
 											</span>
 										</div>
 									</Cell.Value>
-									<Cell.Value width={20}>
+									<Cell.Value width={20} class="mobile-fill-cell">
 										<ConsultantAvailabilityPills
 											compact
 											availability={talent.availability ?? null}
 										/>
 									</Cell.Value>
-									<Cell.Value width={30}>
+									<Cell.Value width={30} class="mobile-fill-cell">
 										<div class="flex flex-wrap gap-1">
 											{#each talent.techMatches as techMatch}
 												<span
@@ -1015,7 +1028,7 @@
 											{/each}
 										</div>
 									</Cell.Value>
-									<Cell.Value width={20}>
+									<Cell.Value width={20} class="mobile-logo-cell">
 										{#if talent.organisation_logo_url}
 											<img
 												src={talent.organisation_logo_url}
@@ -1044,3 +1057,17 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	@media (max-width: 639px) {
+		:global(.mobile-fill-cell) {
+			width: auto !important;
+			flex: 1 1 0% !important;
+		}
+
+		:global(.mobile-logo-cell) {
+			width: auto !important;
+			flex: 0 0 auto !important;
+		}
+	}
+</style>

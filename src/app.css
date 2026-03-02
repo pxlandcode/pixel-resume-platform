@@ -156,23 +156,206 @@
 	font-display: swap;
 }
 
+@font-face {
+	font-family: 'Inter';
+	src: url('/fonts/inter/Inter_18pt-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Inter';
+	src: url('/fonts/inter/Inter_18pt-Italic.ttf') format('truetype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Inter';
+	src: url('/fonts/inter/Inter_18pt-Bold.ttf') format('truetype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Inter';
+	src: url('/fonts/inter/Inter_18pt-BoldItalic.ttf') format('truetype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Roboto';
+	src: url('/fonts/roboto/Roboto-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Roboto';
+	src: url('/fonts/roboto/Roboto-Italic.ttf') format('truetype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Roboto';
+	src: url('/fonts/roboto/Roboto-Bold.ttf') format('truetype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Roboto';
+	src: url('/fonts/roboto/Roboto-BoldItalic.ttf') format('truetype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Lora';
+	src: url('/fonts/lora/Lora-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Lora';
+	src: url('/fonts/lora/Lora-Italic.ttf') format('truetype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Lora';
+	src: url('/fonts/lora/Lora-Bold.ttf') format('truetype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Lora';
+	src: url('/fonts/lora/Lora-BoldItalic.ttf') format('truetype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Merriweather';
+	src: url('/fonts/merriweather/Merriweather_24pt-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Merriweather';
+	src: url('/fonts/merriweather/Merriweather_24pt-Italic.ttf') format('truetype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Merriweather';
+	src: url('/fonts/merriweather/Merriweather_24pt-Bold.ttf') format('truetype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Merriweather';
+	src: url('/fonts/merriweather/Merriweather_24pt-BoldItalic.ttf') format('truetype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Playfair Display';
+	src: url('/fonts/playfair-display/PlayfairDisplay-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Playfair Display';
+	src: url('/fonts/playfair-display/PlayfairDisplay-Italic.ttf') format('truetype');
+	font-weight: 400;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Playfair Display';
+	src: url('/fonts/playfair-display/PlayfairDisplay-Bold.ttf') format('truetype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Playfair Display';
+	src: url('/fonts/playfair-display/PlayfairDisplay-BoldItalic.ttf') format('truetype');
+	font-weight: 700;
+	font-style: italic;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Domine';
+	src: url('/fonts/domine/Domine-Regular.ttf') format('truetype');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: 'Domine';
+	src: url('/fonts/domine/Domine-Bold.ttf') format('truetype');
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
 
 /* new primary??? #f35b3f */
 @theme {
-	--color-primary: #E76F51;
+	--color-primary: #e76f51;
 	--color-background: #18191b;
 	--color-foreground: #f5f6f8;
-    --color-text: #18191b;
+	--color-text: #18191b;
 	--color-secondary-text: #2e333a;
 	--color-secondary: #2e333a;
-	--font-sans: 'Montserrat', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	--font-sans: var(
+		--org-font-sans,
+		'Inter',
+		'Segoe UI',
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		sans-serif
+	);
 	--font-fave-script: 'Fave Script', 'Brush Script MT', cursive;
-	
+
 	/* Discord-style card colors */
 	--color-card-bg: #1e1e1e;
 	--color-card-border: rgba(255, 255, 255, 0.05);
 	--color-message-bg: #2a2a2a;
-    --color-input: #18191b;
+	--color-input: #18191b;
 }
 
 @layer theme {
@@ -195,15 +378,13 @@
 		text-align: left;
 		white-space: normal;
 	}
-	
+
 	/* Override input text color to use foreground color for better readability */
 
-	
 	input::placeholder {
 		color: rgba(148, 163, 184, 0.6);
 	}
 }
-
 
 @keyframes marquee {
 	0% {
@@ -233,33 +414,33 @@
 }
 
 @media print {
-        body {
-                background: white;
-                color: #0f172a;
-        }
+	body {
+		background: white;
+		color: #0f172a;
+	}
 
-        .resume-print-page {
-                page-break-inside: avoid;
-                padding: 2rem;
-        }
+	.resume-print-page {
+		page-break-inside: avoid;
+		padding: 2rem;
+	}
 
-        .resume-print-section {
-                margin-bottom: 1.5rem;
-        }
+	.resume-print-section {
+		margin-bottom: 1.5rem;
+	}
 }
 
 /* Resume bullet point styling */
 .resume-print-section ul {
-        list-style-type: disc;
-        padding-left: 1.5rem;
-        margin: 0.5rem 0;
+	list-style-type: disc;
+	padding-left: 1.5rem;
+	margin: 0.5rem 0;
 }
 
 .resume-print-section li {
-        margin-bottom: 0.25rem;
+	margin-bottom: 0.25rem;
 }
 
 .resume-print-section ul ul {
-        list-style-type: circle;
-        margin-top: 0.25rem;
+	list-style-type: circle;
+	margin-top: 0.25rem;
 }
