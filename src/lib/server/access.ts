@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { hasDataSharingPermission } from '$lib/server/legalService';
 
 export type AppRole = 'admin' | 'broker' | 'talent' | 'employer';
 
@@ -65,6 +66,8 @@ export type ResolvedTemplateContext = {
 	endLogoUrl: string | null;
 	homepageUrl: string | null;
 };
+
+export type PrintTemplateMode = 'auto' | 'org' | 'broker';
 
 const normalizeRole = (value: string | null | undefined): AppRole | null => {
 	if (!value) return null;
@@ -302,14 +305,48 @@ export const getTalentAccess = async (
 	const talentOrganisationId = orgMembershipResult.data?.organisation_id ?? null;
 	const isOwnProfile = Boolean(talentUserId && talentUserId === context.userId);
 	const canUseOrgScope = context.isAdmin || context.isBroker || context.isEmployer;
-	const orgAccessible = Boolean(
+	const baseOrgAccessible = Boolean(
 		talentOrganisationId &&
 			canUseOrgScope &&
 			(context.isAdmin || context.accessibleOrganisationIds.includes(talentOrganisationId))
 	);
-	const canView = context.isAdmin || isOwnProfile || orgAccessible;
+	const sameAsHomeOrganisation = Boolean(
+		talentOrganisationId &&
+			context.homeOrganisationId &&
+			talentOrganisationId === context.homeOrganisationId
+	);
+	const requiresCrossOrgGate = Boolean(
+		talentOrganisationId &&
+			context.homeOrganisationId &&
+			(context.isBroker || context.isEmployer) &&
+			baseOrgAccessible &&
+			!sameAsHomeOrganisation
+	);
+	let crossOrgViewAllowed = false;
+	if (requiresCrossOrgGate && talentOrganisationId && context.homeOrganisationId) {
+		try {
+			crossOrgViewAllowed = await hasDataSharingPermission(
+				adminClient,
+				talentOrganisationId,
+				context.homeOrganisationId,
+				'view'
+			);
+		} catch (sharingError) {
+			console.warn('[access] data sharing permission lookup failed', sharingError);
+			crossOrgViewAllowed = false;
+		}
+	}
+
+	const orgAccessibleForView = Boolean(
+		baseOrgAccessible &&
+			(!(context.isBroker || context.isEmployer) || sameAsHomeOrganisation || crossOrgViewAllowed)
+	);
+
+	const canView = context.isAdmin || isOwnProfile || orgAccessibleForView;
 	const canEdit =
-		context.isAdmin || isOwnProfile || ((context.isBroker || context.isEmployer) && orgAccessible);
+		context.isAdmin ||
+		isOwnProfile ||
+		((context.isBroker || context.isEmployer) && baseOrgAccessible && sameAsHomeOrganisation);
 
 	return {
 		exists: true,
@@ -410,7 +447,10 @@ const mapTemplateContext = (
 export const resolvePrintTemplateContext = async (
 	adminClient: SupabaseClient | null,
 	context: ActorAccessContext,
-	talentId: string
+	talentId: string,
+	options?: {
+		templateMode?: PrintTemplateMode;
+	}
 ): Promise<ResolvedTemplateContext> => {
 	if (!adminClient) {
 		return {
@@ -426,6 +466,8 @@ export const resolvePrintTemplateContext = async (
 		};
 	}
 
+	const templateMode = options?.templateMode ?? 'auto';
+
 	const { data: talentOrgRow } = await adminClient
 		.from('organisation_talents')
 		.select('organisation_id')
@@ -436,6 +478,49 @@ export const resolvePrintTemplateContext = async (
 		.maybeSingle();
 
 	const talentOrganisationId = talentOrgRow?.organisation_id ?? null;
+
+	if (templateMode === 'org') {
+		if (talentOrganisationId) {
+			const talentOrgTemplate = await getTemplateForOrganisation(adminClient, talentOrganisationId);
+			return mapTemplateContext(adminClient, 'talent_org', talentOrgTemplate, talentOrganisationId);
+		}
+
+		return {
+			source: 'default',
+			organisationId: null,
+			templateKey: 'default',
+			templateJson: {},
+			templateVersion: 1,
+			mainLogotypeUrl: null,
+			accentLogoUrl: null,
+			endLogoUrl: null,
+			homepageUrl: null
+		};
+	}
+
+	if (templateMode === 'broker') {
+		if (context.homeOrganisationId) {
+			const brokerTemplate = await getTemplateForOrganisation(adminClient, context.homeOrganisationId);
+			return mapTemplateContext(
+				adminClient,
+				'broker_home_org',
+				brokerTemplate,
+				context.homeOrganisationId
+			);
+		}
+
+		return {
+			source: 'default',
+			organisationId: null,
+			templateKey: 'default',
+			templateJson: {},
+			templateVersion: 1,
+			mainLogotypeUrl: null,
+			accentLogoUrl: null,
+			endLogoUrl: null,
+			homepageUrl: null
+		};
+	}
 
 	if (context.isBroker) {
 		if (!context.homeOrganisationId) {

@@ -12,6 +12,8 @@ import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 import { listExperienceLibrary, saveResumeData } from '$lib/server/resumes/store';
 import type { ResumeData } from '$lib/types/resume';
 import { getActorAccessContext, resolvePrintTemplateContext } from '$lib/server/access';
+import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
+import { writeAuditLog } from '$lib/server/legalService';
 
 export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	const resumeId = params.resumeId;
@@ -31,17 +33,38 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		throw error(404, 'Resume not found');
 	}
 
-	const { canView, canEdit, canEditAll, isOwnProfile } = await getResumeEditPermissions(
+	const permissions = await getResumeEditPermissions(
 		supabase,
 		adminClient,
 		resume.personId
 	);
+	const { canView, canEdit, canEditAll, isOwnProfile } = permissions;
 	if (!canView) {
 		throw error(403, 'Not authorized to view this resume.');
 	}
 
 	const actor = await getActorAccessContext(supabase, adminClient);
 	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId);
+	const auditOrganisationId = permissions.talentOrganisationId ?? actor.homeOrganisationId ?? null;
+	if (actor.userId && auditOrganisationId) {
+		const auditResult = await writeAuditLog({
+			actorUserId: actor.userId,
+			organisationId: auditOrganisationId,
+			actionType: 'RESUME_VIEW',
+			resourceType: 'resume',
+			resourceId: resumeId,
+			metadata: {
+				resume_id: resumeId,
+				talent_id: resume.personId,
+				source_org_id: permissions.talentOrganisationId,
+				target_org_id: actor.homeOrganisationId,
+				template_used: templateContext.source === 'broker_home_org' ? 'broker' : 'org'
+			}
+		});
+		if (!auditResult.ok) {
+			console.warn('[resume detail] could not write resume view audit log', auditResult.error);
+		}
+	}
 
 	const experienceLibrary =
 		adminClient && canEdit
@@ -110,6 +133,26 @@ export const actions: Actions = {
 
 		if (!canEdit) {
 			return fail(403, { ok: false, message: 'Not authorized to edit this resume' });
+		}
+
+		const actor = await getActorAccessContext(supabase, admin);
+		if (!actor.userId) {
+			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+		try {
+			await assertAcceptedForSensitiveAction({
+				adminClient: admin,
+				userId: actor.userId,
+				homeOrganisationId: actor.homeOrganisationId
+			});
+		} catch (acceptanceError) {
+			return fail(403, {
+				ok: false,
+				message:
+					acceptanceError instanceof Error
+						? acceptanceError.message
+						: 'You must accept current legal documents before saving.'
+			});
 		}
 
 		let content: ResumeData | null = null;

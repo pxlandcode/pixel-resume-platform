@@ -6,6 +6,7 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import { getActorAccessContext, normalizeRolesFromJoinRows } from '$lib/server/access';
+import { writeAuditLog } from '$lib/server/legalService';
 import {
 	mergeOrganisationBrandingTheme,
 	parseOrganisationBrandingThemeFormData,
@@ -14,6 +15,7 @@ import {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
+const SHARING_SCOPES = new Set(['view', 'export_org_template', 'export_broker_template']);
 
 const isValidUuid = (value: string | null | undefined) =>
 	typeof value === 'string' && UUID_REGEX.test(value);
@@ -262,6 +264,8 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		membershipsUsersResult,
 		membershipsTalentsResult,
 		accessGrantsResult,
+		dataSharingPermissionsResult,
+		legalDocumentsResult,
 		usersResult,
 		userRolesResult,
 		talentsResult
@@ -285,6 +289,16 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			.from('organisation_access_grants')
 			.select('id, organisation_id, grantee_user_id, created_at, created_by_user_id'),
 		adminClient
+			.from('data_sharing_permissions')
+			.select(
+				'id, source_organisation_id, target_organisation_id, sharing_scope, approved_by_admin_id, approved_at'
+			),
+		adminClient
+			.from('legal_documents')
+			.select('id, doc_type, version, content_html, effective_date, is_active, created_at')
+			.order('doc_type', { ascending: true })
+			.order('effective_date', { ascending: false }),
+		adminClient
 			.from('user_profiles')
 			.select('user_id, first_name, last_name, email')
 			.order('last_name', { ascending: true })
@@ -302,6 +316,9 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	if (membershipsUsersResult.error) throw error(500, membershipsUsersResult.error.message);
 	if (membershipsTalentsResult.error) throw error(500, membershipsTalentsResult.error.message);
 	if (accessGrantsResult.error) throw error(500, accessGrantsResult.error.message);
+	if (dataSharingPermissionsResult.error)
+		throw error(500, dataSharingPermissionsResult.error.message);
+	if (legalDocumentsResult.error) throw error(500, legalDocumentsResult.error.message);
 	if (usersResult.error) throw error(500, usersResult.error.message);
 	if (userRolesResult.error) throw error(500, userRolesResult.error.message);
 	if (talentsResult.error) throw error(500, talentsResult.error.message);
@@ -335,6 +352,8 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		membershipsUsers: membershipsUsersResult.data ?? [],
 		membershipsTalents: membershipsTalentsResult.data ?? [],
 		accessGrants: accessGrantsResult.data ?? [],
+		dataSharingPermissions: dataSharingPermissionsResult.data ?? [],
+		legalDocuments: legalDocumentsResult.data ?? [],
 		users,
 		talents: talentsResult.data ?? []
 	};
@@ -840,5 +859,131 @@ export const actions: Actions = {
 		}
 
 		return { type: 'revokeOrganisationAccess', ok: true, message: 'Access grant removed.' };
+	},
+
+	approveDataSharingPermission: async ({ request, cookies }) => {
+		const context = await ensureAdminForAction(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'approveDataSharingPermission',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const sourceOrganisationId = formData.get('source_organisation_id');
+		const targetOrganisationId = formData.get('target_organisation_id');
+		const sharingScope = formData.get('sharing_scope');
+
+		if (typeof sourceOrganisationId !== 'string' || !isValidUuid(sourceOrganisationId)) {
+			return fail(400, {
+				type: 'approveDataSharingPermission',
+				ok: false,
+				message: 'Invalid source organisation id.'
+			});
+		}
+		if (typeof targetOrganisationId !== 'string' || !isValidUuid(targetOrganisationId)) {
+			return fail(400, {
+				type: 'approveDataSharingPermission',
+				ok: false,
+				message: 'Invalid target organisation id.'
+			});
+		}
+		if (sourceOrganisationId === targetOrganisationId) {
+			return fail(400, {
+				type: 'approveDataSharingPermission',
+				ok: false,
+				message: 'Source and target organisations must be different.'
+			});
+		}
+		if (typeof sharingScope !== 'string' || !SHARING_SCOPES.has(sharingScope)) {
+			return fail(400, {
+				type: 'approveDataSharingPermission',
+				ok: false,
+				message: 'Invalid sharing scope.'
+			});
+		}
+
+		const { error: upsertError } = await context.adminClient.from('data_sharing_permissions').upsert(
+			{
+				source_organisation_id: sourceOrganisationId,
+				target_organisation_id: targetOrganisationId,
+				sharing_scope: sharingScope,
+				approved_by_admin_id: context.actor.userId,
+				approved_at: new Date().toISOString()
+			},
+			{
+				onConflict: 'source_organisation_id,target_organisation_id,sharing_scope'
+			}
+		);
+		if (upsertError) {
+			return fail(500, {
+				type: 'approveDataSharingPermission',
+				ok: false,
+				message: upsertError.message
+			});
+		}
+
+		const auditResult = await writeAuditLog({
+			actorUserId: context.actor.userId,
+			organisationId: sourceOrganisationId,
+			actionType: 'SHARING_APPROVED',
+			resourceType: 'organisation',
+			resourceId: sourceOrganisationId,
+			metadata: {
+				source_org_id: sourceOrganisationId,
+				target_org_id: targetOrganisationId,
+				sharing_scope: sharingScope
+			}
+		});
+		if (!auditResult.ok) {
+			console.warn('[organisations] could not write sharing approval audit log', auditResult.error);
+		}
+
+		return {
+			type: 'approveDataSharingPermission',
+			ok: true,
+			message: 'Data sharing permission approved.'
+		};
+	},
+
+	revokeDataSharingPermission: async ({ request, cookies }) => {
+		const context = await ensureAdminForAction(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'revokeDataSharingPermission',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const permissionId = formData.get('permission_id');
+		if (typeof permissionId !== 'string' || !isValidUuid(permissionId)) {
+			return fail(400, {
+				type: 'revokeDataSharingPermission',
+				ok: false,
+				message: 'Invalid permission id.'
+			});
+		}
+
+		const { error: revokeError } = await context.adminClient
+			.from('data_sharing_permissions')
+			.delete()
+			.eq('id', permissionId);
+		if (revokeError) {
+			return fail(500, {
+				type: 'revokeDataSharingPermission',
+				ok: false,
+				message: revokeError.message
+			});
+		}
+
+		return {
+			type: 'revokeDataSharingPermission',
+			ok: true,
+			message: 'Data sharing permission revoked.'
+		};
 	}
 };

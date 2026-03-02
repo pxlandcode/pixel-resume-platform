@@ -8,6 +8,9 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
+import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
+import { writeAuditLog } from '$lib/server/legalService';
+import { resolveResumeExportPolicy } from '$lib/server/resumes/exportPolicy';
 
 const toSafeFilename = (value: string) =>
 	value
@@ -253,6 +256,22 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	if (!permissions.canView) {
 		throw error(403, 'Not authorized to view this resume.');
 	}
+	if (!permissions.userId) {
+		throw error(401, 'Unauthorized');
+	}
+
+	await assertAcceptedForSensitiveAction({
+		adminClient,
+		userId: permissions.userId,
+		homeOrganisationId: permissions.homeOrganisationId
+	});
+
+	const exportPolicy = await resolveResumeExportPolicy(adminClient, permissions);
+	const auditOrganisationId =
+		exportPolicy.sourceOrganisationId ?? exportPolicy.targetOrganisationId ?? null;
+	if (!auditOrganisationId) {
+		throw error(400, 'Resume export requires a linked source or target organisation.');
+	}
 
 	const resume = await ResumeService.getResume(resumeId);
 	if (!resume) {
@@ -290,6 +309,24 @@ ${renderHtmlSection(resume.data, lang, profileSkills, labelFor)}
 
 	const filename = await buildFilename(resumeId, lang);
 	console.log('[word] Response filename:', filename, 'type:', typeof filename);
+
+	const auditResult = await writeAuditLog({
+		actorUserId: exportPolicy.actorUserId,
+		organisationId: auditOrganisationId,
+		actionType: 'RESUME_EXPORT',
+		resourceType: 'resume',
+		resourceId: resumeId,
+		metadata: {
+			resume_id: resumeId,
+			template_used: exportPolicy.templateUsed,
+			source_org_id: exportPolicy.sourceOrganisationId,
+			target_org_id: exportPolicy.targetOrganisationId,
+			format: 'word'
+		}
+	});
+	if (!auditResult.ok) {
+		throw error(500, auditResult.error || 'Could not write resume export audit log.');
+	}
 
 	return new Response(html, {
 		status: 200,

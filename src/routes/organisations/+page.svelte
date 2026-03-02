@@ -6,7 +6,9 @@
 	import OrganisationDetailsDrawer from '$lib/components/admin/OrganisationDetailsDrawer.svelte';
 	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
 	import OrganisationMembershipDrawer from '$lib/components/admin/OrganisationMembershipDrawer.svelte';
+	import LegalDocumentsDrawer from '$lib/components/admin/LegalDocumentsDrawer.svelte';
 	import { Globe, Settings, Palette, Users } from 'lucide-svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 
 	let { data, form } = $props();
 
@@ -35,11 +37,22 @@
 		last_name: string | null;
 	};
 
+	type DataSharingPermission = {
+		id: string;
+		source_organisation_id: string;
+		target_organisation_id: string;
+		sharing_scope: 'view' | 'export_org_template' | 'export_broker_template';
+		approved_by_admin_id: string;
+		approved_at: string | null;
+	};
+
 	const organisations = $derived(data.organisations ?? []);
 	const templates = $derived(data.templates ?? []);
 	const membershipsUsers = $derived(data.membershipsUsers ?? []);
 	const membershipsTalents = $derived(data.membershipsTalents ?? []);
 	const accessGrants = $derived(data.accessGrants ?? []);
+	const dataSharingPermissions = $derived(data.dataSharingPermissions ?? []);
+	const legalDocuments = $derived(data.legalDocuments ?? []);
 	const users = $derived((data.users ?? []) as UserRow[]);
 	const talents = $derived((data.talents ?? []) as TalentRow[]);
 
@@ -98,6 +111,19 @@
 		return map;
 	});
 
+	const sharingPermissionsBySourceOrg = $derived.by(() => {
+		const map: Record<
+			string,
+			Array<DataSharingPermission>
+		> = {};
+		for (const row of dataSharingPermissions as Array<DataSharingPermission>) {
+			const list = map[row.source_organisation_id] ?? [];
+			list.push(row);
+			map[row.source_organisation_id] = list;
+		}
+		return map;
+	});
+
 	const eligibleGrantUsers = $derived(
 		users.filter((user) => user.roles.includes('broker') || user.roles.includes('employer'))
 	);
@@ -118,7 +144,7 @@
 		>
 	);
 	const userHomeOrgNames = $derived.by(() => {
-		const map = new Map<string, string>();
+		const map = new SvelteMap<string, string>();
 		for (const m of membershipsUsers as Array<{ organisation_id: string; user_id: string }>) {
 			const org = orgById[m.organisation_id];
 			if (org) {
@@ -136,6 +162,7 @@
 	let isDetailsDrawerOpen = $state(false);
 	let isBrandingDrawerOpen = $state(false);
 	let isMembershipDrawerOpen = $state(false);
+	let isLegalDrawerOpen = $state(false);
 	let selectedOrganisation = $state<Organisation | undefined>(undefined);
 
 	const openCreateDrawer = () => {
@@ -155,6 +182,10 @@
 	const openMembershipDrawer = (organisation: Organisation) => {
 		selectedOrganisation = organisation;
 		isMembershipDrawerOpen = true;
+	};
+
+	const openLegalDrawer = () => {
+		isLegalDrawerOpen = true;
 	};
 
 	type OrgListRow = {
@@ -193,9 +224,14 @@
 			Manage organisation templates, home memberships, and cross-organisation access grants.
 		</p>
 	</div>
-	<Button variant="primary" size="md" type="button" onclick={openCreateDrawer}>
-		Create organisation
-	</Button>
+	<div class="flex items-center gap-2">
+		<Button variant="outline" size="md" type="button" onclick={openLegalDrawer}>
+			Legal documents
+		</Button>
+		<Button variant="primary" size="md" type="button" onclick={openCreateDrawer}>
+			Create organisation
+		</Button>
+	</div>
 </div>
 
 {#if actionMessage}
@@ -223,15 +259,15 @@
 					</Cell.Value>
 					<Cell.Value width={22}>
 						{#if row.homepage_url}
-							<a
-								href={row.homepage_url}
-								target="_blank"
-								rel="noopener noreferrer"
+							<button
+								type="button"
+								onclick={() =>
+									window.open(row.homepage_url ?? '', '_blank', 'noopener,noreferrer')}
 								class="text-primary hover:text-primary/80 inline-flex items-center gap-1 text-sm hover:underline"
 							>
 								<Globe size={14} />
 								<span class="max-w-[180px] truncate">{row.homepage_url}</span>
-							</a>
+							</button>
 						{:else}
 							<span class="text-muted-fg text-xs">Not set</span>
 						{/if}
@@ -289,6 +325,7 @@
 <OrganisationMembershipDrawer
 	bind:open={isMembershipDrawerOpen}
 	organisation={selectedOrganisation}
+	organisations={organisations}
 	{users}
 	{talents}
 	userMemberships={selectedOrganisation
@@ -298,8 +335,13 @@
 		? (talentMembershipsByOrg[selectedOrganisation.id] ?? [])
 		: []}
 	accessGrants={selectedOrganisation ? (grantsByOrg[selectedOrganisation.id] ?? []) : []}
+	dataSharingPermissions={selectedOrganisation
+		? (sharingPermissionsBySourceOrg[selectedOrganisation.id] ?? [])
+		: []}
 	{eligibleGrantUsers}
 	{usersWithHomeOrg}
 	{talentsWithHomeOrg}
 	{userHomeOrgNames}
 />
+
+<LegalDocumentsDrawer bind:open={isLegalDrawerOpen} documents={legalDocuments} />

@@ -101,3 +101,54 @@ Apply migrations in this order:
 - `supabase-migrations-resumes.sql` (legacy employee/profile policies)
 - `supabase-migrations-employee-availability.sql` (deprecated no-op)
 - Any legacy migration that references `profiles`, `employee`, or `cms_admin`
+
+## Legal, Consent, and Audit Ops
+
+### Migration
+
+Apply:
+
+1. `supabase/migrations/20260301113000_legal_consent_audit_layer.sql`
+
+This migration adds:
+
+- versioned legal docs (`legal_documents`) with one active doc per type (`tos`, `privacy`, `ai_notice`, `data_sharing`)
+- immutable acceptance snapshots (`user_legal_acceptances`) keyed by active document IDs
+- employer lawful-basis assertions for talent creation without a linked user (`employer_talent_assertions`)
+- explicit source->target org sharing scopes (`data_sharing_permissions`)
+- append-only sensitive audit events (`audit_logs`)
+
+### Publish a New Legal Version
+
+1. Create a new legal document row (`doc_type`, `version`, `effective_date`, sanitized `content_html`) via:
+   - `POST /legal/admin/documents`
+2. Activate that version via:
+   - `POST /legal/admin/documents/:id/activate`
+   - or send `is_active=true` when creating
+
+Activating a new version for any required legal doc type forces re-acceptance for all users in scope, because acceptance is validated against the currently active document ID set.
+
+### What Triggers Re-Accept
+
+Users are compliant only when their latest acceptance row references the exact active IDs for:
+
+- ToS
+- Privacy
+- AI Notice
+- Data Sharing Notice
+
+If any active ID changes, `hasAcceptedCurrent` becomes false and protected routes/actions redirect or reject until `POST /legal/accept` is completed.
+
+### Stored Acceptance and Audit Data
+
+- Acceptance rows store:
+  - `user_id`, `organisation_id`
+  - snapshot IDs: `tos_document_id`, `privacy_document_id`, `ai_notice_document_id`, `data_sharing_document_id`
+  - `accepted_at`, `ip_address`, `user_agent`
+- Audit rows store:
+  - `actor_user_id`, `organisation_id`, `action_type`, `resource_type`, `resource_id`, `metadata_json`, `created_at`
+  - export metadata includes: `template_used`, `source_org_id`, `target_org_id`, `resume_id`
+
+### Service-Role Exception Scope
+
+`audit_logs` intentionally has no client insert policy. Audit inserts are written by internal server helpers using the Supabase admin/service-role client only (`src/lib/server/auditService.ts`). End users cannot insert audit records directly.

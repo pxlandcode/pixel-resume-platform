@@ -29,7 +29,7 @@
 
 	let { data, children } = $props();
 
-	const plainRoutes = new Set(['/login', '/reset-password']);
+	const plainRoutes = new Set(['/login', '/reset-password', '/legal/accept']);
 	const pathname = $derived($page.url.pathname);
 	const isPrintRoute = $derived(pathname.startsWith('/print'));
 	const isPlainRoute = $derived(plainRoutes.has(pathname));

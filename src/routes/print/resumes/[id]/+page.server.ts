@@ -6,7 +6,11 @@ import {
 } from '$lib/server/supabase';
 import { error } from '@sveltejs/kit';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
-import { getActorAccessContext, resolvePrintTemplateContext } from '$lib/server/access';
+import {
+	getActorAccessContext,
+	resolvePrintTemplateContext,
+	type PrintTemplateMode
+} from '$lib/server/access';
 import { emptyResumeData, loadResumeData } from '$lib/server/resumes/store';
 import type { Person, ResumeData } from '$lib/types/resume';
 import { ResumeService } from '$lib/services/resume';
@@ -107,6 +111,9 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 
 	const langParam = url.searchParams.get('lang');
 	const language = langParam === 'en' ? 'en' : 'sv';
+	const templateParam = url.searchParams.get('template');
+	const templateMode: PrintTemplateMode =
+		templateParam === 'org' || templateParam === 'broker' ? templateParam : 'auto';
 
 	const resumeId = params.id;
 
@@ -228,7 +235,9 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	};
 
 	const actor = await getActorAccessContext(supabase, adminClient);
-	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId);
+	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId, {
+		templateMode
+	});
 	debugLog('template context resolved', {
 		resumeId,
 		templateKey: templateContext?.templateKey ?? null,

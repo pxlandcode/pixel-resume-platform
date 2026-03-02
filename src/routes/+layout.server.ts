@@ -10,6 +10,7 @@ import {
 	resolveOrganisationBrandingTheme,
 	type OrganisationBrandingTheme
 } from '$lib/branding/theme';
+import { isLegalExemptPath, normalizeSafeRedirect, resolveLegalAcceptanceState } from '$lib/server/legalGate';
 import type { PageMetaInput } from '$lib/seo';
 import type { LayoutServerLoad } from './$types';
 
@@ -209,35 +210,48 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 		roles = Array.from(new Set(roles));
 		const primaryRole = (roles[0] as Role | undefined) ?? 'talent';
 		const effectiveRoles: Role[] = roles.length ? roles : ['talent'];
-		const redirectTo = guardRoute(pathname, effectiveRoles);
+		const currentTalentId =
+			talentResult.data && typeof talentResult.data.id === 'string' ? talentResult.data.id : null;
+		let homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
+		let brandingTheme = DEFAULT_ORGANISATION_BRANDING_THEME;
 
+		if (!homeOrganisationId && adminClient && currentTalentId) {
+			const { data: talentHomeRow, error: talentHomeError } = await adminClient
+				.from('organisation_talents')
+				.select('organisation_id')
+				.eq('talent_id', currentTalentId)
+				.order('updated_at', { ascending: false })
+				.order('created_at', { ascending: false })
+				.limit(1)
+				.maybeSingle();
+			if (talentHomeError) {
+				console.warn(
+					'[layout] could not resolve home organisation from talent membership',
+					talentHomeError
+				);
+			} else {
+				homeOrganisationId = talentHomeRow?.organisation_id ?? null;
+			}
+		}
+
+		if (adminClient && !isLegalExemptPath(pathname)) {
+			const legalState = await resolveLegalAcceptanceState({
+				adminClient,
+				userId,
+				homeOrganisationId
+			});
+
+			homeOrganisationId = legalState.homeOrganisationId;
+			if (!legalState.homeOrganisationId || !legalState.status?.hasAcceptedCurrent) {
+				const destination = normalizeSafeRedirect(`${url.pathname}${url.search}`, '/');
+				throw redirect(303, `/legal/accept?redirect=${encodeURIComponent(destination)}`);
+			}
+		}
+
+		const redirectTo = guardRoute(pathname, effectiveRoles);
 		if (redirectTo) throw redirect(303, redirectTo);
 
-			const currentTalentId =
-				talentResult.data && typeof talentResult.data.id === 'string' ? talentResult.data.id : null;
-			let homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
-			let brandingTheme = DEFAULT_ORGANISATION_BRANDING_THEME;
-
-			if (!homeOrganisationId && adminClient && currentTalentId) {
-				const { data: talentHomeRow, error: talentHomeError } = await adminClient
-					.from('organisation_talents')
-					.select('organisation_id')
-					.eq('talent_id', currentTalentId)
-					.order('updated_at', { ascending: false })
-					.order('created_at', { ascending: false })
-					.limit(1)
-					.maybeSingle();
-				if (talentHomeError) {
-					console.warn(
-						'[layout] could not resolve home organisation from talent membership',
-						talentHomeError
-					);
-				} else {
-					homeOrganisationId = talentHomeRow?.organisation_id ?? null;
-				}
-			}
-
-			if (adminClient && homeOrganisationId) {
+		if (adminClient && homeOrganisationId) {
 			const { data: organisationRow, error: organisationError } = await adminClient
 				.from('organisations')
 				.select('brand_settings')

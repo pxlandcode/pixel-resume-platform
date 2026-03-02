@@ -18,7 +18,7 @@ const cookieOptions = {
 
 const isAllowedAppRedirect = (value: unknown): value is string =>
 	typeof value === 'string' &&
-	/^\/(?:$|users(?:\/.*)?$|talents(?:\/.*)?$|resumes(?:\/.*)?$|organisations(?:\/.*)?$)/.test(
+	/^\/(?:$|users(?:\/.*)?$|talents(?:\/.*)?$|resumes(?:\/.*)?$|organisations(?:\/.*)?$|legal\/accept(?:\/.*)?$)/.test(
 		value
 	);
 

@@ -14,6 +14,9 @@ import { createClient } from '@supabase/supabase-js';
 import chromium from '@sparticuz/chromium';
 import { chromium as playwrightChromium } from 'playwright-core';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
+import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
+import { writeAuditLog } from '$lib/server/legalService';
+import { resolveResumeExportPolicy } from '$lib/server/resumes/exportPolicy';
 
 const isServerless =
 	Boolean(process.env.NETLIFY) ||
@@ -159,6 +162,22 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	if (!permissions.canView) {
 		throw error(403, 'Not authorized to view this resume.');
 	}
+	if (!permissions.userId) {
+		throw error(401, 'Unauthorized');
+	}
+
+	await assertAcceptedForSensitiveAction({
+		adminClient,
+		userId: permissions.userId,
+		homeOrganisationId: permissions.homeOrganisationId
+	});
+
+	const exportPolicy = await resolveResumeExportPolicy(adminClient, permissions);
+	const auditOrganisationId =
+		exportPolicy.sourceOrganisationId ?? exportPolicy.targetOrganisationId ?? null;
+	if (!auditOrganisationId) {
+		throw error(400, 'Resume export requires a linked source or target organisation.');
+	}
 
 	let browser: import('playwright-core').Browser | null = null;
 
@@ -190,6 +209,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		// Use the print route
 		const target = new URL(`/print/resumes/${resumeId}`, url.origin);
 		target.searchParams.set('lang', lang);
+		target.searchParams.set('template', exportPolicy.templateUsed === 'broker' ? 'broker' : 'org');
 		if (debugEnabled) {
 			target.searchParams.set('debug', '1');
 		}
@@ -373,6 +393,24 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 
 		const filename = await PDF_FILENAME(resumeId, lang);
 		console.log('[pdf] Response filename:', filename, 'type:', typeof filename);
+
+		const auditResult = await writeAuditLog({
+			actorUserId: exportPolicy.actorUserId,
+			organisationId: auditOrganisationId,
+			actionType: 'RESUME_EXPORT',
+			resourceType: 'resume',
+			resourceId: resumeId,
+			metadata: {
+				resume_id: resumeId,
+				template_used: exportPolicy.templateUsed,
+				source_org_id: exportPolicy.sourceOrganisationId,
+				target_org_id: exportPolicy.targetOrganisationId,
+				format: 'pdf'
+			}
+		});
+		if (!auditResult.ok) {
+			throw error(500, auditResult.error || 'Could not write resume export audit log.');
+		}
 
 		return new Response(new Uint8Array(pdfBuffer), {
 			status: 200,

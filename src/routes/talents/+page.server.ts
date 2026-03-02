@@ -7,9 +7,23 @@ import {
 } from '$lib/server/supabase';
 import { siteMeta } from '$lib/seo';
 import { getActorAccessContext, getAccessibleTalentIds } from '$lib/server/access';
+import {
+	extractRequestMetadata,
+	recordEmployerAssertion,
+	writeAuditLog,
+	type LawfulBasisType
+} from '$lib/server/legalService';
+import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
 
 const canManageTalents = (actor: Awaited<ReturnType<typeof getActorAccessContext>>) =>
 	actor.isAdmin || actor.isBroker || actor.isEmployer;
+
+const LAWFUL_BASIS_TYPES = new Set<LawfulBasisType>([
+	'consent_obtained',
+	'contract',
+	'legitimate_interest',
+	'other'
+]);
 
 const getActorContext = async (cookies: { get(name: string): string | undefined }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
@@ -208,11 +222,28 @@ export const actions: Actions = {
 			});
 		}
 
-		if ((actor.isBroker || actor.isEmployer) && !actor.homeOrganisationId) {
+		if (!actor.homeOrganisationId) {
 			return fail(400, {
 				type: 'createTalent',
 				ok: false,
 				message: 'Connect your account to a home organisation before creating talents.'
+			});
+		}
+
+		try {
+			await assertAcceptedForSensitiveAction({
+				adminClient,
+				userId: actor.userId,
+				homeOrganisationId: actor.homeOrganisationId
+			});
+		} catch (acceptanceError) {
+			return fail(403, {
+				type: 'createTalent',
+				ok: false,
+				message:
+					acceptanceError instanceof Error
+						? acceptanceError.message
+						: 'You must accept current legal documents before creating talents.'
 			});
 		}
 
@@ -221,18 +252,48 @@ export const actions: Actions = {
 		const lastNameRaw = formData.get('last_name');
 		const titleRaw = formData.get('title');
 		const avatarRaw = formData.get('avatar_url');
+		const lawfulBasisTypeRaw = formData.get('lawful_basis_type');
+		const lawfulBasisDetailsRaw = formData.get('lawful_basis_details');
+		const lawfulBasisConfirmedRaw = formData.get('lawful_basis_confirmed');
 
 		const first_name = typeof firstNameRaw === 'string' ? firstNameRaw.trim() : '';
 		const last_name = typeof lastNameRaw === 'string' ? lastNameRaw.trim() : '';
 		const title = typeof titleRaw === 'string' ? titleRaw.trim() : '';
 		const avatar_url =
 			typeof avatarRaw === 'string' && avatarRaw.trim().length > 0 ? avatarRaw.trim() : null;
+		const lawfulBasisType =
+			typeof lawfulBasisTypeRaw === 'string' &&
+			LAWFUL_BASIS_TYPES.has(lawfulBasisTypeRaw as LawfulBasisType)
+				? (lawfulBasisTypeRaw as LawfulBasisType)
+				: null;
+		const lawfulBasisDetails =
+			typeof lawfulBasisDetailsRaw === 'string' && lawfulBasisDetailsRaw.trim().length > 0
+				? lawfulBasisDetailsRaw.trim()
+				: null;
+		const lawfulBasisConfirmed =
+			lawfulBasisConfirmedRaw === 'on' ||
+			lawfulBasisConfirmedRaw === 'true' ||
+			lawfulBasisConfirmedRaw === '1';
 
 		if (!first_name && !last_name) {
 			return fail(400, {
 				type: 'createTalent',
 				ok: false,
 				message: 'Provide at least first name or last name.'
+			});
+		}
+		if (!lawfulBasisConfirmed) {
+			return fail(400, {
+				type: 'createTalent',
+				ok: false,
+				message: 'You must confirm lawful basis before creating a talent without a linked user.'
+			});
+		}
+		if (!lawfulBasisType) {
+			return fail(400, {
+				type: 'createTalent',
+				ok: false,
+				message: 'Lawful basis type is required.'
 			});
 		}
 
@@ -253,21 +314,74 @@ export const actions: Actions = {
 			return fail(500, { type: 'createTalent', ok: false, message: insertError?.message });
 		}
 
-		if ((actor.isBroker || actor.isEmployer) && actor.homeOrganisationId) {
-			const { error: membershipError } = await adminClient.from('organisation_talents').insert({
-				organisation_id: actor.homeOrganisationId,
-				talent_id: insertedTalent.id
-			});
+		const { error: membershipError } = await adminClient.from('organisation_talents').insert({
+			organisation_id: actor.homeOrganisationId,
+			talent_id: insertedTalent.id
+		});
 
-			if (membershipError) {
-				await adminClient.from('talents').delete().eq('id', insertedTalent.id);
-				return fail(500, {
-					type: 'createTalent',
-					ok: false,
-					message: 'Talent creation was rolled back because home organisation linking failed.'
-				});
-			}
+		if (membershipError) {
+			await adminClient.from('talents').delete().eq('id', insertedTalent.id);
+			return fail(500, {
+				type: 'createTalent',
+				ok: false,
+				message: 'Talent creation was rolled back because home organisation linking failed.'
+			});
 		}
+
+		const requestMeta = extractRequestMetadata({
+			request,
+			getClientAddress: () => ''
+		});
+
+		try {
+			await recordEmployerAssertion({
+				client: adminClient,
+				employerUserId: actor.userId,
+				organisationId: actor.homeOrganisationId,
+				talentId: insertedTalent.id,
+				lawfulBasisType,
+				lawfulBasisDetails,
+				ipAddress: requestMeta.ipAddress,
+				userAgent: requestMeta.userAgent
+			});
+		} catch (assertionError) {
+			await adminClient.from('organisation_talents').delete().eq('talent_id', insertedTalent.id);
+			await adminClient.from('talents').delete().eq('id', insertedTalent.id);
+			return fail(500, {
+				type: 'createTalent',
+				ok: false,
+				message:
+					assertionError instanceof Error
+						? assertionError.message
+						: 'Talent creation was rolled back because lawful basis assertion failed.'
+			});
+		}
+
+		await writeAuditLog({
+			actorUserId: actor.userId,
+			organisationId: actor.homeOrganisationId,
+			actionType: 'TALENT_CREATED',
+			resourceType: 'talent',
+			resourceId: insertedTalent.id,
+			metadata: {
+				talent_id: insertedTalent.id,
+				organisation_id: actor.homeOrganisationId,
+				created_without_user_account: true
+			}
+		});
+		await writeAuditLog({
+			actorUserId: actor.userId,
+			organisationId: actor.homeOrganisationId,
+			actionType: 'ASSERTION_CONFIRMED',
+			resourceType: 'talent',
+			resourceId: insertedTalent.id,
+			metadata: {
+				talent_id: insertedTalent.id,
+				organisation_id: actor.homeOrganisationId,
+				lawful_basis_type: lawfulBasisType,
+				lawful_basis_details: lawfulBasisDetails
+			}
+		});
 
 		return {
 			type: 'createTalent',
