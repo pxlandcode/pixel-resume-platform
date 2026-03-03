@@ -9,12 +9,8 @@
 	import { loadingStore } from '$lib/stores/loading';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import { brandingStore, DEFAULT_BRANDING_FONT_STACK } from '$lib/stores/branding';
-	import {
-		pdfImportStore,
-		isImportActive,
-		isImportSucceeded,
-		importStatusLabel
-	} from '$lib/stores/pdfImportStore';
+	import { pdfImportStore, isImportSucceeded, importStatusLabel } from '$lib/stores/pdfImportStore';
+	import { resumeDownloadStore } from '$lib/stores/resumeDownloadStore';
 	import { onDestroy } from 'svelte';
 	import { Loader2, AlertCircle, CheckCircle2 } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
@@ -51,14 +47,44 @@
 		$loadingStore.loadingText ?? ($navigating !== null ? 'Loading page...' : 'Loading...')
 	);
 
-	const showImportIndicator = $derived(useAppShell && $isImportActive);
 	const importHasError = $derived(!!$pdfImportStore.error && $pdfImportStore.status === 'idle');
 	const importIsSuccess = $derived($isImportSucceeded);
+	const importIsWorking = $derived(
+		$pdfImportStore.status !== 'idle' && $pdfImportStore.status !== 'succeeded'
+	);
 	const importTalentId = $derived($pdfImportStore.talentId);
 	const importResumeId = $derived($pdfImportStore.resumeId);
 	const importFilename = $derived($pdfImportStore.sourceFilename);
 	const importError = $derived($pdfImportStore.error);
 	const statusLabel = $derived($importStatusLabel);
+	const downloadIsActive = $derived($resumeDownloadStore.isActive);
+	const downloadLabel = $derived($resumeDownloadStore.label);
+	const importSuccessHref = $derived.by(() => {
+		if (!importTalentId || !importResumeId) return null;
+		return resolve('/resumes/[personId]/resume/[resumeId]', {
+			personId: importTalentId,
+			resumeId: importResumeId
+		});
+	});
+	const showImportSuccessIndicator = $derived(
+		useAppShell &&
+			importIsSuccess &&
+			Boolean(importSuccessHref) &&
+			!downloadIsActive &&
+			!importIsWorking &&
+			!importHasError
+	);
+	const hasImportActivityCard = $derived(importIsWorking || importHasError);
+	const hasDownloadActivityCard = $derived(downloadIsActive);
+	const showActivityIndicator = $derived(
+		useAppShell && (hasDownloadActivityCard || hasImportActivityCard)
+	);
+	const indicatorIsErrorOnly = $derived(!downloadIsActive && !importIsWorking && importHasError);
+	const importIndicatorHref = $derived.by(() => {
+		if (!importTalentId) return null;
+		return resolve('/resumes/[personId]', { personId: importTalentId });
+	});
+	const indicatorCanOpenImport = $derived(Boolean(importIndicatorHref) && hasImportActivityCard);
 	const unauthorizedMessage = $derived(
 		$page.url.searchParams.get('unauthorized')
 			? 'You do not have permission to view that section.'
@@ -339,68 +365,96 @@
 
 <Mode.Watcher defaultMode="light" />
 
-{#if showImportIndicator}
+{#if showImportSuccessIndicator}
 	<div
 		class={`fixed bottom-6 left-6 z-40 transition-all duration-300 ${successDismissing ? 'import-indicator-dismiss' : ''}`}
 	>
-		{#if importIsSuccess}
-			<a
-				href={resolve('/resumes/[personId]/resume/[resumeId]', {
-					personId: importTalentId ?? '',
-					resumeId: importResumeId ?? ''
-				})}
-				onclick={handleSuccessClick}
-				class="flex items-center gap-3 rounded-lg bg-emerald-500 px-4 py-3 text-white shadow-lg transition-all hover:scale-105 hover:bg-emerald-600"
-				title="Click to open resume"
-			>
-				<CheckCircle2 size={24} />
-				<div class="text-left">
-					<p class="font-semibold">Import complete!</p>
-					{#if importFilename}
-						<p class="max-w-48 truncate text-xs text-emerald-100">{importFilename}</p>
-					{/if}
-				</div>
-			</a>
-		{:else}
-			<div class="group relative">
+		<a
+			href={importSuccessHref ?? '#'}
+			onclick={handleSuccessClick}
+			class="flex items-center gap-3 rounded-lg bg-emerald-500 px-4 py-3 text-white shadow-lg transition-all hover:scale-105 hover:bg-emerald-600"
+			title="Click to open resume"
+		>
+			<CheckCircle2 size={24} />
+			<div class="text-left">
+				<p class="font-semibold">Import complete!</p>
+				{#if importFilename}
+					<p class="max-w-48 truncate text-xs text-emerald-100">{importFilename}</p>
+				{/if}
+			</div>
+		</a>
+	</div>
+{/if}
+
+{#if showActivityIndicator}
+	<div class="fixed bottom-6 left-6 z-40">
+		<div class="group relative">
+			{#if indicatorCanOpenImport}
 				<a
-					href={resolve('/resumes/[personId]', { personId: importTalentId ?? '' })}
+					href={importIndicatorHref ?? '#'}
 					class={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all hover:scale-105 ${
-						importHasError
+						indicatorIsErrorOnly
 							? 'bg-red-500 text-white hover:bg-red-600'
 							: 'bg-primary hover:bg-primary/90 text-white'
 					}`}
 					title="View import status"
 				>
-					{#if importHasError}
+					{#if indicatorIsErrorOnly}
 						<AlertCircle size={20} />
 					{:else}
 						<Loader2 size={20} class="animate-spin" />
 					{/if}
 				</a>
-
+			{:else}
 				<div
-					class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-56 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+					class={`flex h-12 w-12 items-center justify-center rounded-full shadow-lg ${
+						indicatorIsErrorOnly ? 'bg-red-500 text-white' : 'bg-primary text-white'
+					}`}
 				>
-					<p class="text-foreground mb-1 font-semibold">
-						{#if importHasError}
-							Import Failed
-						{:else}
-							Importing PDF
-						{/if}
-					</p>
-					{#if importFilename}
-						<p class="text-muted-fg mb-1 truncate text-xs">{importFilename}</p>
-					{/if}
-					{#if importError}
-						<p class="text-xs text-red-600">{importError}</p>
+					{#if indicatorIsErrorOnly}
+						<AlertCircle size={20} />
 					{:else}
-						<p class="text-muted-fg text-xs">{statusLabel || 'Processing...'}</p>
+						<Loader2 size={20} class="animate-spin" />
 					{/if}
-					<p class="text-muted-fg mt-2 text-[11px]">Click to view details</p>
 				</div>
+			{/if}
+
+			<div
+				class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-64 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+			>
+				<div class="flex flex-col gap-2">
+					{#if hasDownloadActivityCard}
+						<div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+							<p class="mb-1 font-semibold text-slate-900">Downloading Resume</p>
+							<p class="text-xs text-slate-600">{downloadLabel ?? 'Preparing file download...'}</p>
+						</div>
+					{/if}
+
+					{#if hasImportActivityCard}
+						<div
+							class={`rounded-md border px-3 py-2 ${
+								importHasError ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'
+							}`}
+						>
+							<p class={`mb-1 font-semibold ${importHasError ? 'text-red-700' : 'text-slate-900'}`}>
+								{importHasError ? 'Import Failed' : 'Importing PDF'}
+							</p>
+							{#if importFilename}
+								<p class="mb-1 truncate text-xs text-slate-600">{importFilename}</p>
+							{/if}
+							{#if importError}
+								<p class="text-xs text-red-600">{importError}</p>
+							{:else}
+								<p class="text-xs text-slate-600">{statusLabel || 'Processing...'}</p>
+							{/if}
+						</div>
+					{/if}
+				</div>
+				{#if indicatorCanOpenImport}
+					<p class="text-muted-fg mt-2 text-[11px]">Click to view import details</p>
+				{/if}
 			</div>
-		{/if}
+		</div>
 	</div>
 {/if}
 

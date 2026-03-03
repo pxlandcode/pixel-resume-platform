@@ -1,11 +1,27 @@
 <script lang="ts">
 	import { Button, FormControl, Input } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 
 	let { open = $bindable(false) } = $props();
 	let avatarUrl = $state('');
 	let avatarUploadError = $state<string | null>(null);
 	let avatarUploading = $state(false);
+	const avatarPreviewSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
+	const avatarPreviewSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, [96, 192], {
+			height: supabaseImagePresets.avatarList.height,
+			quality: supabaseImagePresets.avatarList.quality,
+			resize: supabaseImagePresets.avatarList.resize
+		});
+	const avatarPreviewFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
 	$effect(() => {
 		if (!open) {
@@ -149,9 +165,14 @@
 			{#if avatarUrl}
 				<div class="border-border bg-muted w-24 overflow-hidden rounded-lg border">
 					<img
-						src={avatarUrl}
+						src={avatarPreviewSrc(avatarUrl)}
+						srcset={avatarPreviewSrcSet(avatarUrl)}
+						sizes="96px"
 						alt="Talent avatar preview"
-						class="aspect-square w-full object-cover"
+						class="aspect-square w-full object-contain"
+						loading="lazy"
+						decoding="async"
+						onerror={(event) => applyImageFallbackOnce(event, avatarPreviewFallbackSrc(avatarUrl))}
 					/>
 				</div>
 			{/if}

@@ -12,6 +12,13 @@
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
 	import type { Body, Meta } from '@uppy/utils/lib/UppyFile';
 	import { Lock, Unlock } from 'lucide-svelte';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 
 	type AnyUppyFile = UppyFile<Meta, Body>;
 
@@ -91,6 +98,15 @@
 	let linkedTalentId = $state(initial.linked_talent_id ?? '');
 
 	const showUploader = $derived(!previewUrl);
+	const previewImageSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
+	const previewImageSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, [128, 256], {
+			height: supabaseImagePresets.avatarList.height,
+			quality: supabaseImagePresets.avatarList.quality,
+			resize: supabaseImagePresets.avatarList.resize
+		});
+	const previewImageFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 	const availableTalentOptions = $derived.by(() => {
 		if (mode !== 'edit' || !canEditUsers) return [] as TalentOption[];
 
@@ -113,7 +129,9 @@
 	};
 
 	const allowedRoleSet = $derived(new Set(allowedRoles));
-	const visibleRoleOptions = $derived(roleOptions.filter((option) => allowedRoleSet.has(option.value)));
+	const visibleRoleOptions = $derived(
+		roleOptions.filter((option) => allowedRoleSet.has(option.value))
+	);
 
 	const revokeTempObjectUrl = () => {
 		if (tempObjectUrl) {
@@ -572,7 +590,7 @@
 					if (!canEditUsers) return;
 					isActive = !isActive;
 				}}
-				class="group relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 {isActive
+				class="focus-visible:ring-primary/60 group relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus-visible:ring-2 focus-visible:ring-offset-2 {isActive
 					? 'bg-emerald-500'
 					: 'bg-muted'}"
 			>
@@ -588,7 +606,7 @@
 						? 'text-emerald-700'
 						: 'text-muted-fg'}"
 				>
-				{#if isActive}
+					{#if isActive}
 						<svg
 							class="h-4 w-4"
 							fill="none"
@@ -635,9 +653,15 @@
 					<div class="flex flex-col gap-3">
 						<div class="border-border bg-muted w-32 overflow-hidden rounded-lg border">
 							<img
-								src={previewUrl}
+								src={previewImageSrc(previewUrl)}
+								srcset={previewImageSrcSet(previewUrl)}
+								sizes="128px"
 								alt="Avatar preview"
-								class="aspect-square w-full object-cover"
+								class="aspect-square w-full object-contain"
+								loading="lazy"
+								decoding="async"
+								onerror={(event) =>
+									applyImageFallbackOnce(event, previewImageFallbackSrc(previewUrl))}
 							/>
 						</div>
 
@@ -700,7 +724,7 @@
 							value={option.value}
 							checked={selectedRoles.includes(option.value)}
 							onchange={() => toggleRole(option.value)}
-							class="border-border text-foreground mt-1 h-4 w-4 rounded focus:ring-2 focus:ring-primary/60"
+							class="border-border text-foreground focus:ring-primary/60 mt-1 h-4 w-4 rounded focus:ring-2"
 						/>
 						<div class="space-y-1">
 							<p class="text-foreground text-sm font-medium">{option.label}</p>

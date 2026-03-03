@@ -8,6 +8,13 @@
 	import XHRUpload from '@uppy/xhr-upload';
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
 	import type { Body, Meta } from '@uppy/utils/lib/UppyFile';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	import { onDestroy, tick } from 'svelte';
 
 	type AnyUppyFile = UppyFile<Meta, Body>;
@@ -88,6 +95,23 @@
 	};
 
 	const showUploader = $derived(!previewUrl);
+	const avatarDetailSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarProfile);
+	const avatarDetailSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, [96, 160, 240], {
+			height: supabaseImagePresets.avatarProfile.height,
+			quality: supabaseImagePresets.avatarProfile.quality,
+			resize: supabaseImagePresets.avatarProfile.resize
+		});
+	const avatarPreviewSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
+	const avatarPreviewSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, [128, 256], {
+			height: supabaseImagePresets.avatarList.height,
+			quality: supabaseImagePresets.avatarList.quality,
+			resize: supabaseImagePresets.avatarList.resize
+		});
+	const avatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
 	$effect(() => {
 		if (form?.type !== 'updateUser') return;
@@ -279,9 +303,14 @@
 		<div class="mb-6 flex items-start gap-6">
 			{#if user.avatar_url}
 				<img
-					src={user.avatar_url}
+					src={avatarDetailSrc(user.avatar_url)}
+					srcset={avatarDetailSrcSet(user.avatar_url)}
+					sizes="96px"
 					alt="{user.first_name} {user.last_name}"
-					class="border-border h-24 w-24 rounded-full border object-cover"
+					class="border-border h-24 w-24 rounded-full border object-contain"
+					loading="lazy"
+					decoding="async"
+					onerror={(event) => applyImageFallbackOnce(event, avatarFallbackSrc(user.avatar_url))}
 				/>
 			{:else}
 				<div
@@ -562,9 +591,15 @@
 							<div class="flex flex-col gap-3">
 								<div class="border-border bg-muted w-32 overflow-hidden rounded-lg border">
 									<img
-										src={previewUrl}
+										src={avatarPreviewSrc(previewUrl)}
+										srcset={avatarPreviewSrcSet(previewUrl)}
+										sizes="128px"
 										alt="Avatar preview"
-										class="aspect-square w-full object-cover"
+										class="aspect-square w-full object-contain"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, avatarFallbackSrc(previewUrl))}
 									/>
 								</div>
 								<div class="flex flex-wrap items-center gap-2">

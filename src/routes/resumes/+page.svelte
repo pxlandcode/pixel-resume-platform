@@ -7,6 +7,15 @@
 	import { clickOutside } from '$lib/utils/clickOutside';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		supabaseImageSizes,
+		supabaseImageSrcsetWidths,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	import { Button, Card, Input } from '@pixelcode_/blocks/components';
 	import { User, Search, SlidersHorizontal, LayoutGrid, List } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
@@ -244,6 +253,15 @@
 
 	const getTalentName = (talent: (typeof allTalents)[number]) =>
 		[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed';
+	const getCardAvatarSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarCard);
+	const getCardAvatarSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, supabaseImageSrcsetWidths.avatarCard, {
+			height: supabaseImagePresets.avatarCard.height,
+			quality: supabaseImagePresets.avatarCard.quality,
+			resize: supabaseImagePresets.avatarCard.resize
+		});
+	const getCardAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
 	const getTalentTechYearsByKey = (talent: (typeof allTalents)[number]) => {
 		const raw = talent.tech_years_by_key;
@@ -795,9 +813,15 @@
 							<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
 								{#if talent.avatar_url}
 									<img
-										src={talent.avatar_url}
+										src={getCardAvatarSrc(talent.avatar_url)}
+										srcset={getCardAvatarSrcSet(talent.avatar_url)}
+										sizes={supabaseImageSizes.avatarCard}
 										alt={getTalentName(talent)}
-										class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
+										class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, getCardAvatarFallbackSrc(talent.avatar_url))}
 									/>
 								{:else}
 									<div class="text-muted-fg flex h-full w-full items-center justify-center">
@@ -908,9 +932,18 @@
 											<div class="bg-muted absolute inset-0 overflow-hidden">
 												{#if talent.avatar_url}
 													<img
-														src={talent.avatar_url}
+														src={getCardAvatarSrc(talent.avatar_url)}
+														srcset={getCardAvatarSrcSet(talent.avatar_url)}
+														sizes={supabaseImageSizes.avatarCard}
 														alt={getTalentName(talent)}
-														class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
+														class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+														loading="lazy"
+														decoding="async"
+														onerror={(event) =>
+															applyImageFallbackOnce(
+																event,
+																getCardAvatarFallbackSrc(talent.avatar_url)
+															)}
 													/>
 												{:else}
 													<div class="text-muted-fg flex h-full w-full items-center justify-center">

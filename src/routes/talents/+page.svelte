@@ -5,6 +5,15 @@
 	import type { SuperListHead } from '$lib/components/super-list';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		supabaseImageSizes,
+		supabaseImageSrcsetWidths,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	import { Alert, Button, Card, Input } from '@pixelcode_/blocks/components';
 	import { User, LayoutGrid, List, SlidersHorizontal, Search } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
@@ -68,6 +77,15 @@
 
 	const getTalentName = (talent: (typeof allTalents)[number]) =>
 		[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed Talent';
+	const getCardAvatarSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarCard);
+	const getCardAvatarSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, supabaseImageSrcsetWidths.avatarCard, {
+			height: supabaseImagePresets.avatarCard.height,
+			quality: supabaseImagePresets.avatarCard.quality,
+			resize: supabaseImagePresets.avatarCard.resize
+		});
+	const getCardAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
 	type TalentsListRow = {
 		id: string;
@@ -264,9 +282,15 @@
 						<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
 							{#if talent.avatar_url}
 								<img
-									src={talent.avatar_url}
+									src={getCardAvatarSrc(talent.avatar_url)}
+									srcset={getCardAvatarSrcSet(talent.avatar_url)}
+									sizes={supabaseImageSizes.avatarCard}
 									alt={getTalentName(talent)}
-									class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
+									class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+									loading="lazy"
+									decoding="async"
+									onerror={(event) =>
+										applyImageFallbackOnce(event, getCardAvatarFallbackSrc(talent.avatar_url))}
 								/>
 							{:else}
 								<div class="text-muted-fg flex h-full w-full items-center justify-center">

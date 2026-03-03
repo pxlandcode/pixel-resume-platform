@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { error } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
 import {
 	AUTH_COOKIE_NAMES,
 	createSupabaseServerClient,
@@ -23,12 +23,44 @@ const isServerless =
 	Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
 	Boolean(process.env.VERCEL) ||
 	Boolean(process.env.CF_PAGES);
+const DEFAULT_PDF_TARGET_MAX_BYTES = 1024 * 1024;
+const parsedTargetSize = Number.parseInt(process.env.PDF_TARGET_MAX_BYTES ?? '', 10);
+const PDF_TARGET_MAX_BYTES =
+	Number.isFinite(parsedTargetSize) && parsedTargetSize >= 300 * 1024
+		? parsedTargetSize
+		: DEFAULT_PDF_TARGET_MAX_BYTES;
+const PDF_IMAGE_BASE_MAX_WIDTH = 1000;
+const PDF_IMAGE_BASE_MAX_HEIGHT = 1000;
+const PDF_IMAGE_BASE_QUALITY = 0.72;
+const PDF_IMAGE_AGGRESSIVE_MAX_WIDTH = 760;
+const PDF_IMAGE_AGGRESSIVE_MAX_HEIGHT = 760;
+const PDF_IMAGE_AGGRESSIVE_QUALITY = 0.62;
+const PDF_IMAGE_EXTREME_MAX_WIDTH = 560;
+const PDF_IMAGE_EXTREME_MAX_HEIGHT = 560;
+const PDF_IMAGE_EXTREME_QUALITY = 0.46;
+const PDF_AVATAR_GENTLE_MAX_WIDTH = 460;
+const PDF_AVATAR_GENTLE_MAX_HEIGHT = 460;
+const PDF_AVATAR_GENTLE_QUALITY = 0.8;
+const PDF_AVATAR_LAST_RESORT_MAX_WIDTH = 360;
+const PDF_AVATAR_LAST_RESORT_MAX_HEIGHT = 360;
+const PDF_AVATAR_LAST_RESORT_QUALITY = 0.72;
+const PDF_ALLOW_SVG_RASTERIZATION = process.env.PDF_ALLOW_SVG_RASTERIZATION === '1';
+const RESUME_EXPORTS_BUCKET = (process.env.RESUME_EXPORTS_BUCKET ?? 'resume-exports').trim();
+const EXPORT_SIGNED_URL_TTL_SECONDS = 60 * 10;
 
 const toSafeFilename = (value: string) =>
 	value
 		.replace(/[\\/:*?"<>|]+/g, '')
 		.trim()
 		.replace(/\s+/g, ' ') || 'resume';
+
+const toSafePathSegment = (value: string) =>
+	value
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, '-')
+		.replace(/-+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.slice(0, 120) || 'resume';
 
 const isHttpError = (err: unknown): err is { status: number } =>
 	!!err && typeof err === 'object' && 'status' in err;
@@ -111,6 +143,301 @@ const launchBrowser = async (): Promise<import('playwright-core').Browser> => {
 	});
 };
 
+const buildPdfBuffer = async (page: import('playwright-core').Page): Promise<Buffer> => {
+	return page.pdf({
+		format: 'A4',
+		printBackground: true,
+		preferCSSPageSize: true,
+		margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' }
+	});
+};
+
+const tryDownsampleLargeImages = async (
+	page: import('playwright-core').Page,
+	options: {
+		maxWidth: number;
+		maxHeight: number;
+		quality: number;
+		reencodeAll?: boolean;
+		includeSvg?: boolean;
+		preserveTransparency?: boolean;
+	}
+): Promise<{
+	optimized: number;
+	failed: number;
+	skipped: number;
+}> => {
+	return page.evaluate(async (downsampleOptions) => {
+		const waitForLoad = (img: HTMLImageElement) =>
+			new Promise<void>((resolve) => {
+				if (img.complete) {
+					resolve();
+					return;
+				}
+				img.addEventListener('load', () => resolve(), { once: true });
+				img.addEventListener('error', () => resolve(), { once: true });
+			});
+
+		const maxWidth = Math.max(1, Math.round(downsampleOptions.maxWidth));
+		const maxHeight = Math.max(1, Math.round(downsampleOptions.maxHeight));
+		const quality = Math.min(1, Math.max(0.3, downsampleOptions.quality));
+		const reencodeAll = Boolean(downsampleOptions.reencodeAll);
+		const includeSvg = Boolean(downsampleOptions.includeSvg);
+		const preserveTransparency = downsampleOptions.preserveTransparency !== false;
+		let optimized = 0;
+		let failed = 0;
+		let skipped = 0;
+		const images = Array.from(document.images);
+		const hasTransparentPixels = (
+			ctx: CanvasRenderingContext2D,
+			width: number,
+			height: number
+		): boolean => {
+			try {
+				const imageData = ctx.getImageData(0, 0, width, height);
+				const { data } = imageData;
+				const sampleStep = Math.max(1, Math.floor(Math.max(width, height) / 128));
+				for (let y = 0; y < height; y += sampleStep) {
+					for (let x = 0; x < width; x += sampleStep) {
+						const alpha = data[(y * width + x) * 4 + 3];
+						if (alpha < 250) {
+							return true;
+						}
+					}
+				}
+			} catch {
+				// Ignore sampling failures and fall back to lossy mode.
+			}
+			return false;
+		};
+
+		for (const img of images) {
+			await waitForLoad(img);
+
+			const src = img.currentSrc || img.src;
+			if (!src) {
+				skipped += 1;
+				continue;
+			}
+			const lowerSrc = src.toLowerCase();
+			const looksSvg =
+				lowerSrc.startsWith('data:image/svg') ||
+				lowerSrc.endsWith('.svg') ||
+				lowerSrc.includes('.svg?');
+			if (looksSvg && !includeSvg) {
+				skipped += 1;
+				continue;
+			}
+
+			const width = img.naturalWidth;
+			const height = img.naturalHeight;
+			if (!width || !height) {
+				failed += 1;
+				continue;
+			}
+
+			if (!reencodeAll && width <= maxWidth && height <= maxHeight) {
+				skipped += 1;
+				continue;
+			}
+
+			const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
+			const nextWidth = Math.max(1, Math.round(width * ratio));
+			const nextHeight = Math.max(1, Math.round(height * ratio));
+
+			const canvas = document.createElement('canvas');
+			canvas.width = nextWidth;
+			canvas.height = nextHeight;
+			const ctx = canvas.getContext('2d');
+			if (!ctx) {
+				failed += 1;
+				continue;
+			}
+
+			let bitmap: ImageBitmap | null = null;
+			try {
+				// Fetching through JS avoids canvas tainting from cross-origin image tags,
+				// and lets us recompress logos/image assets too.
+				if (!src.startsWith('data:')) {
+					const imageResponse = await fetch(src, {
+						method: 'GET',
+						mode: 'cors',
+						credentials: 'omit',
+						cache: 'force-cache'
+					});
+					if (imageResponse.ok) {
+						const blob = await imageResponse.blob();
+						const blobType = (blob.type || '').toLowerCase();
+						const blobLooksSvg = blobType.includes('svg');
+						if (blobLooksSvg && !includeSvg) {
+							skipped += 1;
+							continue;
+						}
+						try {
+							bitmap = await createImageBitmap(blob);
+						} catch (bitmapErr) {
+							console.warn('[pdf] Failed to create bitmap from fetched image blob', bitmapErr);
+						}
+					}
+				}
+
+				if (bitmap) {
+					ctx.drawImage(bitmap, 0, 0, nextWidth, nextHeight);
+				} else {
+					ctx.drawImage(img, 0, 0, nextWidth, nextHeight);
+				}
+
+				const hasTransparency =
+					preserveTransparency && hasTransparentPixels(ctx, nextWidth, nextHeight);
+				let dataUrl = '';
+				if (hasTransparency) {
+					const webpDataUrl = canvas.toDataURL(
+						'image/webp',
+						Math.min(0.82, Math.max(0.5, quality))
+					);
+					dataUrl = webpDataUrl.startsWith('data:image/webp')
+						? webpDataUrl
+						: canvas.toDataURL('image/png');
+				} else {
+					dataUrl = canvas.toDataURL('image/jpeg', quality);
+				}
+				img.src = dataUrl;
+				img.removeAttribute('srcset');
+				img.loading = 'eager';
+				img.decoding = 'sync';
+				optimized += 1;
+			} catch (err) {
+				console.warn('[pdf] Failed to downsample image in page context', err);
+				failed += 1;
+			} finally {
+				bitmap?.close();
+			}
+		}
+
+		return { optimized, failed, skipped };
+	}, options);
+};
+
+const ensureAvatarReady = async (
+	page: import('playwright-core').Page
+): Promise<{ found: boolean; loaded: boolean; currentSrc: string | null }> => {
+	return page.evaluate(async () => {
+		const avatar = document.querySelector('[data-debug="avatar-image"]') as HTMLImageElement | null;
+		if (!avatar) return { found: false, loaded: false, currentSrc: null };
+
+		const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+		const waitForLoad = (img: HTMLImageElement) =>
+			new Promise<void>((resolve) => {
+				if (img.complete) {
+					resolve();
+					return;
+				}
+				img.addEventListener('load', () => resolve(), { once: true });
+				img.addEventListener('error', () => resolve(), { once: true });
+			});
+
+		for (let i = 0; i < 60; i += 1) {
+			if (avatar.complete && avatar.naturalWidth > 0) {
+				return {
+					found: true,
+					loaded: true,
+					currentSrc: avatar.currentSrc || avatar.src || null
+				};
+			}
+			await wait(50);
+		}
+
+		// If the optimized source failed, forcing plain src often recovers quickly.
+		if (avatar.getAttribute('srcset')) {
+			const fallbackSrc = avatar.getAttribute('data-fallback-src');
+			avatar.removeAttribute('srcset');
+			if (fallbackSrc && fallbackSrc.trim().length > 0) {
+				avatar.src = fallbackSrc;
+			}
+			await waitForLoad(avatar);
+		}
+
+		return {
+			found: true,
+			loaded: avatar.complete && avatar.naturalWidth > 0,
+			currentSrc: avatar.currentSrc || avatar.src || null
+		};
+	});
+};
+
+const tryCompressAvatarImage = async (
+	page: import('playwright-core').Page,
+	options: {
+		maxWidth: number;
+		maxHeight: number;
+		quality: number;
+	}
+): Promise<{ changed: boolean; reason?: string; width?: number; height?: number }> => {
+	return page.evaluate(async (avatarOptions) => {
+		const avatar = document.querySelector('[data-debug="avatar-image"]') as HTMLImageElement | null;
+		if (!avatar) return { changed: false, reason: 'avatar-not-found' };
+
+		const waitForLoad = (img: HTMLImageElement) =>
+			new Promise<void>((resolve) => {
+				if (img.complete) {
+					resolve();
+					return;
+				}
+				img.addEventListener('load', () => resolve(), { once: true });
+				img.addEventListener('error', () => resolve(), { once: true });
+			});
+
+		await waitForLoad(avatar);
+
+		const width = avatar.naturalWidth;
+		const height = avatar.naturalHeight;
+		if (!width || !height) {
+			return { changed: false, reason: 'avatar-not-loaded' };
+		}
+
+		const maxWidth = Math.max(1, Math.round(avatarOptions.maxWidth));
+		const maxHeight = Math.max(1, Math.round(avatarOptions.maxHeight));
+		const quality = Math.min(1, Math.max(0.5, avatarOptions.quality));
+		const ratio = Math.min(maxWidth / width, maxHeight / height, 1);
+		const nextWidth = Math.max(1, Math.round(width * ratio));
+		const nextHeight = Math.max(1, Math.round(height * ratio));
+
+		const canvas = document.createElement('canvas');
+		canvas.width = nextWidth;
+		canvas.height = nextHeight;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) {
+			return { changed: false, reason: 'missing-canvas-context' };
+		}
+
+		try {
+			ctx.drawImage(avatar, 0, 0, nextWidth, nextHeight);
+			avatar.src = canvas.toDataURL('image/jpeg', quality);
+			avatar.removeAttribute('srcset');
+			avatar.loading = 'eager';
+			avatar.decoding = 'sync';
+			return { changed: true, width: nextWidth, height: nextHeight };
+		} catch (err) {
+			console.warn('[pdf] Failed to compress avatar image in page context', err);
+			return { changed: false, reason: 'compression-failed' };
+		}
+	}, options);
+};
+
+const buildExportObjectPath = ({
+	userId,
+	resumeId,
+	filename
+}: {
+	userId: string;
+	resumeId: string;
+	filename: string;
+}): string => {
+	const safeFilename = toSafePathSegment(filename.replace(/\.pdf$/i, ''));
+	const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+	return `resume-exports/${toSafePathSegment(userId)}/${toSafePathSegment(resumeId)}/${timestamp}-${safeFilename}.pdf`;
+};
+
 const PDF_FILENAME = async (id: string, lang: string) => {
 	try {
 		const resume = await ResumeService.getResume(id);
@@ -121,7 +448,7 @@ const PDF_FILENAME = async (id: string, lang: string) => {
 		const person = await ResumeService.getPerson(resume.personId);
 		const name = toSafeFilename(person?.name ?? 'resume');
 		const kind = lang === 'sv' ? 'CV' : 'Resume';
-		const filename = `${name} - Pixel&Code - ${kind}.pdf`;
+		const filename = `${name} - Pixel and Code - ${kind}.pdf`;
 		console.log('[pdf] Generated filename:', filename);
 		return filename;
 	} catch (err) {
@@ -180,6 +507,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	}
 
 	let browser: import('playwright-core').Browser | null = null;
+	let uploadedObjectPath: string | null = null;
 
 	try {
 		browser = await launchBrowser();
@@ -383,16 +711,184 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			}
 		});
 		await page.waitForTimeout(200);
-
-		const pdfBuffer = await page.pdf({
-			format: 'A4',
-			printBackground: true,
-			preferCSSPageSize: true,
-			margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' }
+		const avatarStatus = await ensureAvatarReady(page);
+		console.log('[pdf] avatar status before PDF render', {
+			resumeId,
+			...avatarStatus
 		});
+		const baselineDownsampleResult = await tryDownsampleLargeImages(page, {
+			maxWidth: PDF_IMAGE_BASE_MAX_WIDTH,
+			maxHeight: PDF_IMAGE_BASE_MAX_HEIGHT,
+			quality: PDF_IMAGE_BASE_QUALITY,
+			reencodeAll: false,
+			includeSvg: false,
+			preserveTransparency: true
+		});
+		console.log('[pdf] baseline image downsample result', {
+			resumeId,
+			...baselineDownsampleResult,
+			maxWidth: PDF_IMAGE_BASE_MAX_WIDTH,
+			maxHeight: PDF_IMAGE_BASE_MAX_HEIGHT,
+			quality: PDF_IMAGE_BASE_QUALITY,
+			targetMaxBytes: PDF_TARGET_MAX_BYTES
+		});
+		await page.waitForTimeout(80);
+
+		let pdfBuffer = await buildPdfBuffer(page);
+		if (pdfBuffer.byteLength > PDF_TARGET_MAX_BYTES) {
+			console.warn('[pdf] PDF is above target, starting aggressive optimization', {
+				resumeId,
+				size: pdfBuffer.byteLength,
+				targetMaxBytes: PDF_TARGET_MAX_BYTES
+			});
+		}
+		const compressionProfiles = [
+			{
+				label: 'aggressive-raster',
+				maxWidth: PDF_IMAGE_AGGRESSIVE_MAX_WIDTH,
+				maxHeight: PDF_IMAGE_AGGRESSIVE_MAX_HEIGHT,
+				quality: PDF_IMAGE_AGGRESSIVE_QUALITY,
+				reencodeAll: false,
+				includeSvg: false,
+				preserveTransparency: true
+			},
+			{
+				label: 'aggressive-reencode',
+				maxWidth: PDF_IMAGE_AGGRESSIVE_MAX_WIDTH,
+				maxHeight: PDF_IMAGE_AGGRESSIVE_MAX_HEIGHT,
+				quality: PDF_IMAGE_AGGRESSIVE_QUALITY - 0.06,
+				reencodeAll: true,
+				includeSvg: false,
+				preserveTransparency: true
+			},
+			{
+				label: 'extreme-logos-included',
+				maxWidth: PDF_IMAGE_EXTREME_MAX_WIDTH,
+				maxHeight: PDF_IMAGE_EXTREME_MAX_HEIGHT,
+				quality: PDF_IMAGE_EXTREME_QUALITY,
+				reencodeAll: true,
+				includeSvg: PDF_ALLOW_SVG_RASTERIZATION,
+				preserveTransparency: true
+			}
+		] as const;
+
+		for (const profile of compressionProfiles) {
+			if (pdfBuffer.byteLength <= PDF_TARGET_MAX_BYTES) break;
+			const downsampleResult = await tryDownsampleLargeImages(page, profile);
+			console.log('[pdf] image downsample result', {
+				resumeId,
+				profile: profile.label,
+				...downsampleResult,
+				maxWidth: profile.maxWidth,
+				maxHeight: profile.maxHeight,
+				quality: profile.quality,
+				reencodeAll: profile.reencodeAll,
+				includeSvg: profile.includeSvg
+			});
+			await page.waitForTimeout(100);
+			pdfBuffer = await buildPdfBuffer(page);
+			console.log('[pdf] size after downsample profile', {
+				resumeId,
+				profile: profile.label,
+				size: pdfBuffer.byteLength,
+				targetMaxBytes: PDF_TARGET_MAX_BYTES
+			});
+		}
+
+		if (pdfBuffer.byteLength > PDF_TARGET_MAX_BYTES) {
+			const avatarProfiles = [
+				{
+					label: 'avatar-gentle',
+					maxWidth: PDF_AVATAR_GENTLE_MAX_WIDTH,
+					maxHeight: PDF_AVATAR_GENTLE_MAX_HEIGHT,
+					quality: PDF_AVATAR_GENTLE_QUALITY
+				},
+				{
+					label: 'avatar-last-resort',
+					maxWidth: PDF_AVATAR_LAST_RESORT_MAX_WIDTH,
+					maxHeight: PDF_AVATAR_LAST_RESORT_MAX_HEIGHT,
+					quality: PDF_AVATAR_LAST_RESORT_QUALITY
+				}
+			] as const;
+			for (const avatarProfile of avatarProfiles) {
+				if (pdfBuffer.byteLength <= PDF_TARGET_MAX_BYTES) break;
+				const avatarCompressResult = await tryCompressAvatarImage(page, avatarProfile);
+				console.warn('[pdf] PDF still above target, avatar fallback pass', {
+					resumeId,
+					size: pdfBuffer.byteLength,
+					targetMaxBytes: PDF_TARGET_MAX_BYTES,
+					profile: avatarProfile.label,
+					maxWidth: avatarProfile.maxWidth,
+					maxHeight: avatarProfile.maxHeight,
+					quality: avatarProfile.quality,
+					avatarChanged: avatarCompressResult.changed,
+					avatarReason: avatarCompressResult.reason,
+					avatarWidth: avatarCompressResult.width,
+					avatarHeight: avatarCompressResult.height
+				});
+				if (avatarCompressResult.changed) {
+					await page.waitForTimeout(50);
+					pdfBuffer = await buildPdfBuffer(page);
+					console.log('[pdf] size after avatar profile', {
+						resumeId,
+						profile: avatarProfile.label,
+						size: pdfBuffer.byteLength,
+						targetMaxBytes: PDF_TARGET_MAX_BYTES
+					});
+				}
+			}
+		}
+		if (pdfBuffer.byteLength > PDF_TARGET_MAX_BYTES) {
+			console.warn('[pdf] Could not reach target size after all optimization passes', {
+				resumeId,
+				size: pdfBuffer.byteLength,
+				targetMaxBytes: PDF_TARGET_MAX_BYTES
+			});
+		}
 
 		const filename = await PDF_FILENAME(resumeId, lang);
 		console.log('[pdf] Response filename:', filename, 'type:', typeof filename);
+		if (!RESUME_EXPORTS_BUCKET) {
+			throw error(500, 'Resume exports bucket is not configured.');
+		}
+
+		const objectPath = buildExportObjectPath({
+			userId: permissions.userId,
+			resumeId,
+			filename
+		});
+		const { error: uploadError } = await adminClient.storage
+			.from(RESUME_EXPORTS_BUCKET)
+			.upload(objectPath, pdfBuffer, {
+				contentType: 'application/pdf',
+				cacheControl: '120',
+				upsert: false
+			});
+		if (uploadError) {
+			console.error('[pdf] Failed to upload generated PDF to storage', {
+				resumeId,
+				bucket: RESUME_EXPORTS_BUCKET,
+				objectPath,
+				error: uploadError.message
+			});
+			throw error(500, 'Could not store generated PDF.');
+		}
+		uploadedObjectPath = objectPath;
+
+		const { data: signedData, error: signedUrlError } = await adminClient.storage
+			.from(RESUME_EXPORTS_BUCKET)
+			.createSignedUrl(objectPath, EXPORT_SIGNED_URL_TTL_SECONDS, { download: filename });
+		if (signedUrlError || !signedData?.signedUrl) {
+			console.error('[pdf] Failed to create signed URL for generated PDF', {
+				resumeId,
+				bucket: RESUME_EXPORTS_BUCKET,
+				objectPath,
+				error: signedUrlError?.message ?? 'missing signed URL'
+			});
+			await adminClient.storage.from(RESUME_EXPORTS_BUCKET).remove([objectPath]);
+			uploadedObjectPath = null;
+			throw error(500, 'Could not prepare PDF download link.');
+		}
 
 		const auditResult = await writeAuditLog({
 			actorUserId: exportPolicy.actorUserId,
@@ -405,21 +901,30 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 				template_used: exportPolicy.templateUsed,
 				source_org_id: exportPolicy.sourceOrganisationId,
 				target_org_id: exportPolicy.targetOrganisationId,
-				format: 'pdf'
+				format: 'pdf',
+				size_bytes: pdfBuffer.byteLength,
+				storage_bucket: RESUME_EXPORTS_BUCKET,
+				storage_object_path: objectPath
 			}
 		});
 		if (!auditResult.ok) {
+			await adminClient.storage.from(RESUME_EXPORTS_BUCKET).remove([objectPath]);
+			uploadedObjectPath = null;
 			throw error(500, auditResult.error || 'Could not write resume export audit log.');
 		}
 
-		return new Response(new Uint8Array(pdfBuffer), {
-			status: 200,
-			headers: {
-				'Content-Type': 'application/pdf',
-				'Content-Disposition': `attachment; filename="${filename}"`
-			}
+		return json({
+			ok: true,
+			filename,
+			sizeBytes: pdfBuffer.byteLength,
+			downloadUrl: signedData.signedUrl,
+			expiresAt: new Date(Date.now() + EXPORT_SIGNED_URL_TTL_SECONDS * 1000).toISOString()
 		});
 	} catch (err) {
+		if (uploadedObjectPath) {
+			await adminClient.storage.from(RESUME_EXPORTS_BUCKET).remove([uploadedObjectPath]);
+			uploadedObjectPath = null;
+		}
 		console.error('[pdf] Failed to generate PDF', err);
 		if (isHttpError(err)) {
 			throw err;

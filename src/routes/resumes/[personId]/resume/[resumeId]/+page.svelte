@@ -5,6 +5,7 @@
 	import { fly } from 'svelte/transition';
 	import { invalidateAll } from '$app/navigation';
 	import { loading } from '$lib/stores/loading';
+	import { resumeDownloadStore } from '$lib/stores/resumeDownloadStore';
 	import {
 		DEFAULT_ORGANISATION_BRANDING_THEME,
 		organisationBrandingThemeToInlineStyle
@@ -201,9 +202,15 @@
 		const debugParam = type === 'pdf' ? '&debug=1' : '';
 		const url = `/api/resumes/${data.resume.id}/${type}?lang=${downloadLanguage}${debugParam}`;
 		const filename = `${downloadBaseName}.${extension}`;
+		const ensureExtension = (rawName: string, ext: string) => {
+			const cleaned = rawName.trim();
+			if (!cleaned) return filename;
+			return cleaned.toLowerCase().endsWith(`.${ext}`) ? cleaned : `${cleaned}.${ext}`;
+		};
 
 		downloading = type;
 		loading(true, label);
+		resumeDownloadStore.start(type, label);
 		showDownloadOptions = false;
 
 		try {
@@ -212,16 +219,59 @@
 				const detail = await response.json().catch(() => null);
 				throw new Error(detail?.message ?? 'Failed to download file');
 			}
-			const blob = await response.blob();
-			const objectUrl = URL.createObjectURL(blob);
-			const link = document.createElement('a');
-			link.href = objectUrl;
-			link.download = filename;
-			link.rel = 'noopener';
-			document.body.appendChild(link);
-			link.click();
-			link.remove();
-			URL.revokeObjectURL(objectUrl);
+			const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+			if (type === 'pdf' && contentType.includes('application/json')) {
+				const payload = await response.json().catch(() => null);
+				const downloadUrl =
+					payload && typeof payload === 'object' && typeof payload.downloadUrl === 'string'
+						? payload.downloadUrl
+						: '';
+				const downloadFilename =
+					payload && typeof payload === 'object' && typeof payload.filename === 'string'
+						? payload.filename
+						: filename;
+				if (!downloadUrl) {
+					throw new Error('Failed to prepare PDF download link');
+				}
+				const normalizedDownloadFilename = ensureExtension(downloadFilename, 'pdf');
+
+				try {
+					const downloadResponse = await fetch(downloadUrl);
+					if (!downloadResponse.ok) {
+						throw new Error(`Signed download failed (${downloadResponse.status})`);
+					}
+					const downloadBlob = await downloadResponse.blob();
+					const objectUrl = URL.createObjectURL(downloadBlob);
+					const link = document.createElement('a');
+					link.href = objectUrl;
+					link.download = normalizedDownloadFilename;
+					link.rel = 'noopener';
+					document.body.appendChild(link);
+					link.click();
+					link.remove();
+					URL.revokeObjectURL(objectUrl);
+				} catch (downloadError) {
+					console.warn('[resume download] fallback to direct signed URL', downloadError);
+					const link = document.createElement('a');
+					link.href = downloadUrl;
+					link.download = normalizedDownloadFilename;
+					link.rel = 'noopener';
+					document.body.appendChild(link);
+					link.click();
+					link.remove();
+				}
+			} else {
+				const blob = await response.blob();
+				const objectUrl = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = objectUrl;
+				link.download = filename;
+				link.rel = 'noopener';
+				document.body.appendChild(link);
+				link.click();
+				link.remove();
+				URL.revokeObjectURL(objectUrl);
+			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to download file';
 			if (typeof toast.error === 'function') {
@@ -231,6 +281,7 @@
 			}
 		} finally {
 			downloading = null;
+			resumeDownloadStore.stop();
 			loading(false);
 		}
 	};

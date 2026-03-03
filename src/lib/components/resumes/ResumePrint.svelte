@@ -1,12 +1,27 @@
 <script lang="ts">
 	import type { ResumeData, LocalizedText, Person, TechCategory } from '$lib/types/resume';
 	import { soloImages } from '$lib/images/manifest';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		supabaseImageSizes,
+		supabaseImageSrcsetWidths,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	import pdfStyles from './pdf-print.css?inline';
 	import andLogo from '$lib/assets/and.svg?url';
 	import pixelcodeLogoDark from '$lib/assets/pixelcodelogodark.svg?url';
 	import worldclassUrl from '$lib/assets/worldclass.svg?url';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
+	type ResolvedImage = {
+		src: string;
+		srcset?: string;
+		fallbackSrc?: string;
+		sizes?: string;
+	};
 	type Language = 'sv' | 'en';
 
 	let {
@@ -52,13 +67,29 @@
 		}
 	});
 
-	const resolvedImage: ImageResource | { src: string; srcset?: string } | null = $derived.by(() => {
+	const resolvedImage: ResolvedImage | null = $derived.by(() => {
 		const source = image ?? person?.avatar_url ?? null;
 		if (!source) return null;
+
 		if (typeof source === 'string') {
-			return { src: source };
+			const fallbackSrc = getOriginalImageUrl(source);
+			return {
+				src: transformSupabasePublicUrl(source, supabaseImagePresets.avatarPrint),
+				srcset: transformSupabasePublicUrlSrcSet(source, supabaseImageSrcsetWidths.avatarPrint, {
+					height: supabaseImagePresets.avatarPrint.height,
+					quality: supabaseImagePresets.avatarPrint.quality,
+					resize: supabaseImagePresets.avatarPrint.resize
+				}),
+				fallbackSrc,
+				sizes: supabaseImageSizes.avatarPrint
+			};
 		}
-		return source;
+		return {
+			src: source.src,
+			srcset: source.srcset,
+			fallbackSrc: source.fallbackSrc ?? source.src,
+			sizes: supabaseImageSizes.avatarPrint
+		};
 	});
 
 	let profileTechStack: TechCategory[] = initialProfileTechStack ?? person?.techStack ?? [];
@@ -181,12 +212,16 @@
 						{#if resolvedImage}
 							<img
 								src={resolvedImage.src}
-								srcset={resolvedImage.srcset ?? resolvedImage.src}
+								srcset={resolvedImage.srcset}
+								sizes={resolvedImage.sizes}
 								alt={displayName || 'Profile'}
-								class="h-full w-full object-cover object-center"
+								class="h-full w-full object-contain object-center"
 								data-debug="avatar-image"
+								data-fallback-src={resolvedImage.fallbackSrc ?? resolvedImage.src}
 								loading="lazy"
 								decoding="async"
+								onerror={(event) =>
+									applyImageFallbackOnce(event, resolvedImage.fallbackSrc ?? resolvedImage.src)}
 							/>
 						{:else}
 							<div

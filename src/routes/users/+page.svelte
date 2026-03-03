@@ -3,6 +3,13 @@
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { SuperList, ListHandler, Cell, Row } from '$lib/components/super-list';
 	import type { SuperListHead } from '$lib/components/super-list';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	import { Alert, Badge, Button } from '@pixelcode_/blocks/components';
 	import { Pencil, User } from 'lucide-svelte';
 
@@ -123,6 +130,15 @@
 	const userListHandler = $derived(
 		new ListHandler<UsersListRow>(usersListHeadings, toListRows(data.users as LoadUser[]))
 	);
+	const detailAvatarSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
+	const detailAvatarSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, [64, 128], {
+			height: supabaseImagePresets.avatarList.height,
+			quality: supabaseImagePresets.avatarList.quality,
+			resize: supabaseImagePresets.avatarList.resize
+		});
+	const detailAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
 	const handleRowClick = (row: UsersListRow) => {
 		// Only open drawer on mobile (sm breakpoint is 640px)
@@ -257,9 +273,18 @@
 			<div class="flex items-center gap-4">
 				{#if selectedUserForDetail.avatar_url}
 					<img
-						src={selectedUserForDetail.avatar_url}
+						src={detailAvatarSrc(selectedUserForDetail.avatar_url)}
+						srcset={detailAvatarSrcSet(selectedUserForDetail.avatar_url)}
+						sizes="64px"
 						alt={selectedUserForDetail.fullName}
-						class="border-border h-16 w-16 rounded-full border object-cover"
+						class="border-border h-16 w-16 rounded-full border object-contain"
+						loading="lazy"
+						decoding="async"
+						onerror={(event) =>
+							applyImageFallbackOnce(
+								event,
+								detailAvatarFallbackSrc(selectedUserForDetail?.avatar_url)
+							)}
 					/>
 				{:else}
 					<div

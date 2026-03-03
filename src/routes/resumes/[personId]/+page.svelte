@@ -22,6 +22,15 @@
 	import { confirm } from '$lib/utils/confirm';
 	import { loading } from '$lib/stores/loading';
 	import { pdfImportStore } from '$lib/stores/pdfImportStore';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		supabaseImageSizes,
+		supabaseImageSrcsetWidths,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	import { get } from 'svelte/store';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import Uppy from '@uppy/core';
@@ -126,6 +135,17 @@
 	};
 
 	const displayedAvatarUrl = $derived(isEditing ? editingAvatarUrl : (profile?.avatar_url ?? ''));
+	const displayedAvatarSrc = $derived(
+		transformSupabasePublicUrl(displayedAvatarUrl, supabaseImagePresets.avatarProfile)
+	);
+	const displayedAvatarSrcSet = $derived(
+		transformSupabasePublicUrlSrcSet(displayedAvatarUrl, supabaseImageSrcsetWidths.avatarProfile, {
+			height: supabaseImagePresets.avatarProfile.height,
+			quality: supabaseImagePresets.avatarProfile.quality,
+			resize: supabaseImagePresets.avatarProfile.resize
+		})
+	);
+	const displayedAvatarFallbackSrc = $derived(getOriginalImageUrl(displayedAvatarUrl));
 
 	const handleAvatarUpload = async (
 		event: Event & { currentTarget: EventTarget & HTMLInputElement }
@@ -923,9 +943,15 @@
 					>
 						{#if displayedAvatarUrl}
 							<img
-								src={displayedAvatarUrl}
+								src={displayedAvatarSrc}
+								srcset={displayedAvatarSrcSet}
+								sizes={supabaseImageSizes.avatarProfile}
 								alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
-								class="h-full w-full object-cover"
+								class="h-full w-full object-contain"
+								loading="lazy"
+								decoding="async"
+								onerror={(event) =>
+									applyImageFallbackOnce(event, displayedAvatarFallbackSrc || displayedAvatarUrl)}
 							/>
 						{:else}
 							<div class="bg-muted text-muted-fg flex h-full w-full items-center justify-center">
