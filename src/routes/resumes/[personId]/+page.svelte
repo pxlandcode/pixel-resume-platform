@@ -33,8 +33,6 @@
 	} from '$lib/images/supabaseImage';
 	import { get } from 'svelte/store';
 	import { onDestroy, onMount, tick } from 'svelte';
-	import Uppy from '@uppy/core';
-	import Dashboard from '@uppy/dashboard';
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
 
 	const { data, form } = $props();
@@ -230,10 +228,14 @@
 		started_at: string | null;
 		completed_at: string | null;
 	};
+	type UppyCtor = typeof import('@uppy/core').default;
+	type DashboardPlugin = typeof import('@uppy/dashboard').default;
+	type UppyInstance = InstanceType<UppyCtor>;
 
 	let importStatus = $state<PdfImportPhase>('idle');
 	let uppyContainer: HTMLDivElement | null = null;
-	let uppy: InstanceType<typeof Uppy> | null = null;
+	let uppy: UppyInstance | null = null;
+	let uppyModulesPromise: Promise<{ Uppy: UppyCtor; Dashboard: DashboardPlugin }> | null = null;
 	let selectedImportFile = $state<UppyFile<Record<string, unknown>, Blob> | null>(null);
 	let importAbortController: AbortController | null = null;
 	let importPollAbortController: AbortController | null = null;
@@ -748,8 +750,23 @@
 		}
 	};
 
-	const initializeUppy = () => {
+	const loadUppyModules = async () => {
+		if (!uppyModulesPromise) {
+			uppyModulesPromise = Promise.all([import('@uppy/core'), import('@uppy/dashboard')]).then(
+				([uppyModule, dashboardModule]) => ({
+					Uppy: uppyModule.default,
+					Dashboard: dashboardModule.default
+				})
+			);
+		}
+
+		return uppyModulesPromise;
+	};
+
+	const initializeUppy = async () => {
 		if (!profile || !canEdit) return;
+		if (!uppyContainer || uppy) return;
+		const { Uppy, Dashboard } = await loadUppyModules();
 		if (!uppyContainer || uppy) return;
 
 		uppy = new Uppy({
@@ -804,7 +821,7 @@
 		selectedImportFile = null;
 		importDrawerOpen = true;
 		await tick();
-		initializeUppy();
+		await initializeUppy();
 	};
 
 	const closeImportDrawer = () => {
@@ -848,7 +865,7 @@
 			importDrawerWasOpened = true;
 			void (async () => {
 				await tick();
-				initializeUppy();
+				await initializeUppy();
 			})();
 			return;
 		}

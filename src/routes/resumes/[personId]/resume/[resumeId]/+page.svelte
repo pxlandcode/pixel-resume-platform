@@ -10,6 +10,7 @@
 		DEFAULT_ORGANISATION_BRANDING_THEME,
 		organisationBrandingThemeToInlineStyle
 	} from '$lib/branding/theme';
+	import type { ExperienceLibraryItem } from '$lib/types/resume';
 	import type {
 		ResumeAiGenerateParams,
 		ResumeAiGenerateResult
@@ -27,6 +28,9 @@
 	let downloading: 'pdf' | 'word' | null = $state(null);
 	let errorMessage = $state<string | null>(null);
 	let resumeViewRef: ReturnType<typeof ResumeView> | null = $state(null);
+	let experienceLibrary = $state<ExperienceLibraryItem[]>(data.experienceLibrary ?? []);
+	let experienceLibraryLoaded = $state(Boolean(data.experienceLibraryLoaded));
+	let loadingExperienceLibrary = $state(false);
 
 	$effect(() => {
 		if (!canEdit) {
@@ -149,6 +153,48 @@
 		}
 		return result;
 	};
+
+	const loadExperienceLibrary = async () => {
+		if (!canEdit || loadingExperienceLibrary || experienceLibraryLoaded) return;
+
+		loadingExperienceLibrary = true;
+		try {
+			const response = await fetch(`/internal/api/resumes/${data.resume.id}/experience-library`, {
+				method: 'GET',
+				credentials: 'include'
+			});
+			const payload = await response.json().catch(() => null);
+			if (!response.ok) {
+				throw new Error(
+					getErrorMessage(payload, 'Could not load experience library for this talent.')
+				);
+			}
+
+			const items =
+				payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)
+					? (((payload as { items?: unknown }).items as ExperienceLibraryItem[] | undefined) ?? [])
+					: [];
+			experienceLibrary = items;
+			experienceLibraryLoaded = true;
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: 'Could not load experience library for this talent.';
+			if (typeof toast.error === 'function') {
+				toast.error(message);
+			} else {
+				toast(message);
+			}
+		} finally {
+			loadingExperienceLibrary = false;
+		}
+	};
+
+	$effect(() => {
+		if (!isEditing || !canEdit) return;
+		void loadExperienceLibrary();
+	});
 
 	const handleCancel = () => {
 		if (!canEdit) return;
@@ -380,7 +426,12 @@
 				Download
 			</Button>
 			{#if canEdit}
-				<Button variant="primary" onclick={() => (isEditing = true)}>
+				<Button
+					variant="primary"
+					onclick={() => {
+						isEditing = true;
+					}}
+				>
 					<Icon icon={Edit} size="sm" />
 					Edit
 				</Button>
@@ -405,7 +456,7 @@
 				templateHomepageUrl={data.templateContext?.homepageUrl}
 				templateMainFontCssStack={data.templateContext?.mainFontCssStack}
 				templateIsPixelCode={data.templateContext?.isPixelCode}
-				experienceLibrary={data.experienceLibrary ?? []}
+				experienceLibrary={experienceLibrary}
 				onGenerateDescription={generateDescription}
 				{isEditing}
 			/>

@@ -9,11 +9,33 @@ import {
 } from '$lib/server/supabase';
 import { fail } from '@sveltejs/kit';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
-import { listExperienceLibrary, saveResumeData } from '$lib/server/resumes/store';
+import { saveResumeData } from '$lib/server/resumes/store';
 import type { ResumeData } from '$lib/types/resume';
-import { getActorAccessContext, resolvePrintTemplateContext } from '$lib/server/access';
+import {
+	getActorAccessContext,
+	resolvePrintTemplateContext,
+	type ActorAccessContext
+} from '$lib/server/access';
 import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
 import { writeAuditLog } from '$lib/server/legalService';
+
+const actorContextFromPermissions = (
+	permissions: Awaited<ReturnType<typeof getResumeEditPermissions>>
+): ActorAccessContext => {
+	const roles = permissions.roles ?? [];
+	return {
+		userId: permissions.userId,
+		roles,
+		primaryRole: roles[0] ?? null,
+		isAdmin: roles.includes('admin'),
+		isBroker: roles.includes('broker'),
+		isEmployer: roles.includes('employer'),
+		isTalent: roles.includes('talent'),
+		homeOrganisationId: permissions.homeOrganisationId,
+		accessibleOrganisationIds: permissions.accessibleOrganisationIds,
+		talentId: null
+	};
+};
 
 export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	const resumeId = params.resumeId;
@@ -25,27 +47,28 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 	const adminClient = getSupabaseAdminClient();
-
-	const resume = await ResumeService.getResume(resumeId);
-	const resumePerson = await ResumeService.getPerson(talentId);
+	const [resume, resumePerson, permissions] = await Promise.all([
+		ResumeService.getResume(resumeId),
+		ResumeService.getPerson(talentId),
+		getResumeEditPermissions(supabase, adminClient, talentId)
+	]);
 
 	if (!resume || resume.personId !== talentId) {
 		throw error(404, 'Resume not found');
 	}
 
-	const permissions = await getResumeEditPermissions(supabase, adminClient, resume.personId);
 	const { canView, canEdit, canEditAll, isOwnProfile } = permissions;
 	if (!canView) {
 		throw error(403, 'Not authorized to view this resume.');
 	}
 
-	const actor = await getActorAccessContext(supabase, adminClient);
+	const actor = actorContextFromPermissions(permissions);
 	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId, {
 		templateMode: 'org'
 	});
 	const auditOrganisationId = permissions.talentOrganisationId ?? actor.homeOrganisationId ?? null;
 	if (actor.userId && auditOrganisationId) {
-		const auditResult = await writeAuditLog({
+		void writeAuditLog({
 			actorUserId: actor.userId,
 			organisationId: auditOrganisationId,
 			actionType: 'RESUME_VIEW',
@@ -58,16 +81,12 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 				target_org_id: actor.homeOrganisationId,
 				template_used: templateContext.source === 'broker_home_org' ? 'broker' : 'org'
 			}
+		}).then((auditResult) => {
+			if (!auditResult.ok) {
+				console.warn('[resume detail] could not write resume view audit log', auditResult.error);
+			}
 		});
-		if (!auditResult.ok) {
-			console.warn('[resume detail] could not write resume view audit log', auditResult.error);
-		}
 	}
-
-	const experienceLibrary =
-		adminClient && canEdit
-			? await listExperienceLibrary(adminClient, talentId).catch(() => [])
-			: [];
 
 	const langParam = url.searchParams.get('lang');
 	const language = langParam === 'en' ? 'en' : 'sv';
@@ -76,7 +95,8 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		resume,
 		resumePerson,
 		templateContext,
-		experienceLibrary,
+		experienceLibrary: [],
+		experienceLibraryLoaded: false,
 		avatarUrl: resumePerson?.avatar_url ?? null,
 		language,
 		isPdf: url.searchParams.get('pdf') === '1',
