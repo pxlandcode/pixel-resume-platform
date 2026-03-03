@@ -6,22 +6,17 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import {
+	LEGAL_DOCUMENT_TYPE_ORDER,
 	getActiveLegalVersions,
 	getHomeOrganisationIdForUser,
 	getUserAcceptanceStatus,
+	type ActiveLegalVersions,
 	type LegalDocumentRecord
 } from '$lib/server/legalService';
 import { normalizeSafeRedirect } from '$lib/server/legalGate';
 
-const DOC_TYPE_ORDER = ['tos', 'privacy', 'ai_notice', 'data_sharing'] as const;
-
-const toOrderedDocuments = (active: {
-	tos: LegalDocumentRecord | null;
-	privacy: LegalDocumentRecord | null;
-	ai_notice: LegalDocumentRecord | null;
-	data_sharing: LegalDocumentRecord | null;
-}) =>
-	DOC_TYPE_ORDER.map((type) => active[type]).filter(
+const toOrderedDocuments = (active: ActiveLegalVersions) =>
+	LEGAL_DOCUMENT_TYPE_ORDER.map((type) => active[type]).filter(
 		(doc): doc is LegalDocumentRecord => doc !== null
 	);
 

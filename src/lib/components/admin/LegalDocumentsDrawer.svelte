@@ -1,13 +1,28 @@
 <script lang="ts">
 	import { Alert, Button, FormControl, Input } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
+	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import Plus from 'lucide-svelte/icons/plus';
+	import FileText from 'lucide-svelte/icons/file-text';
+
+	type LegalDocumentType =
+		| 'tos'
+		| 'privacy'
+		| 'ai_notice'
+		| 'data_sharing'
+		| 'data_processing_agreement'
+		| 'subprocessor_list';
+
+	type LegalAcceptanceScope = 'platform_access' | 'none';
 
 	type LegalDocument = {
 		id: string;
-		doc_type: 'tos' | 'privacy' | 'ai_notice' | 'data_sharing';
+		doc_type: LegalDocumentType;
 		version: string;
 		content_html: string;
 		effective_date: string;
+		acceptance_scope: LegalAcceptanceScope;
 		is_active: boolean;
 		created_at: string;
 	};
@@ -22,7 +37,62 @@
 
 	let localDocumentsOverride = $state<LegalDocument[] | null>(null);
 	const localDocuments = $derived(localDocumentsOverride ?? documents);
-	let docType = $state<'tos' | 'privacy' | 'ai_notice' | 'data_sharing'>('tos');
+
+	const allDocTypes: LegalDocumentType[] = [
+		'tos',
+		'privacy',
+		'ai_notice',
+		'data_sharing',
+		'data_processing_agreement',
+		'subprocessor_list'
+	];
+
+	// Group documents by type
+	const documentsByType = $derived.by(() => {
+		const grouped: Record<LegalDocumentType, LegalDocument[]> = {
+			tos: [],
+			privacy: [],
+			ai_notice: [],
+			data_sharing: [],
+			data_processing_agreement: [],
+			subprocessor_list: []
+		};
+
+		for (const doc of localDocuments) {
+			grouped[doc.doc_type].push(doc);
+		}
+
+		// Sort each group by effective date descending (latest first)
+		for (const type of allDocTypes) {
+			grouped[type] = grouped[type].slice().sort((a, b) => {
+				const byDate = b.effective_date.localeCompare(a.effective_date);
+				if (byDate !== 0) return byDate;
+				return b.created_at.localeCompare(a.created_at);
+			});
+		}
+
+		return grouped;
+	});
+
+	let selectedDocType = $state<LegalDocumentType | null>(null);
+	let selectedVersionIndex = $state(0);
+	let showCreateForm = $state(false);
+
+	// Get versions for selected doc type
+	const versionsForSelectedType = $derived.by(() => {
+		if (!selectedDocType) return [];
+		return documentsByType[selectedDocType] ?? [];
+	});
+
+	const currentDocument = $derived.by(() => {
+		const versions = versionsForSelectedType;
+		if (versions.length === 0) return null;
+		return versions[Math.min(selectedVersionIndex, versions.length - 1)] ?? null;
+	});
+
+	// Form state
+	let docType = $state<LegalDocumentType>('tos');
+	let acceptanceScope = $state<LegalAcceptanceScope>('platform_access');
 	let version = $state('');
 	let effectiveDate = $state('');
 	let contentHtml = $state('');
@@ -34,10 +104,20 @@
 	$effect(() => {
 		if (!open) {
 			localDocumentsOverride = null;
+			selectedDocType = null;
+			selectedVersionIndex = 0;
+			showCreateForm = false;
 		}
 	});
 
-	const docTypeLabel = (docTypeValue: LegalDocument['doc_type']) => {
+	// Reset version index when doc type changes
+	$effect(() => {
+		if (selectedDocType) {
+			selectedVersionIndex = 0;
+		}
+	});
+
+	const docTypeLabel = (docTypeValue: LegalDocumentType) => {
 		switch (docTypeValue) {
 			case 'tos':
 				return 'Terms of Service';
@@ -47,6 +127,29 @@
 				return 'AI Notice';
 			case 'data_sharing':
 				return 'Data Sharing Notice';
+			case 'data_processing_agreement':
+				return 'Data Processing Agreement';
+			case 'subprocessor_list':
+				return 'Subprocessor List';
+			default:
+				return docTypeValue;
+		}
+	};
+
+	const docTypeShortLabel = (docTypeValue: LegalDocumentType) => {
+		switch (docTypeValue) {
+			case 'tos':
+				return 'ToS';
+			case 'privacy':
+				return 'Privacy';
+			case 'ai_notice':
+				return 'AI Notice';
+			case 'data_sharing':
+				return 'Data Sharing';
+			case 'data_processing_agreement':
+				return 'DPA';
+			case 'subprocessor_list':
+				return 'Subprocessors';
 			default:
 				return docTypeValue;
 		}
@@ -59,9 +162,10 @@
 				method: 'GET',
 				credentials: 'include'
 			});
-			const payload = (await response.json().catch(() => null)) as
-				| { documents?: LegalDocument[]; message?: string }
-				| null;
+			const payload = (await response.json().catch(() => null)) as {
+				documents?: LegalDocument[];
+				message?: string;
+			} | null;
 			if (!response.ok) {
 				throw new Error(payload?.message ?? 'Could not refresh legal documents.');
 			}
@@ -92,14 +196,16 @@
 					doc_type: docType,
 					version,
 					effective_date: effectiveDate,
+					acceptance_scope: acceptanceScope,
 					content_html: contentHtml,
 					is_active: activateNow
 				})
 			});
 
-			const payload = (await response.json().catch(() => null)) as
-				| { ok?: boolean; message?: string }
-				| null;
+			const payload = (await response.json().catch(() => null)) as {
+				ok?: boolean;
+				message?: string;
+			} | null;
 			if (!response.ok || !payload?.ok) {
 				throw new Error(payload?.message ?? 'Could not create legal document.');
 			}
@@ -111,7 +217,9 @@
 			version = '';
 			effectiveDate = '';
 			contentHtml = '';
+			acceptanceScope = 'platform_access';
 			activateNow = true;
+			showCreateForm = false;
 			await refreshDocuments();
 		} catch (err) {
 			feedback = {
@@ -131,9 +239,10 @@
 				method: 'POST',
 				credentials: 'include'
 			});
-			const payload = (await response.json().catch(() => null)) as
-				| { ok?: boolean; message?: string }
-				| null;
+			const payload = (await response.json().catch(() => null)) as {
+				ok?: boolean;
+				message?: string;
+			} | null;
 			if (!response.ok || !payload?.ok) {
 				throw new Error(payload?.message ?? 'Could not activate legal document.');
 			}
@@ -151,108 +260,296 @@
 			isSaving = false;
 		}
 	};
+
+	const selectDocType = (type: LegalDocumentType) => {
+		selectedDocType = type;
+		selectedVersionIndex = 0;
+		showCreateForm = false;
+	};
+
+	const navigateVersion = (direction: 'prev' | 'next') => {
+		const versions = versionsForSelectedType;
+		if (direction === 'prev' && selectedVersionIndex > 0) {
+			selectedVersionIndex--;
+		} else if (direction === 'next' && selectedVersionIndex < versions.length - 1) {
+			selectedVersionIndex++;
+		}
+	};
+
+	const acceptanceScopeLabel = (scope: LegalAcceptanceScope) =>
+		scope === 'platform_access' ? 'Mandatory for platform access' : 'Reference only';
 </script>
 
 <Drawer
 	variant="right"
 	bind:open
 	title="Legal Documents"
-	subtitle="Create, review, and activate legal versions."
-	class="mr-0 w-full max-w-2xl"
+	subtitle="Manage and review legal document versions."
+	class="mr-0 w-full max-w-3xl"
 	dismissable
 >
-	<div class="flex flex-col gap-6 overflow-y-auto pb-16">
-		<form class="space-y-4" onsubmit={createDocument}>
-			<div class="grid gap-4 sm:grid-cols-2">
-				<FormControl label="Document type" class="gap-2 text-sm">
-					<select
-						class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
-						bind:value={docType}
-					>
-						<option value="tos">Terms of Service</option>
-						<option value="privacy">Privacy Notice</option>
-						<option value="ai_notice">AI Notice</option>
-						<option value="data_sharing">Data Sharing Notice</option>
-					</select>
-				</FormControl>
-				<FormControl label="Version" class="gap-2 text-sm">
-					<Input bind:value={version} placeholder="2026-03-15" required />
-				</FormControl>
-			</div>
-
-			<FormControl label="Effective date" class="gap-2 text-sm">
-				<input
-					type="date"
-					bind:value={effectiveDate}
-					required
-					class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
-				/>
-			</FormControl>
-
-			<FormControl label="Sanitized HTML content" class="gap-2 text-sm" tag="div">
-				<textarea
-					bind:value={contentHtml}
-					required
-					rows="10"
-					class="border-border bg-input text-foreground w-full rounded-sm border p-3 text-sm"
-					placeholder="Paste legal HTML content"
-				></textarea>
-			</FormControl>
-
-			<label class="text-foreground flex items-center gap-2 text-sm font-medium">
-				<input type="checkbox" bind:checked={activateNow} class="h-4 w-4" />
-				Activate immediately
-			</label>
-
-			<div class="flex items-center justify-end gap-2">
-				<Button type="button" variant="outline" size="sm" disabled={isRefreshing} onclick={refreshDocuments}
-					>{isRefreshing ? 'Refreshing...' : 'Refresh'}</Button
-				>
-				<Button type="submit" variant="primary" size="sm" disabled={isSaving}
-					>{isSaving ? 'Saving...' : 'Create document'}</Button
-				>
-			</div>
-		</form>
-
+	<div class="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
 		{#if feedback}
 			<Alert variant={feedback.type === 'success' ? 'success' : 'destructive'} size="sm">
 				<p class="text-foreground text-sm font-medium">{feedback.message}</p>
 			</Alert>
 		{/if}
 
-		<div class="space-y-3">
-			<h3 class="text-foreground text-sm font-semibold">Existing versions</h3>
-			<ul class="space-y-2">
-				{#each localDocuments as document (document.id)}
-					<li class="border-border bg-muted rounded-sm border p-3">
-						<div class="flex flex-wrap items-center justify-between gap-2">
-							<div>
-								<p class="text-foreground text-sm font-semibold">
-									{docTypeLabel(document.doc_type)} · {document.version}
-								</p>
-								<p class="text-muted-fg text-xs">Effective {document.effective_date}</p>
+		<div class="flex min-h-0 flex-1 gap-4 overflow-hidden">
+			<!-- Document type sidebar -->
+			<div
+				class="border-border bg-muted/30 flex w-44 shrink-0 flex-col gap-1 overflow-y-auto rounded-sm border p-2"
+			>
+				<p class="text-muted-fg px-2 py-1.5 text-xs font-medium uppercase tracking-wide">
+					Document types
+				</p>
+				{#each allDocTypes as type (type)}
+					{@const versions = documentsByType[type] ?? []}
+					{@const hasActive = versions.some((v) => v.is_active)}
+					<button
+						type="button"
+						class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors {selectedDocType ===
+						type
+							? 'bg-primary text-primary-fg'
+							: 'text-foreground hover:bg-muted'}"
+						onclick={() => selectDocType(type)}
+					>
+						<FileText class="h-4 w-4 shrink-0 opacity-60" />
+						<span class="min-w-0 flex-1 truncate">{docTypeShortLabel(type)}</span>
+						{#if hasActive}
+							<span class="h-2 w-2 shrink-0 rounded-full bg-emerald-500" title="Active"></span>
+						{:else if versions.length > 0}
+							<span class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="Inactive"></span>
+						{/if}
+					</button>
+				{/each}
+
+				<div class="border-border mt-2 border-t pt-2">
+					<button
+						type="button"
+						class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors {showCreateForm
+							? 'bg-primary text-primary-fg'
+							: 'text-foreground hover:bg-muted'}"
+						onclick={() => {
+							showCreateForm = true;
+							selectedDocType = null;
+						}}
+					>
+						<Plus class="h-4 w-4 shrink-0" />
+						<span>New document</span>
+					</button>
+				</div>
+
+				<div class="mt-auto pt-2">
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						class="w-full justify-start text-xs"
+						disabled={isRefreshing}
+						onclick={refreshDocuments}
+					>
+						{isRefreshing ? 'Refreshing...' : 'Refresh'}
+					</Button>
+				</div>
+			</div>
+
+			<!-- Main content area -->
+			<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+				{#if showCreateForm}
+					<!-- Create form -->
+					<div class="flex-1 overflow-y-auto">
+						<div class="border-border bg-card rounded-sm border p-4">
+							<h3 class="text-foreground mb-4 text-sm font-semibold">Create new document</h3>
+							<form class="space-y-4" onsubmit={createDocument}>
+								<div class="grid gap-4 sm:grid-cols-2">
+									<FormControl label="Document type" class="gap-2 text-sm">
+										<select
+											class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
+											bind:value={docType}
+										>
+											<option value="tos">Terms of Service</option>
+											<option value="privacy">Privacy Notice</option>
+											<option value="ai_notice">AI Notice</option>
+											<option value="data_sharing">Data Sharing Notice</option>
+											<option value="data_processing_agreement">Data Processing Agreement</option>
+											<option value="subprocessor_list">Subprocessor List</option>
+										</select>
+									</FormControl>
+									<FormControl label="Version" class="gap-2 text-sm">
+										<Input bind:value={version} placeholder="2026-03-15" required />
+									</FormControl>
+								</div>
+
+								<FormControl label="Mandatory Part" class="gap-2 text-sm">
+									<select
+										class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
+										bind:value={acceptanceScope}
+									>
+										<option value="platform_access">Platform Access (Mandatory)</option>
+										<option value="none">Reference Only (Not Required)</option>
+									</select>
+								</FormControl>
+
+								<FormControl label="Effective date" class="gap-2 text-sm">
+									<input
+										type="date"
+										bind:value={effectiveDate}
+										required
+										class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
+									/>
+								</FormControl>
+
+								<FormControl label="Sanitized HTML content" class="gap-2 text-sm" tag="div">
+									<textarea
+										bind:value={contentHtml}
+										required
+										rows="12"
+										class="border-border bg-input text-foreground w-full rounded-sm border p-3 font-mono text-sm"
+										placeholder="Paste legal HTML content"
+									></textarea>
+								</FormControl>
+
+								<label class="text-foreground flex items-center gap-2 text-sm font-medium">
+									<input type="checkbox" bind:checked={activateNow} class="h-4 w-4" />
+									Activate immediately
+								</label>
+
+								<div class="flex items-center justify-end gap-2 pt-2">
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										onclick={() => {
+											showCreateForm = false;
+										}}
+									>
+										Cancel
+									</Button>
+									<Button type="submit" variant="primary" size="sm" disabled={isSaving}>
+										{isSaving ? 'Creating...' : 'Create document'}
+									</Button>
+								</div>
+							</form>
+						</div>
+					</div>
+				{:else if selectedDocType && currentDocument}
+					{@const doc = currentDocument}
+					{@const versions = versionsForSelectedType}
+					<!-- Document viewer -->
+					<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+						<!-- Header with version nav -->
+						<div
+							class="border-border bg-muted/30 flex items-center justify-between gap-4 rounded-t-sm border border-b-0 px-4 py-3"
+						>
+							<div class="min-w-0 flex-1">
+								<h3 class="text-foreground text-sm font-semibold">
+									{docTypeLabel(selectedDocType)}
+								</h3>
+								{#if doc}
+									<p class="text-muted-fg mt-0.5 text-xs">
+										{#if doc.version}Version {doc.version}{/if}
+										{#if doc.effective_date}
+											{doc.version ? ' · ' : ''}Effective {doc.effective_date}
+										{/if}
+									</p>
+								{/if}
 							</div>
-							{#if document.is_active}
-								<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
-									>Active</span
-								>
-							{:else}
-								<Button
+
+							<div class="flex items-center gap-2">
+								{#if doc && doc.is_active}
+									<span
+										class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700"
+									>
+										Active
+									</span>
+								{:else if doc}
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										onclick={() => void activateDocument(doc.id)}
+										disabled={isSaving}
+									>
+										Activate
+									</Button>
+								{/if}
+								{#if doc}
+									<span
+										class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+									>
+										{acceptanceScopeLabel(doc.acceptance_scope)}
+									</span>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Version navigation -->
+						{#if versions.length > 1}
+							<div
+								class="border-border bg-card flex items-center justify-between border border-b-0 px-4 py-2"
+							>
+								<button
 									type="button"
-									variant="outline"
-									size="sm"
-									onclick={() => activateDocument(document.id)}
-									disabled={isSaving}
+									class="text-muted-fg hover:text-foreground flex items-center gap-1 text-xs disabled:opacity-40"
+									disabled={selectedVersionIndex <= 0}
+									onclick={() => navigateVersion('prev')}
 								>
-									Activate
-								</Button>
+									<ChevronLeft class="h-4 w-4" />
+									Newer
+								</button>
+								<span class="text-muted-fg text-xs">
+									{selectedVersionIndex + 1} of {versions.length} versions
+								</span>
+								<button
+									type="button"
+									class="text-muted-fg hover:text-foreground flex items-center gap-1 text-xs disabled:opacity-40"
+									disabled={selectedVersionIndex >= versions.length - 1}
+									onclick={() => navigateVersion('next')}
+								>
+									Older
+									<ChevronRight class="h-4 w-4" />
+								</button>
+							</div>
+						{/if}
+
+						<!-- Document content -->
+						<div
+							class="border-border bg-card min-h-0 flex-1 overflow-y-auto rounded-b-sm border p-4"
+						>
+							{#if doc}
+								<div class="prose prose-sm legal-html text-foreground max-w-none">
+									<!-- eslint-disable-next-line svelte/no-at-html-tags -->
+									{@html doc.content_html}
+								</div>
 							{/if}
 						</div>
-					</li>
+					</div>
 				{:else}
-					<li class="text-muted-fg text-xs">No legal documents found.</li>
-				{/each}
-			</ul>
+					<!-- Empty state -->
+					<div class="flex flex-1 items-center justify-center">
+						<div class="text-center">
+							<FileText class="text-muted-fg mx-auto h-12 w-12 opacity-50" />
+							<p class="text-muted-fg mt-3 text-sm">
+								Select a document type to view its content and version history.
+							</p>
+						</div>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 </Drawer>
+
+<style>
+	:global(.legal-html h1, .legal-html h2, .legal-html h3) {
+		margin-top: 1rem;
+		margin-bottom: 0.5rem;
+	}
+	:global(.legal-html p, .legal-html li) {
+		line-height: 1.5;
+	}
+	:global(.legal-html ul, .legal-html ol) {
+		padding-left: 1.2rem;
+	}
+</style>

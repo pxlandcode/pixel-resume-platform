@@ -7,7 +7,15 @@ import {
 } from '$lib/server/supabase';
 import { getActorAccessContext } from '$lib/server/access';
 
-const LEGAL_DOC_TYPES = new Set(['tos', 'privacy', 'ai_notice', 'data_sharing']);
+const LEGAL_DOC_TYPES = new Set([
+	'tos',
+	'privacy',
+	'ai_notice',
+	'data_sharing',
+	'data_processing_agreement',
+	'subprocessor_list'
+]);
+const LEGAL_ACCEPTANCE_SCOPES = new Set(['platform_access', 'none']);
 
 const htmlSanitizeOptions: sanitizeHtml.IOptions = {
 	allowedTags: [
@@ -81,6 +89,7 @@ const parseRequestBody = async (request: Request) => {
 			version: payload.version,
 			effectiveDate: payload.effective_date,
 			contentHtml: payload.content_html,
+			acceptanceScope: payload.acceptance_scope,
 			isActive: payload.is_active
 		};
 	}
@@ -91,6 +100,7 @@ const parseRequestBody = async (request: Request) => {
 		version: formData.get('version'),
 		effectiveDate: formData.get('effective_date'),
 		contentHtml: formData.get('content_html'),
+		acceptanceScope: formData.get('acceptance_scope'),
 		isActive: formData.get('is_active')
 	};
 };
@@ -100,7 +110,9 @@ export const GET: RequestHandler = async ({ cookies }) => {
 
 	const { data, error: queryError } = await adminClient
 		.from('legal_documents')
-		.select('id, doc_type, version, content_html, effective_date, is_active, created_at')
+		.select(
+			'id, doc_type, version, content_html, effective_date, acceptance_scope, is_active, created_at'
+		)
 		.order('doc_type', { ascending: true })
 		.order('effective_date', { ascending: false })
 		.order('created_at', { ascending: false });
@@ -120,6 +132,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const version = typeof parsed.version === 'string' ? parsed.version.trim() : '';
 	const effectiveDate = typeof parsed.effectiveDate === 'string' ? parsed.effectiveDate.trim() : '';
 	const rawHtml = typeof parsed.contentHtml === 'string' ? parsed.contentHtml : '';
+	const acceptanceScopeRaw =
+		typeof parsed.acceptanceScope === 'string' ? parsed.acceptanceScope.trim() : '';
+	const acceptanceScope = acceptanceScopeRaw || 'platform_access';
 	const isActive = normalizeBoolean(parsed.isActive);
 
 	if (!LEGAL_DOC_TYPES.has(docType)) {
@@ -127,6 +142,9 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	}
 	if (!version) {
 		return json({ message: 'Version is required.' }, { status: 400 });
+	}
+	if (!LEGAL_ACCEPTANCE_SCOPES.has(acceptanceScope)) {
+		return json({ message: 'Invalid acceptance scope.' }, { status: 400 });
 	}
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) {
 		return json({ message: 'Effective date must be in YYYY-MM-DD format.' }, { status: 400 });
@@ -144,13 +162,19 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			version,
 			content_html: sanitizedHtml,
 			effective_date: effectiveDate,
+			acceptance_scope: acceptanceScope,
 			is_active: false
 		})
-		.select('id, doc_type, version, content_html, effective_date, is_active, created_at')
+		.select(
+			'id, doc_type, version, content_html, effective_date, acceptance_scope, is_active, created_at'
+		)
 		.single();
 
 	if (insertError || !insertedDoc?.id) {
-		return json({ message: insertError?.message ?? 'Could not create legal document.' }, { status: 500 });
+		return json(
+			{ message: insertError?.message ?? 'Could not create legal document.' },
+			{ status: 500 }
+		);
 	}
 
 	if (isActive) {

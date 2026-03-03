@@ -25,7 +25,9 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 	const legalDocumentsResult = await adminClient
 		.from('legal_documents')
-		.select('id, doc_type, version, content_html, effective_date, is_active, created_at')
+		.select(
+			'id, doc_type, version, content_html, effective_date, acceptance_scope, is_active, created_at'
+		)
 		.order('doc_type', { ascending: true })
 		.order('effective_date', { ascending: false });
 

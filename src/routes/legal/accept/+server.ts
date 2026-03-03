@@ -67,8 +67,8 @@ export const POST: RequestHandler = async (event) => {
 		);
 	}
 
-	const activeVersions = await getActiveLegalVersions(adminClient);
-	if (!activeVersions.tos || !activeVersions.privacy || !activeVersions.ai_notice || !activeVersions.data_sharing) {
+	const acceptanceStatus = await getUserAcceptanceStatus(adminClient, userId, homeOrganisationId);
+	if (acceptanceStatus.missingActiveDocuments) {
 		return json(
 			{ ok: false, message: 'Active legal documents are not fully configured.' },
 			{ status: 503 }
@@ -111,6 +111,9 @@ export const POST: RequestHandler = async (event) => {
 			privacy_document_id: acceptance.privacy_document_id,
 			ai_notice_document_id: acceptance.ai_notice_document_id,
 			data_sharing_document_id: acceptance.data_sharing_document_id,
+			data_processing_agreement_document_id: acceptance.data_processing_agreement_document_id,
+			subprocessor_list_document_id: acceptance.subprocessor_list_document_id,
+			required_doc_types: acceptanceStatus.requiredDocTypes,
 			accepted_at: acceptance.accepted_at,
 			redirect_to: redirectTo
 		}

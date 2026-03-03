@@ -2,9 +2,30 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { RequestEvent } from '@sveltejs/kit';
 import { writeAuditLog as writeAuditLogImpl, type AuditActionType } from '$lib/server/auditService';
 
-export type LegalDocumentType = 'tos' | 'privacy' | 'ai_notice' | 'data_sharing';
+export const LEGAL_DOCUMENT_TYPE_ORDER = [
+	'tos',
+	'privacy',
+	'ai_notice',
+	'data_sharing',
+	'data_processing_agreement',
+	'subprocessor_list'
+] as const;
+
+export type LegalDocumentType = (typeof LEGAL_DOCUMENT_TYPE_ORDER)[number];
+export type LegalAcceptanceScope = 'platform_access' | 'none';
 export type SharingScope = 'view' | 'export_org_template' | 'export_broker_template';
 export type LawfulBasisType = 'consent_obtained' | 'contract' | 'legitimate_interest' | 'other';
+
+export const ACCEPTANCE_COLUMN_BY_DOC_TYPE = {
+	tos: 'tos_document_id',
+	privacy: 'privacy_document_id',
+	ai_notice: 'ai_notice_document_id',
+	data_sharing: 'data_sharing_document_id',
+	data_processing_agreement: 'data_processing_agreement_document_id',
+	subprocessor_list: 'subprocessor_list_document_id'
+} as const;
+
+export type AcceptanceDocumentIdField = (typeof ACCEPTANCE_COLUMN_BY_DOC_TYPE)[LegalDocumentType];
 
 export type LegalDocumentRecord = {
 	id: string;
@@ -12,24 +33,24 @@ export type LegalDocumentRecord = {
 	version: string;
 	content_html: string;
 	effective_date: string;
+	acceptance_scope: LegalAcceptanceScope;
 	created_at: string;
 };
 
-export type ActiveLegalVersions = {
-	tos: LegalDocumentRecord | null;
-	privacy: LegalDocumentRecord | null;
-	ai_notice: LegalDocumentRecord | null;
-	data_sharing: LegalDocumentRecord | null;
-};
+export type ActiveLegalVersions = Record<LegalDocumentType, LegalDocumentRecord | null>;
+
+export type ActiveDocumentIds = Record<AcceptanceDocumentIdField, string | null>;
 
 export type AcceptanceSnapshot = {
 	id: string;
 	user_id: string;
 	organisation_id: string;
-	tos_document_id: string;
-	privacy_document_id: string;
-	ai_notice_document_id: string;
-	data_sharing_document_id: string;
+	tos_document_id: string | null;
+	privacy_document_id: string | null;
+	ai_notice_document_id: string | null;
+	data_sharing_document_id: string | null;
+	data_processing_agreement_document_id: string | null;
+	subprocessor_list_document_id: string | null;
 	accepted_at: string;
 	ip_address: string | null;
 	user_agent: string | null;
@@ -38,17 +59,22 @@ export type AcceptanceSnapshot = {
 export type UserAcceptanceStatus = {
 	hasAcceptedCurrent: boolean;
 	missingActiveDocuments: boolean;
-	activeDocumentIds: {
-		tos_document_id: string | null;
-		privacy_document_id: string | null;
-		ai_notice_document_id: string | null;
-		data_sharing_document_id: string | null;
-	};
+	requiredDocTypes: LegalDocumentType[];
+	activeDocumentIds: ActiveDocumentIds;
 	latestAcceptance: AcceptanceSnapshot | null;
 };
 
 const isLegalDocType = (value: unknown): value is LegalDocumentType =>
-	value === 'tos' || value === 'privacy' || value === 'ai_notice' || value === 'data_sharing';
+	LEGAL_DOCUMENT_TYPE_ORDER.some((type) => type === value);
+
+const isLegalAcceptanceScope = (value: unknown): value is LegalAcceptanceScope =>
+	value === 'platform_access' || value === 'none';
+
+const isNullableString = (value: unknown): value is string | null =>
+	value === null || typeof value === 'string';
+
+const toNullableString = (value: unknown): string | null =>
+	typeof value === 'string' ? value : null;
 
 const asLegalDocumentRecord = (value: unknown): LegalDocumentRecord | null => {
 	if (!value || typeof value !== 'object') return null;
@@ -62,23 +88,26 @@ const asLegalDocumentRecord = (value: unknown): LegalDocumentRecord | null => {
 	) {
 		return null;
 	}
+	const acceptanceScope = isLegalAcceptanceScope(row.acceptance_scope)
+		? row.acceptance_scope
+		: 'platform_access';
+
 	return {
 		id: row.id,
 		doc_type: row.doc_type,
 		version: row.version,
 		content_html: row.content_html,
 		effective_date: row.effective_date,
+		acceptance_scope: acceptanceScope,
 		created_at: typeof row.created_at === 'string' ? row.created_at : new Date().toISOString()
 	};
 };
 
+const createEmptyActiveVersions = (): ActiveLegalVersions =>
+	Object.fromEntries(LEGAL_DOCUMENT_TYPE_ORDER.map((type) => [type, null])) as ActiveLegalVersions;
+
 const buildActiveVersions = (rows: LegalDocumentRecord[]): ActiveLegalVersions => {
-	const active: ActiveLegalVersions = {
-		tos: null,
-		privacy: null,
-		ai_notice: null,
-		data_sharing: null
-	};
+	const active = createEmptyActiveVersions();
 
 	for (const row of rows) {
 		active[row.doc_type] = row;
@@ -87,6 +116,15 @@ const buildActiveVersions = (rows: LegalDocumentRecord[]): ActiveLegalVersions =
 	return active;
 };
 
+const buildActiveDocumentIds = (active: ActiveLegalVersions): ActiveDocumentIds => ({
+	tos_document_id: active.tos?.id ?? null,
+	privacy_document_id: active.privacy?.id ?? null,
+	ai_notice_document_id: active.ai_notice?.id ?? null,
+	data_sharing_document_id: active.data_sharing?.id ?? null,
+	data_processing_agreement_document_id: active.data_processing_agreement?.id ?? null,
+	subprocessor_list_document_id: active.subprocessor_list?.id ?? null
+});
+
 const mapAcceptanceSnapshot = (value: unknown): AcceptanceSnapshot | null => {
 	if (!value || typeof value !== 'object') return null;
 	const row = value as Record<string, unknown>;
@@ -94,10 +132,15 @@ const mapAcceptanceSnapshot = (value: unknown): AcceptanceSnapshot | null => {
 		typeof row.id !== 'string' ||
 		typeof row.user_id !== 'string' ||
 		typeof row.organisation_id !== 'string' ||
-		typeof row.tos_document_id !== 'string' ||
-		typeof row.privacy_document_id !== 'string' ||
-		typeof row.ai_notice_document_id !== 'string' ||
-		typeof row.data_sharing_document_id !== 'string' ||
+		(row.tos_document_id !== undefined && !isNullableString(row.tos_document_id)) ||
+		(row.privacy_document_id !== undefined && !isNullableString(row.privacy_document_id)) ||
+		(row.ai_notice_document_id !== undefined && !isNullableString(row.ai_notice_document_id)) ||
+		(row.data_sharing_document_id !== undefined &&
+			!isNullableString(row.data_sharing_document_id)) ||
+		(row.data_processing_agreement_document_id !== undefined &&
+			!isNullableString(row.data_processing_agreement_document_id)) ||
+		(row.subprocessor_list_document_id !== undefined &&
+			!isNullableString(row.subprocessor_list_document_id)) ||
 		typeof row.accepted_at !== 'string'
 	) {
 		return null;
@@ -107,17 +150,23 @@ const mapAcceptanceSnapshot = (value: unknown): AcceptanceSnapshot | null => {
 		id: row.id,
 		user_id: row.user_id,
 		organisation_id: row.organisation_id,
-		tos_document_id: row.tos_document_id,
-		privacy_document_id: row.privacy_document_id,
-		ai_notice_document_id: row.ai_notice_document_id,
-		data_sharing_document_id: row.data_sharing_document_id,
+		tos_document_id: toNullableString(row.tos_document_id),
+		privacy_document_id: toNullableString(row.privacy_document_id),
+		ai_notice_document_id: toNullableString(row.ai_notice_document_id),
+		data_sharing_document_id: toNullableString(row.data_sharing_document_id),
+		data_processing_agreement_document_id: toNullableString(
+			row.data_processing_agreement_document_id
+		),
+		subprocessor_list_document_id: toNullableString(row.subprocessor_list_document_id),
 		accepted_at: row.accepted_at,
 		ip_address: typeof row.ip_address === 'string' ? row.ip_address : null,
 		user_agent: typeof row.user_agent === 'string' ? row.user_agent : null
 	};
 };
 
-export const extractRequestMetadata = (event: Pick<RequestEvent, 'request' | 'getClientAddress'>) => {
+export const extractRequestMetadata = (
+	event: Pick<RequestEvent, 'request' | 'getClientAddress'>
+) => {
 	const forwardedFor = event.request.headers.get('x-forwarded-for');
 	const ipFromForwarded = forwardedFor
 		?.split(',')
@@ -153,10 +202,12 @@ export const getHomeOrganisationIdForUser = async (
 	return typeof data?.organisation_id === 'string' ? data.organisation_id : null;
 };
 
-export const getActiveLegalVersions = async (client: SupabaseClient): Promise<ActiveLegalVersions> => {
+export const getActiveLegalVersions = async (
+	client: SupabaseClient
+): Promise<ActiveLegalVersions> => {
 	const { data, error } = await client
 		.from('view_active_legal_documents')
-		.select('id, doc_type, version, content_html, effective_date, created_at');
+		.select('id, doc_type, version, content_html, effective_date, acceptance_scope, created_at');
 
 	if (error) {
 		throw new Error(error.message);
@@ -175,19 +226,32 @@ export const getUserAcceptanceStatus = async (
 	organisationId: string
 ): Promise<UserAcceptanceStatus> => {
 	const activeVersions = await getActiveLegalVersions(client);
-	const activeDocumentIds = {
-		tos_document_id: activeVersions.tos?.id ?? null,
-		privacy_document_id: activeVersions.privacy?.id ?? null,
-		ai_notice_document_id: activeVersions.ai_notice?.id ?? null,
-		data_sharing_document_id: activeVersions.data_sharing?.id ?? null
-	};
-
-	const missingActiveDocuments = Object.values(activeDocumentIds).some((value) => !value);
+	const activeDocumentIds = buildActiveDocumentIds(activeVersions);
+	const requiredDocTypes = LEGAL_DOCUMENT_TYPE_ORDER.filter(
+		(type) => activeVersions[type]?.acceptance_scope === 'platform_access'
+	);
+	const missingActiveDocuments = LEGAL_DOCUMENT_TYPE_ORDER.some((type) => {
+		const field = ACCEPTANCE_COLUMN_BY_DOC_TYPE[type];
+		return !activeDocumentIds[field];
+	});
 
 	const { data, error } = await client
 		.from('user_legal_acceptances')
 		.select(
-			'id, user_id, organisation_id, tos_document_id, privacy_document_id, ai_notice_document_id, data_sharing_document_id, accepted_at, ip_address, user_agent'
+			[
+				'id',
+				'user_id',
+				'organisation_id',
+				'tos_document_id',
+				'privacy_document_id',
+				'ai_notice_document_id',
+				'data_sharing_document_id',
+				'data_processing_agreement_document_id',
+				'subprocessor_list_document_id',
+				'accepted_at',
+				'ip_address',
+				'user_agent'
+			].join(', ')
 		)
 		.eq('user_id', userId)
 		.eq('organisation_id', organisationId)
@@ -203,17 +267,19 @@ export const getUserAcceptanceStatus = async (
 
 	const hasAcceptedCurrent =
 		!missingActiveDocuments &&
-		Boolean(
-			latestAcceptance &&
-			latestAcceptance.tos_document_id === activeDocumentIds.tos_document_id &&
-			latestAcceptance.privacy_document_id === activeDocumentIds.privacy_document_id &&
-			latestAcceptance.ai_notice_document_id === activeDocumentIds.ai_notice_document_id &&
-			latestAcceptance.data_sharing_document_id === activeDocumentIds.data_sharing_document_id
-		);
+		(requiredDocTypes.length === 0 ||
+			Boolean(
+				latestAcceptance &&
+					requiredDocTypes.every((docType) => {
+						const field = ACCEPTANCE_COLUMN_BY_DOC_TYPE[docType];
+						return latestAcceptance[field] === activeDocumentIds[field];
+					})
+			));
 
 	return {
 		hasAcceptedCurrent,
 		missingActiveDocuments,
+		requiredDocTypes,
 		activeDocumentIds,
 		latestAcceptance
 	};

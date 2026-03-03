@@ -5,21 +5,37 @@
 
 	const { data } = $props();
 
-	type LegalDocument = {
+	type ActiveLegalDocument = {
 		id: string;
-		doc_type: 'tos' | 'privacy' | 'ai_notice' | 'data_sharing';
+		doc_type:
+			| 'tos'
+			| 'privacy'
+			| 'ai_notice'
+			| 'data_sharing'
+			| 'data_processing_agreement'
+			| 'subprocessor_list';
 		version: string;
 		content_html: string;
 		effective_date: string;
+		acceptance_scope: 'platform_access' | 'none';
 		created_at: string;
 	};
 
-	const activeDocuments = $derived((data.activeDocuments ?? []) as LegalDocument[]);
+	type ReviewDocument = {
+		id: string;
+		title: string;
+		version: string;
+		effective_date: string;
+		acceptance_scope: 'platform_access' | 'none';
+		content_html: string;
+	};
+
+	const activeDocuments = $derived((data.activeDocuments ?? []) as ActiveLegalDocument[]);
 	const missingHomeOrganisation = $derived(!data.homeOrganisationId);
 	const redirectTo = $derived((data.redirectTo as string | undefined) ?? '/');
 	const hasAcceptedCurrent = $derived(Boolean(data.acceptanceStatus?.hasAcceptedCurrent));
 
-	const docTypeLabel = (type: LegalDocument['doc_type']) => {
+	const docTypeLabel = (type: ActiveLegalDocument['doc_type']) => {
 		switch (type) {
 			case 'tos':
 				return 'Terms of Service';
@@ -29,19 +45,34 @@
 				return 'AI Notice';
 			case 'data_sharing':
 				return 'Data Sharing Notice';
+			case 'data_processing_agreement':
+				return 'Data Processing Agreement';
+			case 'subprocessor_list':
+				return 'Subprocessor List';
 			default:
 				return type;
 		}
 	};
 
-	let selectedDocument = $state<LegalDocument | null>(null);
+	const reviewDocuments = $derived<ReviewDocument[]>(
+		activeDocuments.map((document) => ({
+			id: document.id,
+			title: docTypeLabel(document.doc_type),
+			version: document.version,
+			effective_date: document.effective_date,
+			acceptance_scope: document.acceptance_scope,
+			content_html: document.content_html
+		}))
+	);
+
+	let selectedDocument = $state<ReviewDocument | null>(null);
 	let drawerOpen = $state(false);
 	let accepted = $state(false);
 	let isSubmitting = $state(false);
 	let message = $state<string | null>(null);
 	let messageType = $state<'error' | 'success'>('error');
 
-	const openDocument = (document: LegalDocument) => {
+	const openDocument = (document: ReviewDocument) => {
 		selectedDocument = document;
 		drawerOpen = true;
 	};
@@ -70,9 +101,11 @@
 				body: JSON.stringify({ redirectTo })
 			});
 
-			const payload = (await response.json().catch(() => null)) as
-				| { ok?: boolean; message?: string; redirectTo?: string }
-				| null;
+			const payload = (await response.json().catch(() => null)) as {
+				ok?: boolean;
+				message?: string;
+				redirectTo?: string;
+			} | null;
 
 			if (!response.ok || !payload?.ok) {
 				message = payload?.message ?? 'Could not save legal acceptance.';
@@ -104,23 +137,33 @@
 
 		{#if hasAcceptedCurrent}
 			<div class="border-border bg-card rounded-sm border p-4 text-sm">
-				You have already accepted the current legal documents. Redirecting should happen automatically.
+				You have already accepted the current legal documents. Redirecting should happen
+				automatically.
 			</div>
 		{/if}
 
 		{#if missingHomeOrganisation}
 			<div class="rounded-sm border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-				Your account is missing a home organisation. Ask an administrator to connect your user before
-				you continue.
+				Your account is missing a home organisation. Ask an administrator to connect your user
+				before you continue.
 			</div>
 		{/if}
 
 		<div class="grid gap-4 sm:grid-cols-2">
-			{#each activeDocuments as document (document.id)}
+			{#each reviewDocuments as document (document.id)}
 				<div class="border-border bg-card rounded-sm border p-4">
-					<p class="text-xs font-semibold uppercase tracking-wide">{docTypeLabel(document.doc_type)}</p>
-					<p class="mt-2 text-sm">Version {document.version}</p>
-					<p class="text-muted-fg mt-1 text-xs">Effective {document.effective_date}</p>
+					<p class="text-xs font-semibold uppercase tracking-wide">{document.title}</p>
+					{#if document.version}
+						<p class="mt-2 text-sm">Version {document.version}</p>
+					{/if}
+					{#if document.effective_date}
+						<p class="text-muted-fg mt-1 text-xs">Effective {document.effective_date}</p>
+					{/if}
+					<p class="text-muted-fg mt-1 text-xs">
+						{document.acceptance_scope === 'platform_access'
+							? 'Mandatory for platform access'
+							: 'Reference only'}
+					</p>
 					<Button
 						type="button"
 						variant="outline"
@@ -168,13 +211,13 @@
 <Drawer
 	variant="right"
 	bind:open={drawerOpen}
-	title={selectedDocument ? docTypeLabel(selectedDocument.doc_type) : ''}
+	title={selectedDocument ? selectedDocument.title : ''}
 	subtitle={selectedDocument ? `Version ${selectedDocument.version}` : undefined}
 	class="mr-0 w-full max-w-2xl"
 	dismissable
 >
 	{#if selectedDocument}
-		<div class="prose prose-sm max-w-none legal-html text-foreground" data-legal-html>
+		<div class="prose prose-sm legal-html text-foreground max-w-none" data-legal-html>
 			<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 			{@html selectedDocument.content_html}
 		</div>
