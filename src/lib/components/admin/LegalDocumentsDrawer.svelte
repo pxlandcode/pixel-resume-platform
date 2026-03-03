@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { Alert, Button, FormControl, Input } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
 	import Plus from 'lucide-svelte/icons/plus';
 	import FileText from 'lucide-svelte/icons/file-text';
+	import RefreshCw from 'lucide-svelte/icons/refresh-cw';
 
 	type LegalDocumentType =
 		| 'tos'
@@ -267,6 +269,11 @@
 		showCreateForm = false;
 	};
 
+	const goBackToList = () => {
+		selectedDocType = null;
+		showCreateForm = false;
+	};
+
 	const navigateVersion = (direction: 'prev' | 'next') => {
 		const versions = versionsForSelectedType;
 		if (direction === 'prev' && selectedVersionIndex > 0) {
@@ -275,9 +282,6 @@
 			selectedVersionIndex++;
 		}
 	};
-
-	const acceptanceScopeLabel = (scope: LegalAcceptanceScope) =>
-		scope === 'platform_access' ? 'Mandatory for platform access' : 'Reference only';
 </script>
 
 <Drawer
@@ -288,27 +292,42 @@
 	class="mr-0 w-full max-w-3xl"
 	dismissable
 >
-	<div class="flex h-full min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+	<div class="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
 		{#if feedback}
 			<Alert variant={feedback.type === 'success' ? 'success' : 'destructive'} size="sm">
 				<p class="text-foreground text-sm font-medium">{feedback.message}</p>
 			</Alert>
 		{/if}
 
-		<div class="flex min-h-0 flex-1 gap-4 overflow-hidden">
-			<!-- Document type sidebar -->
+		<!-- Mobile: Show either list or content -->
+		<!-- Desktop: Show both side by side -->
+		<div class="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row sm:gap-4">
+			<!-- Document type list -->
 			<div
-				class="border-border bg-muted/30 flex w-44 shrink-0 flex-col gap-1 overflow-y-auto rounded-sm border p-2"
+				class="border-border bg-muted/30 flex shrink-0 flex-col gap-1 overflow-y-auto rounded-sm border p-2 {selectedDocType ||
+				showCreateForm
+					? 'hidden sm:flex sm:w-40'
+					: 'flex-1 sm:w-40 sm:flex-none'}"
 			>
-				<p class="text-muted-fg px-2 py-1.5 text-xs font-medium uppercase tracking-wide">
-					Document types
-				</p>
+				<div class="flex items-center justify-between px-2 py-1.5">
+					<p class="text-muted-fg text-xs font-medium uppercase tracking-wide">Documents</p>
+					<button
+						type="button"
+						class="text-muted-fg hover:text-foreground p-1 transition-colors disabled:opacity-50"
+						disabled={isRefreshing}
+						onclick={refreshDocuments}
+						title="Refresh"
+					>
+						<RefreshCw class="h-3.5 w-3.5 {isRefreshing ? 'animate-spin' : ''}" />
+					</button>
+				</div>
+
 				{#each allDocTypes as type (type)}
 					{@const versions = documentsByType[type] ?? []}
 					{@const hasActive = versions.some((v) => v.is_active)}
 					<button
 						type="button"
-						class="flex items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors {selectedDocType ===
+						class="flex items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors sm:py-1.5 {selectedDocType ===
 						type
 							? 'bg-primary text-primary-fg'
 							: 'text-foreground hover:bg-muted'}"
@@ -321,13 +340,14 @@
 						{:else if versions.length > 0}
 							<span class="h-2 w-2 shrink-0 rounded-full bg-amber-500" title="Inactive"></span>
 						{/if}
+						<ChevronRight class="h-4 w-4 shrink-0 opacity-40 sm:hidden" />
 					</button>
 				{/each}
 
 				<div class="border-border mt-2 border-t pt-2">
 					<button
 						type="button"
-						class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors {showCreateForm
+						class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors sm:py-1.5 {showCreateForm
 							? 'bg-primary text-primary-fg'
 							: 'text-foreground hover:bg-muted'}"
 						onclick={() => {
@@ -336,54 +356,55 @@
 						}}
 					>
 						<Plus class="h-4 w-4 shrink-0" />
-						<span>New document</span>
+						<span class="flex-1">New document</span>
+						<ChevronRight class="h-4 w-4 shrink-0 opacity-40 sm:hidden" />
 					</button>
-				</div>
-
-				<div class="mt-auto pt-2">
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						class="w-full justify-start text-xs"
-						disabled={isRefreshing}
-						onclick={refreshDocuments}
-					>
-						{isRefreshing ? 'Refreshing...' : 'Refresh'}
-					</Button>
 				</div>
 			</div>
 
 			<!-- Main content area -->
-			<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+			<div
+				class="flex min-h-0 flex-1 flex-col overflow-hidden {!selectedDocType && !showCreateForm
+					? 'hidden sm:flex'
+					: ''}"
+			>
 				{#if showCreateForm}
 					<!-- Create form -->
-					<div class="flex-1 overflow-y-auto">
-						<div class="border-border bg-card rounded-sm border p-4">
+					<div class="flex flex-1 flex-col overflow-hidden">
+						<!-- Back button (mobile) -->
+						<button
+							type="button"
+							class="text-muted-fg hover:text-foreground mb-3 flex items-center gap-1.5 text-sm sm:hidden"
+							onclick={goBackToList}
+						>
+							<ArrowLeft class="h-4 w-4" />
+							Back to documents
+						</button>
+
+						<div class="border-border bg-card flex-1 overflow-y-auto rounded-sm border p-4">
 							<h3 class="text-foreground mb-4 text-sm font-semibold">Create new document</h3>
 							<form class="space-y-4" onsubmit={createDocument}>
-								<div class="grid gap-4 sm:grid-cols-2">
-									<FormControl label="Document type" class="gap-2 text-sm">
-										<select
-											class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
-											bind:value={docType}
-										>
-											<option value="tos">Terms of Service</option>
-											<option value="privacy">Privacy Notice</option>
-											<option value="ai_notice">AI Notice</option>
-											<option value="data_sharing">Data Sharing Notice</option>
-											<option value="data_processing_agreement">Data Processing Agreement</option>
-											<option value="subprocessor_list">Subprocessor List</option>
-										</select>
-									</FormControl>
-									<FormControl label="Version" class="gap-2 text-sm">
-										<Input bind:value={version} placeholder="2026-03-15" required />
-									</FormControl>
-								</div>
-
-								<FormControl label="Mandatory Part" class="gap-2 text-sm">
+								<FormControl label="Document type" class="gap-2 text-sm">
 									<select
-										class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
+										class="border-border bg-input text-foreground h-10 w-full rounded-sm border px-3 text-sm"
+										bind:value={docType}
+									>
+										<option value="tos">Terms of Service</option>
+										<option value="privacy">Privacy Notice</option>
+										<option value="ai_notice">AI Notice</option>
+										<option value="data_sharing">Data Sharing Notice</option>
+										<option value="data_processing_agreement">Data Processing Agreement</option>
+										<option value="subprocessor_list">Subprocessor List</option>
+									</select>
+								</FormControl>
+
+								<FormControl label="Version" class="gap-2 text-sm">
+									<Input bind:value={version} placeholder="2026-03-15" required />
+								</FormControl>
+
+								<FormControl label="Acceptance requirement" class="gap-2 text-sm">
+									<select
+										class="border-border bg-input text-foreground h-10 w-full rounded-sm border px-3 text-sm"
 										bind:value={acceptanceScope}
 									>
 										<option value="platform_access">Platform Access (Mandatory)</option>
@@ -396,7 +417,7 @@
 										type="date"
 										bind:value={effectiveDate}
 										required
-										class="border-border bg-input text-foreground h-10 rounded-sm border px-3 text-sm"
+										class="border-border bg-input text-foreground h-10 w-full rounded-sm border px-3 text-sm"
 									/>
 								</FormControl>
 
@@ -404,8 +425,8 @@
 									<textarea
 										bind:value={contentHtml}
 										required
-										rows="12"
-										class="border-border bg-input text-foreground w-full rounded-sm border p-3 font-mono text-sm"
+										rows="10"
+										class="border-border bg-input text-foreground w-full rounded-sm border p-3 font-mono text-xs"
 										placeholder="Paste legal HTML content"
 									></textarea>
 								</FormControl>
@@ -415,18 +436,25 @@
 									Activate immediately
 								</label>
 
-								<div class="flex items-center justify-end gap-2 pt-2">
+								<div class="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
 									<Button
 										type="button"
 										variant="ghost"
 										size="sm"
+										class="w-full sm:w-auto"
 										onclick={() => {
 											showCreateForm = false;
 										}}
 									>
 										Cancel
 									</Button>
-									<Button type="submit" variant="primary" size="sm" disabled={isSaving}>
+									<Button
+										type="submit"
+										variant="primary"
+										size="sm"
+										class="w-full sm:w-auto"
+										disabled={isSaving}
+									>
 										{isSaving ? 'Creating...' : 'Create document'}
 									</Button>
 								</div>
@@ -438,17 +466,27 @@
 					{@const versions = versionsForSelectedType}
 					<!-- Document viewer -->
 					<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+						<!-- Back button (mobile) -->
+						<button
+							type="button"
+							class="text-muted-fg hover:text-foreground mb-3 flex items-center gap-1.5 text-sm sm:hidden"
+							onclick={goBackToList}
+						>
+							<ArrowLeft class="h-4 w-4" />
+							Back to documents
+						</button>
+
 						<!-- Header with version nav -->
 						<div
-							class="border-border bg-muted/30 flex items-center justify-between gap-4 rounded-t-sm border border-b-0 px-4 py-3"
+							class="border-border bg-muted/30 flex flex-col gap-2 rounded-t-sm border border-b-0 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-3"
 						>
-							<div class="min-w-0 flex-1">
+							<div class="min-w-0">
 								<h3 class="text-foreground text-sm font-semibold">
 									{docTypeLabel(selectedDocType)}
 								</h3>
 								{#if doc}
 									<p class="text-muted-fg mt-0.5 text-xs">
-										{#if doc.version}Version {doc.version}{/if}
+										{#if doc.version}v{doc.version}{/if}
 										{#if doc.effective_date}
 											{doc.version ? ' · ' : ''}Effective {doc.effective_date}
 										{/if}
@@ -456,10 +494,10 @@
 								{/if}
 							</div>
 
-							<div class="flex items-center gap-2">
+							<div class="flex flex-wrap items-center gap-2">
 								{#if doc && doc.is_active}
 									<span
-										class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700"
+										class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
 									>
 										Active
 									</span>
@@ -476,9 +514,9 @@
 								{/if}
 								{#if doc}
 									<span
-										class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+										class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700"
 									>
-										{acceptanceScopeLabel(doc.acceptance_scope)}
+										{doc.acceptance_scope === 'platform_access' ? 'Mandatory' : 'Reference'}
 									</span>
 								{/if}
 							</div>
@@ -487,7 +525,7 @@
 						<!-- Version navigation -->
 						{#if versions.length > 1}
 							<div
-								class="border-border bg-card flex items-center justify-between border border-b-0 px-4 py-2"
+								class="border-border bg-card flex items-center justify-between border border-b-0 px-3 py-2 sm:px-4"
 							>
 								<button
 									type="button"
@@ -496,10 +534,10 @@
 									onclick={() => navigateVersion('prev')}
 								>
 									<ChevronLeft class="h-4 w-4" />
-									Newer
+									<span class="xs:inline hidden">Newer</span>
 								</button>
 								<span class="text-muted-fg text-xs">
-									{selectedVersionIndex + 1} of {versions.length} versions
+									{selectedVersionIndex + 1} / {versions.length}
 								</span>
 								<button
 									type="button"
@@ -507,7 +545,7 @@
 									disabled={selectedVersionIndex >= versions.length - 1}
 									onclick={() => navigateVersion('next')}
 								>
-									Older
+									<span class="xs:inline hidden">Older</span>
 									<ChevronRight class="h-4 w-4" />
 								</button>
 							</div>
@@ -515,7 +553,7 @@
 
 						<!-- Document content -->
 						<div
-							class="border-border bg-card min-h-0 flex-1 overflow-y-auto rounded-b-sm border p-4"
+							class="border-border bg-card min-h-0 flex-1 overflow-y-auto rounded-b-sm border p-3 sm:p-4"
 						>
 							{#if doc}
 								<div class="prose prose-sm legal-html text-foreground max-w-none">
@@ -526,13 +564,11 @@
 						</div>
 					</div>
 				{:else}
-					<!-- Empty state -->
-					<div class="flex flex-1 items-center justify-center">
+					<!-- Empty state (desktop only) -->
+					<div class="hidden flex-1 items-center justify-center sm:flex">
 						<div class="text-center">
 							<FileText class="text-muted-fg mx-auto h-12 w-12 opacity-50" />
-							<p class="text-muted-fg mt-3 text-sm">
-								Select a document type to view its content and version history.
-							</p>
+							<p class="text-muted-fg mt-3 text-sm">Select a document type to view its content.</p>
 						</div>
 					</div>
 				{/if}

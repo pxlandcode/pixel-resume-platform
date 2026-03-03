@@ -1,17 +1,10 @@
 # Legal Pack (Sweden/EU) - 2026-03-03
 
-This folder contains finalized legal documents for Resume Platform operated by Pixel&Code AB.
+This folder contains the SQL publishing artifact for legal documents in Resume Platform operated by Pixel&Code AB.
 
 Included files:
 
-- `tos.html` (`doc_type = tos`)
-- `privacy.html` (`doc_type = privacy`)
-- `ai_notice.html` (`doc_type = ai_notice`)
-- `data_sharing.html` (`doc_type = data_sharing`)
-- `data_processing_agreement.html` (`doc_type = data_processing_agreement`)
-- `subprocessor_list.html` (`doc_type = subprocessor_list`)
 - `publish.sql` (upsert + activate all in-product legal documents)
-- `prompt-to-add.md` (extended maintenance prompt)
 
 ## Versioning in this pack
 
@@ -34,13 +27,10 @@ It will:
 2. Set `is_active = true` for that version.
 3. Trigger the existing active-version logic and re-acceptance flow.
 
-## Why both HTML and SQL?
+## Source of Truth
 
-- The `.html` files are the source-of-truth document bodies and can be used directly in the admin UI
-  (`/settings` -> Legal Documents -> `content_html`).
-- `publish.sql` is a deployment convenience script that inserts/activates those same documents in one
-  run.
-- So yes, you do use the HTML files. The SQL just automates publishing them.
+- `publish.sql` is the only source of truth for published legal content in this pack.
+- Legal content is stored in `public.legal_documents`.
 
 ## Pre-launch reset (optional)
 
