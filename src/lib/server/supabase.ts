@@ -1,5 +1,4 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { env as privateEnv } from '$env/dynamic/private';
 import type { Cookies } from '@sveltejs/kit';
 
 export const AUTH_COOKIE_NAMES = {
@@ -9,9 +8,12 @@ export const AUTH_COOKIE_NAMES = {
 
 let adminClient: SupabaseClient | null = null;
 
+const runtimeEnv: Record<string, string | undefined> =
+	typeof process !== 'undefined' && process.env ? process.env : {};
+
 const readEnv = (...keys: string[]): string | null => {
 	for (const key of keys) {
-		const value = privateEnv[key]?.trim();
+		const value = runtimeEnv[key]?.trim();
 		if (value) return value;
 	}
 	return null;

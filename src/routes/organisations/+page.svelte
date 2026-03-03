@@ -7,6 +7,7 @@
 	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
 	import OrganisationMembershipDrawer from '$lib/components/admin/OrganisationMembershipDrawer.svelte';
 	import { Globe, Settings, Palette, Users } from 'lucide-svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 
 	let { data, form } = $props();
 
@@ -35,11 +36,21 @@
 		last_name: string | null;
 	};
 
+	type DataSharingPermission = {
+		id: string;
+		source_organisation_id: string;
+		target_organisation_id: string;
+		sharing_scope: 'view' | 'export_org_template' | 'export_broker_template';
+		approved_by_admin_id: string;
+		approved_at: string | null;
+	};
+
 	const organisations = $derived(data.organisations ?? []);
 	const templates = $derived(data.templates ?? []);
 	const membershipsUsers = $derived(data.membershipsUsers ?? []);
 	const membershipsTalents = $derived(data.membershipsTalents ?? []);
 	const accessGrants = $derived(data.accessGrants ?? []);
+	const dataSharingPermissions = $derived(data.dataSharingPermissions ?? []);
 	const users = $derived((data.users ?? []) as UserRow[]);
 	const talents = $derived((data.talents ?? []) as TalentRow[]);
 
@@ -98,6 +109,16 @@
 		return map;
 	});
 
+	const sharingPermissionsBySourceOrg = $derived.by(() => {
+		const map: Record<string, Array<DataSharingPermission>> = {};
+		for (const row of dataSharingPermissions as Array<DataSharingPermission>) {
+			const list = map[row.source_organisation_id] ?? [];
+			list.push(row);
+			map[row.source_organisation_id] = list;
+		}
+		return map;
+	});
+
 	const eligibleGrantUsers = $derived(
 		users.filter((user) => user.roles.includes('broker') || user.roles.includes('employer'))
 	);
@@ -118,7 +139,7 @@
 		>
 	);
 	const userHomeOrgNames = $derived.by(() => {
-		const map = new Map<string, string>();
+		const map = new SvelteMap<string, string>();
 		for (const m of membershipsUsers as Array<{ organisation_id: string; user_id: string }>) {
 			const org = orgById[m.organisation_id];
 			if (org) {
@@ -186,95 +207,100 @@
 	);
 </script>
 
-<div class="flex items-center justify-between">
-	<div>
-		<h1 class="text-foreground text-2xl font-semibold">Organisations</h1>
-		<p class="text-muted-fg text-sm">
+<div class="relative space-y-6">
+	<div class="absolute right-0 top-0 z-10 flex items-center gap-2">
+		<div class="bg-primary inline-flex items-center rounded-sm p-1">
+			<Button variant="primary" size="sm" type="button" class="px-3" onclick={openCreateDrawer}>
+				Create organisation
+			</Button>
+		</div>
+	</div>
+
+	<header>
+		<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Organisations</h1>
+		<p class="text-muted-fg mt-3 text-lg">
 			Manage organisation templates, home memberships, and cross-organisation access grants.
 		</p>
-	</div>
-	<Button variant="primary" size="md" type="button" onclick={openCreateDrawer}>
-		Create organisation
-	</Button>
-</div>
+	</header>
 
-{#if actionMessage}
-	<Alert class="mt-4" variant={actionFailed ? 'destructive' : 'success'} size="sm">
-		<p class="text-foreground text-sm font-medium">{actionMessage}</p>
-	</Alert>
-{/if}
+	{#if actionMessage}
+		<Alert variant={actionFailed ? 'destructive' : 'success'} size="sm">
+			<p class="text-foreground text-sm font-medium">{actionMessage}</p>
+		</Alert>
+	{/if}
 
-{#if organisations.length === 0}
-	<div class="mt-6">
-		<p class="text-muted-fg text-sm font-medium">
-			No organisations yet. Create your first organisation to get started.
-		</p>
-	</div>
-{:else}
-	<div class="mt-6">
+	{#if organisations.length === 0}
+		<div class="border-border bg-card rounded-sm border p-6">
+			<p class="text-muted-fg text-sm font-medium">
+				No organisations yet. Create your first organisation to get started.
+			</p>
+		</div>
+	{:else}
 		<SuperList instance={orgListHandler} emptyMessage="No organisations found">
 			{#each orgListHandler.data as row (row.id)}
 				<Row.Root>
-					<Cell.Value width={30}>
+					<Cell.Value width={30} class="mobile-fill-cell">
 						<span class="text-foreground text-sm font-semibold">{row.displayName}</span>
 					</Cell.Value>
-					<Cell.Value width={16}>
+					<Cell.Value width={16} class="hidden sm:block">
 						<span class="text-muted-fg font-mono text-sm">{row.slug}</span>
 					</Cell.Value>
-					<Cell.Value width={22}>
+					<Cell.Value width={22} class="hidden sm:block">
 						{#if row.homepage_url}
-							<a
-								href={row.homepage_url}
-								target="_blank"
-								rel="noopener noreferrer"
+							<button
+								type="button"
+								onclick={() => window.open(row.homepage_url ?? '', '_blank', 'noopener,noreferrer')}
 								class="text-primary hover:text-primary/80 inline-flex items-center gap-1 text-sm hover:underline"
 							>
 								<Globe size={14} />
 								<span class="max-w-[180px] truncate">{row.homepage_url}</span>
-							</a>
+							</button>
 						{:else}
 							<span class="text-muted-fg text-xs">Not set</span>
 						{/if}
 					</Cell.Value>
-					<Cell.Value width={32}>
+					<Cell.Value width={32} class="mobile-action-cell">
 						<div class="flex justify-end gap-2">
 							<Button
 								variant="outline"
 								size="sm"
 								type="button"
+								aria-label={`Open details for ${row.displayName}`}
 								onclick={() => openDetailsDrawer(row.source)}
-								class="gap-1.5"
+								class="gap-0 sm:gap-1.5"
 							>
 								<Settings size={14} />
-								Details
+								<span class="sr-only sm:not-sr-only">Details</span>
 							</Button>
 							<Button
 								variant="outline"
 								size="sm"
 								type="button"
+								aria-label={`Open branding for ${row.displayName}`}
 								onclick={() => openBrandingDrawer(row.source)}
-								class="gap-1.5"
+								class="gap-0 sm:gap-1.5"
 							>
 								<Palette size={14} />
-								Branding
+								<span class="sr-only sm:not-sr-only">Branding</span>
 							</Button>
 							<Button
 								variant="outline"
 								size="sm"
 								type="button"
+								aria-label={`Open access for ${row.displayName}`}
 								onclick={() => openMembershipDrawer(row.source)}
-								class="gap-1.5"
+								class="gap-0 sm:gap-1.5"
 							>
 								<Users size={14} />
-								Access
+								<span class="sr-only sm:not-sr-only">Access</span>
 							</Button>
 						</div>
 					</Cell.Value>
 				</Row.Root>
 			{/each}
 		</SuperList>
-	</div>
-{/if}
+	{/if}
+</div>
 
 <OrganisationCreateDrawer bind:open={isCreateDrawerOpen} />
 
@@ -289,6 +315,7 @@
 <OrganisationMembershipDrawer
 	bind:open={isMembershipDrawerOpen}
 	organisation={selectedOrganisation}
+	{organisations}
 	{users}
 	{talents}
 	userMemberships={selectedOrganisation
@@ -298,8 +325,25 @@
 		? (talentMembershipsByOrg[selectedOrganisation.id] ?? [])
 		: []}
 	accessGrants={selectedOrganisation ? (grantsByOrg[selectedOrganisation.id] ?? []) : []}
+	dataSharingPermissions={selectedOrganisation
+		? (sharingPermissionsBySourceOrg[selectedOrganisation.id] ?? [])
+		: []}
 	{eligibleGrantUsers}
 	{usersWithHomeOrg}
 	{talentsWithHomeOrg}
 	{userHomeOrgNames}
 />
+
+<style>
+	@media (max-width: 639px) {
+		:global(.mobile-fill-cell) {
+			width: auto !important;
+			flex: 1 1 0% !important;
+		}
+
+		:global(.mobile-action-cell) {
+			width: auto !important;
+			flex: 0 0 auto !important;
+		}
+	}
+</style>

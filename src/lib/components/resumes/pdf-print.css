@@ -3,38 +3,40 @@
    ====================================================================== */
 
 .pdf-mode {
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    background: #ffffff !important;
+	-webkit-print-color-adjust: exact !important;
+	print-color-adjust: exact !important;
+	background: #ffffff !important;
 }
 
 @media print {
-    html, body {
-        margin: 0 !important;
-        padding: 0 !important;
-        background: #ffffff !important;
-    }
+	html,
+	body {
+		margin: 0 !important;
+		padding: 0 !important;
+		background: #ffffff !important;
+	}
 
-    .pdf-mode {
-        display: block !important;
-        min-height: auto !important;
-        background: #ffffff !important;
-    }
+	.pdf-mode {
+		display: block !important;
+		min-height: auto !important;
+		background: #ffffff !important;
+	}
 
-    @page {
-        size: A4;
-        margin: 15mm;
-    }
+	@page {
+		size: A4;
+		margin: 15mm;
+	}
 
-    /* First page has no @page margin - page-1 handles its own padding */
-    @page :first {
-        margin: 0;
-    }
+	/* First page has no @page margin - page-1 handles its own padding */
+	@page :first {
+		margin: 0;
+	}
 }
 
 /* Ensure light background when viewing/exporting in browser */
-html, body {
-    background: #ffffff !important;
+html,
+body {
+	background: #ffffff !important;
 }
 
 /* ======================================================================
@@ -42,38 +44,38 @@ html, body {
    ====================================================================== */
 
 .pdf-mode .resume-print-page {
-    width: 210mm !important;
-    max-width: 210mm !important;
-    min-height: 297mm !important;
-    padding: 15mm !important; /* Uniform padding for screen view */
-    box-sizing: border-box !important;
-    position: relative !important;
-    margin: 0 auto !important; /* Center the page */
-    overflow-x: hidden !important;
+	width: 210mm !important;
+	max-width: 210mm !important;
+	min-height: 297mm !important;
+	padding: 15mm !important; /* Uniform padding for screen view */
+	box-sizing: border-box !important;
+	position: relative !important;
+	margin: 0 auto !important; /* Center the page */
+	overflow-x: hidden !important;
 }
 
 @media print {
-    /* Page 1: Fixed height cover page */
-    .pdf-mode .resume-print-page.page-1 {
-        width: 210mm !important;
-        max-width: 210mm !important;
-        height: 297mm !important;
-        padding: 15mm !important;
-        overflow: hidden !important;
-        page-break-after: always !important;
-        break-after: page !important;
-        margin: 0 !important;
-    }
+	/* Page 1: Fixed height cover page */
+	.pdf-mode .resume-print-page.page-1 {
+		width: 210mm !important;
+		max-width: 210mm !important;
+		height: 297mm !important;
+		padding: 15mm !important;
+		overflow: hidden !important;
+		page-break-after: always !important;
+		break-after: page !important;
+		margin: 0 !important;
+	}
 
-    /* Page 2+: Content flows naturally within @page margins */
-    .pdf-mode .resume-print-page.page-2-plus {
-        width: auto !important;
-        max-width: 100% !important;
-        min-height: calc(297mm - 30mm) !important;
-        background: #ffffff !important;
-        padding: 0 !important; /* @page margin handles spacing */
-        margin: 0 !important;
-    }
+	/* Page 2+: Content flows naturally within @page margins */
+	.pdf-mode .resume-print-page.page-2-plus {
+		width: auto !important;
+		max-width: 100% !important;
+		min-height: calc(297mm - 30mm) !important;
+		background: #ffffff !important;
+		padding: 0 !important; /* @page margin handles spacing */
+		margin: 0 !important;
+	}
 }
 
 /* ======================================================================
@@ -81,35 +83,35 @@ html, body {
    ====================================================================== */
 
 .pdf-mode .resume-header-content {
-    height: 100% !important;
-    display: flex !important;
-    flex-direction: column !important;
+	height: 100% !important;
+	display: flex !important;
+	flex-direction: column !important;
 }
 
 .pdf-mode .header-top {
-    flex: 1 !important; /* Allow it to grow */
-    display: flex !important;
-    flex-direction: column !important;
+	flex: 1 !important; /* Allow it to grow */
+	display: flex !important;
+	flex-direction: column !important;
 }
 
 .pdf-mode .header-brand {
-    display: block !important;
-    margin-bottom: 6mm !important;
+	display: block !important;
+	margin-bottom: 6mm !important;
 }
 
 @media print {
-    .pdf-mode .header-brand {
-        margin-top: 0 !important;
-        padding-top: 0 !important;
-    }
+	.pdf-mode .header-brand {
+		margin-top: 0 !important;
+		padding-top: 0 !important;
+	}
 }
 
 .pdf-mode .header-grid {
-    display: grid !important;
-    grid-template-columns: 45mm 1fr !important;
-    gap: 2rem !important;
-    width: 100% !important;
-    flex: 1 !important; /* Fill remaining space */
+	display: grid !important;
+	grid-template-columns: 45mm 1fr !important;
+	gap: 2rem !important;
+	width: 100% !important;
+	flex: 1 !important; /* Fill remaining space */
 }
 
 /* ======================================================================
@@ -117,13 +119,13 @@ html, body {
    ====================================================================== */
 
 .pdf-mode .consultant-profile {
-    display: flex !important;
-    flex-direction: column !important;
-    height: 100% !important;
+	display: flex !important;
+	flex-direction: column !important;
+	height: 100% !important;
 }
 
 .pdf-mode .consultant-profile .ampersand-logo {
-    margin-top: auto !important;
+	margin-top: auto !important;
 }
 
 /* ======================================================================
@@ -131,7 +133,7 @@ html, body {
    ====================================================================== */
 
 .pdf-mode .page-break {
-    display: none !important; /* Hide the page-break element - natural flow handles pagination */
+	display: none !important; /* Hide the page-break element - natural flow handles pagination */
 }
 
 /* ======================================================================
@@ -139,37 +141,37 @@ html, body {
    ====================================================================== */
 
 @media print {
-    /* Allow sections and items to break across pages naturally */
-    .pdf-mode .resume-print-section {
-        page-break-inside: auto !important;
-        break-inside: auto !important;
-    }
+	/* Allow sections and items to break across pages naturally */
+	.pdf-mode .resume-print-section {
+		page-break-inside: auto !important;
+		break-inside: auto !important;
+	}
 
-    /* Avoid orphaned section headers - keep header with following content */
-    .pdf-mode .resume-print-section h2 {
-        page-break-after: avoid !important;
-        break-after: avoid !important;
-    }
+	/* Avoid orphaned section headers - keep header with following content */
+	.pdf-mode .resume-print-section h2 {
+		page-break-after: avoid !important;
+		break-after: avoid !important;
+	}
 
-    /* Avoid widows and orphans in paragraphs */
-    .pdf-mode p {
-        orphans: 2;
-        widows: 2;
-    }
+	/* Avoid widows and orphans in paragraphs */
+	.pdf-mode p {
+		orphans: 2;
+		widows: 2;
+	}
 
-    /* Ensure grids work in print - md: breakpoint may not apply */
-    .pdf-mode .resume-print-section .grid {
-        display: grid !important;
-        grid-template-columns: 45mm 1fr !important; /* Two columns: labels and content */
-        gap: 2rem !important;
-    }
+	/* Ensure grids work in print - md: breakpoint may not apply */
+	.pdf-mode .resume-print-section .grid {
+		display: grid !important;
+		grid-template-columns: 45mm 1fr !important; /* Two columns: labels and content */
+		gap: 2rem !important;
+	}
 
-    /* Header grid on page 1 */
-    .pdf-mode .header-grid {
-        display: grid !important;
-        grid-template-columns: 45mm 1fr !important;
-        gap: 2rem !important;
-    }
+	/* Header grid on page 1 */
+	.pdf-mode .header-grid {
+		display: grid !important;
+		grid-template-columns: 45mm 1fr !important;
+		gap: 2rem !important;
+	}
 }
 /* ======================================================================
    TYPOGRAPHY
@@ -180,14 +182,22 @@ html, body {
    ====================================================================== */
 
 .pdf-mode .resume-print-page {
-    font-family: 'Montserrat', sans-serif !important;
-    font-size: 10.5pt !important;
-    line-height: 1.2 !important;
-    color: #0f172a !important; /* Ensure dark text */
-    word-wrap: break-word !important;
-    overflow-wrap: break-word !important;
-    word-break: normal !important; /* Don't break words, wrap whole words */
-    hyphens: none !important; /* No automatic hyphenation */
+	font-family: var(
+		--resume-main-font,
+		'Inter',
+		'Segoe UI',
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		sans-serif
+	) !important;
+	font-size: 10.5pt !important;
+	line-height: 1.2 !important;
+	color: #0f172a !important; /* Ensure dark text */
+	word-wrap: break-word !important;
+	overflow-wrap: break-word !important;
+	word-break: normal !important; /* Don't break words, wrap whole words */
+	hyphens: none !important; /* No automatic hyphenation */
 }
 
 /* Aggressively override Tailwind classes for all text elements */
@@ -196,47 +206,66 @@ html, body {
 .pdf-mode .resume-print-page span,
 .pdf-mode .resume-print-page li,
 .pdf-mode .resume-print-page a {
-    font-family: 'Montserrat', sans-serif !important;
-    font-size: 10.5pt !important;
-    line-height: 1.2 !important;
-    word-wrap: break-word !important;
-    overflow-wrap: break-word !important;
-    word-break: normal !important;
-    hyphens: none !important;
+	font-family: var(
+		--resume-main-font,
+		'Inter',
+		'Segoe UI',
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		sans-serif
+	) !important;
+	font-size: 10.5pt !important;
+	line-height: 1.2 !important;
+	word-wrap: break-word !important;
+	overflow-wrap: break-word !important;
+	word-break: normal !important;
+	hyphens: none !important;
 }
 
 /* Specifically target skills and contact in consultant profile */
 .pdf-mode .consultant-profile .text-sm,
 .pdf-mode .consultant-profile .text-xs {
-    font-size: 10.5pt !important;
-    line-height: 1.2 !important;
+	font-size: 10.5pt !important;
+	line-height: 1.2 !important;
 }
 
 /* Ensure list items or divs in skills grid follow suit */
 .pdf-mode .consultant-profile .space-y-1 > div {
-    line-height: 1.2 !important;
-    margin-bottom: 2px !important; /* Add tiny spacing since line-height is tight */
+	line-height: 1.2 !important;
+	margin-bottom: 2px !important; /* Add tiny spacing since line-height is tight */
 }
 
 /* Headers might need to be larger, but let's respect the base for now unless overridden */
-.pdf-mode h1, .pdf-mode h2, .pdf-mode h3, .pdf-mode h4 {
-    font-family: 'Montserrat', sans-serif !important;
-    word-break: keep-all !important; /* Don't break words, allow line wrap between words */
-    overflow-wrap: normal !important;
-    hyphens: none !important;
+.pdf-mode h1,
+.pdf-mode h2,
+.pdf-mode h3,
+.pdf-mode h4 {
+	font-family: var(
+		--resume-main-font,
+		'Inter',
+		'Segoe UI',
+		system-ui,
+		-apple-system,
+		BlinkMacSystemFont,
+		sans-serif
+	) !important;
+	word-break: keep-all !important; /* Don't break words, allow line wrap between words */
+	overflow-wrap: normal !important;
+	hyphens: none !important;
 }
 
 /* Prevent section labels from breaking mid-word */
 .pdf-mode .resume-print-section .uppercase {
-    word-break: keep-all !important;
-    overflow-wrap: normal !important;
-    hyphens: none !important;
+	word-break: keep-all !important;
+	overflow-wrap: normal !important;
+	hyphens: none !important;
 }
 
 /* Exception: Proudly Presents text */
 .pdf-mode .header-brand p {
-    font-family: 'Fave Script', cursive !important;
-    font-size: 1.5rem !important; /* text-2xl approx */
-    line-height: normal !important;
-    color: #f35b3f !important; /* text-primary */
+	font-family: 'Fave Script', cursive !important;
+	font-size: 1.5rem !important; /* text-2xl approx */
+	line-height: normal !important;
+	color: var(--color-primary) !important; /* text-primary */
 }

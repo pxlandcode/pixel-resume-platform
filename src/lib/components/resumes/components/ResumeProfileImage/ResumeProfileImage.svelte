@@ -1,7 +1,22 @@
 <script lang="ts">
 	import { soloImages } from '$lib/images/manifest';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		supabaseImageSizes,
+		supabaseImageSrcsetWidths,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
+	type ResolvedImage = {
+		src: string;
+		srcset?: string;
+		fallbackSrc?: string;
+		sizes?: string;
+	};
 
 	let {
 		image,
@@ -11,29 +26,48 @@
 		name: string;
 	} = $props();
 
-	const resolved = $derived.by(() => {
+	const resolved = $derived.by<ResolvedImage | null>(() => {
 		if (!image) return null;
+
 		if (typeof image === 'string') {
-			return { src: image } as ImageResource;
+			const fallbackSrc = getOriginalImageUrl(image);
+			return {
+				src: transformSupabasePublicUrl(image, supabaseImagePresets.avatarProfile),
+				srcset: transformSupabasePublicUrlSrcSet(image, supabaseImageSrcsetWidths.avatarProfile, {
+					height: supabaseImagePresets.avatarProfile.height,
+					quality: supabaseImagePresets.avatarProfile.quality,
+					resize: supabaseImagePresets.avatarProfile.resize
+				}),
+				fallbackSrc,
+				sizes: supabaseImageSizes.avatarProfile
+			};
 		}
-		return image;
+
+		return {
+			src: image.src,
+			srcset: image.srcset,
+			fallbackSrc: image.fallbackSrc ?? image.src,
+			sizes: supabaseImageSizes.avatarProfile
+		};
 	});
 </script>
 
 <div
-	class="relative aspect-square w-full flex-shrink-0 overflow-hidden rounded-xs border border-border bg-card"
+	class="rounded-xs border-border bg-card relative aspect-square w-full flex-shrink-0 overflow-hidden border"
 >
 	{#if resolved}
 		<img
 			src={resolved.src}
 			srcset={resolved.srcset}
+			sizes={resolved.sizes}
 			alt={name || 'Profile'}
-			class="h-full w-full object-cover object-center"
+			class="h-full w-full object-contain object-center"
 			loading="lazy"
 			decoding="async"
+			onerror={(event) => applyImageFallbackOnce(event, resolved.fallbackSrc ?? resolved.src)}
 		/>
 	{:else}
-		<div class="absolute inset-0 flex items-center justify-center bg-muted text-secondary-text">
+		<div class="bg-muted text-secondary-text absolute inset-0 flex items-center justify-center">
 			<svg
 				xmlns="http://www.w3.org/2000/svg"
 				class="h-20 w-20"

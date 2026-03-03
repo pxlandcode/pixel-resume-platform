@@ -5,6 +5,11 @@
 	import { fly } from 'svelte/transition';
 	import { invalidateAll } from '$app/navigation';
 	import { loading } from '$lib/stores/loading';
+	import { resumeDownloadStore } from '$lib/stores/resumeDownloadStore';
+	import {
+		DEFAULT_ORGANISATION_BRANDING_THEME,
+		organisationBrandingThemeToInlineStyle
+	} from '$lib/branding/theme';
 	import type {
 		ResumeAiGenerateParams,
 		ResumeAiGenerateResult
@@ -31,6 +36,11 @@
 
 	const personName = $derived(data.resumePerson?.name ?? 'Resume');
 	const avatarImage = $derived(data.avatarUrl ?? data.resumePerson?.avatar_url ?? null);
+	const resumeTemplateBrandingStyle = $derived.by(() => {
+		const theme = data.templateContext?.brandingTheme ?? DEFAULT_ORGANISATION_BRANDING_THEME;
+		const inlineVars = organisationBrandingThemeToInlineStyle(theme);
+		return `${inlineVars}; --color-primary: ${theme.light.primary};`;
+	});
 	const downloadBaseName = $derived(() => {
 		const name = (personName ?? 'Resume').trim();
 		const kind = downloadLanguage === 'sv' ? 'CV' : 'Resume';
@@ -192,9 +202,15 @@
 		const debugParam = type === 'pdf' ? '&debug=1' : '';
 		const url = `/api/resumes/${data.resume.id}/${type}?lang=${downloadLanguage}${debugParam}`;
 		const filename = `${downloadBaseName}.${extension}`;
+		const ensureExtension = (rawName: string, ext: string) => {
+			const cleaned = rawName.trim();
+			if (!cleaned) return filename;
+			return cleaned.toLowerCase().endsWith(`.${ext}`) ? cleaned : `${cleaned}.${ext}`;
+		};
 
 		downloading = type;
 		loading(true, label);
+		resumeDownloadStore.start(type, label);
 		showDownloadOptions = false;
 
 		try {
@@ -203,16 +219,59 @@
 				const detail = await response.json().catch(() => null);
 				throw new Error(detail?.message ?? 'Failed to download file');
 			}
-			const blob = await response.blob();
-			const objectUrl = URL.createObjectURL(blob);
-			const link = document.createElement('a');
-			link.href = objectUrl;
-			link.download = filename;
-			link.rel = 'noopener';
-			document.body.appendChild(link);
-			link.click();
-			link.remove();
-			URL.revokeObjectURL(objectUrl);
+			const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+			if (type === 'pdf' && contentType.includes('application/json')) {
+				const payload = await response.json().catch(() => null);
+				const downloadUrl =
+					payload && typeof payload === 'object' && typeof payload.downloadUrl === 'string'
+						? payload.downloadUrl
+						: '';
+				const downloadFilename =
+					payload && typeof payload === 'object' && typeof payload.filename === 'string'
+						? payload.filename
+						: filename;
+				if (!downloadUrl) {
+					throw new Error('Failed to prepare PDF download link');
+				}
+				const normalizedDownloadFilename = ensureExtension(downloadFilename, 'pdf');
+
+				try {
+					const downloadResponse = await fetch(downloadUrl);
+					if (!downloadResponse.ok) {
+						throw new Error(`Signed download failed (${downloadResponse.status})`);
+					}
+					const downloadBlob = await downloadResponse.blob();
+					const objectUrl = URL.createObjectURL(downloadBlob);
+					const link = document.createElement('a');
+					link.href = objectUrl;
+					link.download = normalizedDownloadFilename;
+					link.rel = 'noopener';
+					document.body.appendChild(link);
+					link.click();
+					link.remove();
+					URL.revokeObjectURL(objectUrl);
+				} catch (downloadError) {
+					console.warn('[resume download] fallback to direct signed URL', downloadError);
+					const link = document.createElement('a');
+					link.href = downloadUrl;
+					link.download = normalizedDownloadFilename;
+					link.rel = 'noopener';
+					document.body.appendChild(link);
+					link.click();
+					link.remove();
+				}
+			} else {
+				const blob = await response.blob();
+				const objectUrl = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = objectUrl;
+				link.download = filename;
+				link.rel = 'noopener';
+				document.body.appendChild(link);
+				link.click();
+				link.remove();
+				URL.revokeObjectURL(objectUrl);
+			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : 'Failed to download file';
 			if (typeof toast.error === 'function') {
@@ -222,10 +281,17 @@
 			}
 		} finally {
 			downloading = null;
+			resumeDownloadStore.stop();
 			loading(false);
 		}
 	};
 </script>
+
+<svelte:head>
+	{#if data.templateContext?.mainFontFaceCss}
+		{@html `<style id="resume-template-font-face">${data.templateContext.mainFontFaceCss}</style>`}
+	{/if}
+</svelte:head>
 
 <div class="flex items-center justify-between">
 	<div>
@@ -325,7 +391,7 @@
 
 <div class="mt-6 space-y-4">
 	<Card class="bg-card text-foreground">
-		<div class="mt-4">
+		<div class="mt-4" style={resumeTemplateBrandingStyle}>
 			<ResumeView
 				data={data.resume.data}
 				bind:this={resumeViewRef}
@@ -337,6 +403,8 @@
 				templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
 				templateEndLogoUrl={data.templateContext?.endLogoUrl}
 				templateHomepageUrl={data.templateContext?.homepageUrl}
+				templateMainFontCssStack={data.templateContext?.mainFontCssStack}
+				templateIsPixelCode={data.templateContext?.isPixelCode}
 				experienceLibrary={data.experienceLibrary ?? []}
 				onGenerateDescription={generateDescription}
 				{isEditing}

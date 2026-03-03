@@ -2,6 +2,13 @@
 	import { Card } from '@pixelcode_/blocks/components';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
 	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
+	import {
 		FileText,
 		Users,
 		Upload,
@@ -18,6 +25,15 @@
 	const stats = $derived(data.stats ?? { totalTalents: 0, totalResumes: 0, availableNow: 0 });
 	const recentResumes = $derived(data.recentResumes ?? []);
 	const availableSoon = $derived(data.availableSoon ?? []);
+	const listAvatarSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
+	const listAvatarSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, [36, 72], {
+			height: supabaseImagePresets.avatarList.height,
+			quality: supabaseImagePresets.avatarList.quality,
+			resize: supabaseImagePresets.avatarList.resize
+		});
+	const listAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
 	const quickActions = [
 		{
@@ -169,9 +185,15 @@
 							<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
 								{#if resume.talentAvatarUrl}
 									<img
-										src={resume.talentAvatarUrl}
+										src={listAvatarSrc(resume.talentAvatarUrl)}
+										srcset={listAvatarSrcSet(resume.talentAvatarUrl)}
+										sizes="36px"
 										alt={resume.talentName}
-										class="h-9 w-9 rounded-sm object-cover"
+										class="h-9 w-9 rounded-sm object-contain"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, listAvatarFallbackSrc(resume.talentAvatarUrl))}
 									/>
 								{:else}
 									<User size={18} class="text-muted-fg" />
@@ -211,9 +233,15 @@
 							<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
 								{#if consultant.avatarUrl}
 									<img
-										src={consultant.avatarUrl}
+										src={listAvatarSrc(consultant.avatarUrl)}
+										srcset={listAvatarSrcSet(consultant.avatarUrl)}
+										sizes="36px"
 										alt={consultant.name}
-										class="h-9 w-9 rounded-sm object-cover"
+										class="h-9 w-9 rounded-sm object-contain"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, listAvatarFallbackSrc(consultant.avatarUrl))}
 									/>
 								{:else}
 									<User size={18} class="text-muted-fg" />

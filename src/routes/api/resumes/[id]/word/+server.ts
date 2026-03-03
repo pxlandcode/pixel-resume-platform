@@ -8,6 +8,10 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
+import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
+import { writeAuditLog } from '$lib/server/legalService';
+import { resolveResumeExportPolicy } from '$lib/server/resumes/exportPolicy';
+import { getActorAccessContext, resolvePrintTemplateContext } from '$lib/server/access';
 
 const toSafeFilename = (value: string) =>
 	value
@@ -205,10 +209,11 @@ const renderHtmlSection = (
 `;
 };
 
-const DOC_STYLES = `
+const buildDocStyles = (mainFontCssStack: string, mainFontFaceCss: string | null) => `
 <style>
+	${mainFontFaceCss ?? ''}
 	* { box-sizing: border-box; }
-	body { font-family: "Segoe UI", Arial, sans-serif; color: #0f172a; padding: 24px; }
+	body { font-family: ${mainFontCssStack}; color: #0f172a; padding: 24px; }
 	h1 { font-size: 28px; margin: 0 0 4px; }
 	h2 { font-size: 18px; margin: 0 0 16px; color: #334155; }
 	h3 { font-size: 16px; margin: 24px 0 8px; color: #0f172a; }
@@ -253,11 +258,31 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	if (!permissions.canView) {
 		throw error(403, 'Not authorized to view this resume.');
 	}
+	if (!permissions.userId) {
+		throw error(401, 'Unauthorized');
+	}
+
+	await assertAcceptedForSensitiveAction({
+		adminClient,
+		userId: permissions.userId,
+		homeOrganisationId: permissions.homeOrganisationId
+	});
+
+	const exportPolicy = await resolveResumeExportPolicy(adminClient, permissions);
+	const auditOrganisationId =
+		exportPolicy.sourceOrganisationId ?? exportPolicy.targetOrganisationId ?? null;
+	if (!auditOrganisationId) {
+		throw error(400, 'Resume export requires a linked source or target organisation.');
+	}
 
 	const resume = await ResumeService.getResume(resumeId);
 	if (!resume) {
 		throw error(404, 'Resume not found');
 	}
+	const actor = await getActorAccessContext(supabase, adminClient);
+	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId, {
+		templateMode: exportPolicy.templateUsed
+	});
 	const person = await ResumeService.getPerson(resume.personId);
 	const profileSkills = person?.techStack ?? [];
 	const translations: Record<string, { sv: string; en: string }> = {
@@ -281,7 +306,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 <head>
 	<meta charset="utf-8" />
 	<title>Resume ${resume.title}</title>
-	${DOC_STYLES}
+	${buildDocStyles(templateContext.mainFontCssStack, templateContext.mainFontFaceCss)}
 </head>
 <body>
 ${renderHtmlSection(resume.data, lang, profileSkills, labelFor)}
@@ -290,6 +315,24 @@ ${renderHtmlSection(resume.data, lang, profileSkills, labelFor)}
 
 	const filename = await buildFilename(resumeId, lang);
 	console.log('[word] Response filename:', filename, 'type:', typeof filename);
+
+	const auditResult = await writeAuditLog({
+		actorUserId: exportPolicy.actorUserId,
+		organisationId: auditOrganisationId,
+		actionType: 'RESUME_EXPORT',
+		resourceType: 'resume',
+		resourceId: resumeId,
+		metadata: {
+			resume_id: resumeId,
+			template_used: exportPolicy.templateUsed,
+			source_org_id: exportPolicy.sourceOrganisationId,
+			target_org_id: exportPolicy.targetOrganisationId,
+			format: 'word'
+		}
+	});
+	if (!auditResult.ok) {
+		throw error(500, auditResult.error || 'Could not write resume export audit log.');
+	}
 
 	return new Response(html, {
 		status: 200,

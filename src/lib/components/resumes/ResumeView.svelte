@@ -43,6 +43,8 @@
 		templateAccentLogoUrl = null,
 		templateEndLogoUrl = null,
 		templateHomepageUrl = null,
+		templateMainFontCssStack = "'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+		templateIsPixelCode = false,
 		experienceLibrary = [],
 		onGenerateDescription
 	}: {
@@ -56,6 +58,8 @@
 		templateAccentLogoUrl?: string | null;
 		templateEndLogoUrl?: string | null;
 		templateHomepageUrl?: string | null;
+		templateMainFontCssStack?: string;
+		templateIsPixelCode?: boolean;
 		experienceLibrary?: ExperienceLibraryItem[];
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
 	} = $props();
@@ -80,6 +84,9 @@
 			return homepage;
 		}
 	});
+	const resumeRootStyle = $derived(
+		`--resume-main-font: ${templateMainFontCssStack}; font-family: var(--resume-main-font);`
+	);
 
 	$effect(() => {
 		profileCategories = structuredClone(profileTechStack ?? person?.techStack ?? []);
@@ -615,7 +622,10 @@
 	export const getEditedData = () => editingData;
 </script>
 
-<div class="resume-print-page bg-card text-foreground relative p-10 shadow-sm">
+<div
+	class="resume-print-page bg-card text-foreground relative p-10 shadow-sm"
+	style={resumeRootStyle}
+>
 	<!-- Language Toggle -->
 	{#if !isEditing}
 		<ResumeLanguageToggle {language} onToggle={toggleLanguage} />
@@ -627,6 +637,7 @@
 		<ResumeBrand
 			logoUrl={templateMainLogotypeUrl}
 			logoAlt={person?.name ? `${person.name} organisation logo` : 'Organisation logo'}
+			showProudlyPresents={templateIsPixelCode}
 		/>
 
 		{#if isEditing}
@@ -639,7 +650,7 @@
 					</div>
 					<div class="flex-1">
 						<!-- Name fixed from profile; allow title editing -->
-						<h1 class="mb-2 text-4xl font-bold text-foreground">{displayName}</h1>
+						<h1 class="text-foreground mb-2 text-4xl font-bold">{displayName}</h1>
 						<ResumeNameTitle
 							bind:title={editingData.title}
 							{isEditing}
@@ -796,7 +807,7 @@
 	<ResumeFooter bind:footerNote={editingData.footerNote} {isEditing} language={componentLanguage} />
 
 	<!-- Worldclass Image -->
-	<div class="mt-8 flex justify-center border-t border-border pt-6">
+	<div class="border-border mt-8 flex justify-center border-t pt-6">
 		<img
 			src={resolvedEndLogo}
 			alt="Brand end logo"
@@ -805,7 +816,7 @@
 		/>
 	</div>
 
-	<div class="mt-4 flex justify-start border-t border-border/70 pt-4">
+	<div class="border-border/70 mt-4 flex justify-start border-t pt-4">
 		<div class="inline-flex items-end gap-3">
 			<img
 				src={resolvedAccentLogo}

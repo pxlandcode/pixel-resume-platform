@@ -31,15 +31,25 @@
 		created_at: string | null;
 		created_by_user_id: string | null;
 	};
+	type DataSharingPermission = {
+		id: string;
+		source_organisation_id: string;
+		target_organisation_id: string;
+		sharing_scope: 'view' | 'export_org_template' | 'export_broker_template';
+		approved_by_admin_id: string;
+		approved_at: string | null;
+	};
 
 	let {
 		open = $bindable(false),
 		organisation = undefined,
+		organisations = [],
 		users = [],
 		talents = [],
 		userMemberships = [],
 		talentMemberships = [],
 		accessGrants = [],
+		dataSharingPermissions = [],
 		eligibleGrantUsers = [],
 		usersWithHomeOrg = new Set<string>(),
 		talentsWithHomeOrg = new Set<string>(),
@@ -47,11 +57,13 @@
 	}: {
 		open: boolean;
 		organisation?: Organisation;
+		organisations?: Organisation[];
 		users?: UserRow[];
 		talents?: TalentRow[];
 		userMemberships?: UserMembership[];
 		talentMemberships?: TalentMembership[];
 		accessGrants?: AccessGrant[];
+		dataSharingPermissions?: DataSharingPermission[];
 		eligibleGrantUsers?: UserRow[];
 		usersWithHomeOrg?: Set<string>;
 		talentsWithHomeOrg?: Set<string>;
@@ -90,6 +102,14 @@
 	let selectedUserId = $state('');
 	let selectedTalentId = $state('');
 	let selectedGrantUserId = $state('');
+	let selectedSharingTargetOrgId = $state('');
+	let selectedSharingScope = $state<'view' | 'export_org_template' | 'export_broker_template'>(
+		'view'
+	);
+
+	const organisationNameById = $derived(
+		Object.fromEntries(organisations.map((org) => [org.id, org.name] as const)) as Record<string, string>
+	);
 
 	// Options for dropdowns (excluding users/talents that already have ANY home org)
 	const userOptions = $derived(
@@ -121,14 +141,40 @@
 		})
 	);
 
+	const sharingTargetOptions = $derived(
+		organisations
+			.filter((org) => org.id !== organisation?.id)
+			.map((org) => ({
+				label: org.name,
+				value: org.id
+			}))
+	);
+
 	$effect(() => {
 		if (!open) {
 			// Reset selections when drawer closes
 			selectedUserId = '';
 			selectedTalentId = '';
 			selectedGrantUserId = '';
+			selectedSharingTargetOrgId = '';
+			selectedSharingScope = 'view';
 		}
 	});
+
+	const sharingScopeLabel = (
+		scope: DataSharingPermission['sharing_scope'] | 'view' | 'export_org_template' | 'export_broker_template'
+	) => {
+		switch (scope) {
+			case 'view':
+				return 'View';
+			case 'export_org_template':
+				return 'Export (Org Template)';
+			case 'export_broker_template':
+				return 'Export (Broker Template)';
+			default:
+				return scope;
+		}
+	};
 </script>
 
 <Drawer
@@ -246,6 +292,60 @@
 						</li>
 					{:else}
 						<li class="text-muted-fg text-xs">No cross-organisation grants.</li>
+					{/each}
+				</ul>
+			</div>
+
+			<!-- Data sharing permissions -->
+			<div class="border-border space-y-3 border-t pt-6">
+				<div>
+					<h3 class="text-foreground text-sm font-semibold">Data sharing permissions</h3>
+					<p class="text-muted-fg text-xs">
+						Approve explicit source-to-target organisation sharing scopes.
+					</p>
+				</div>
+				<form method="POST" action="?/approveDataSharingPermission" class="grid gap-2">
+					<input type="hidden" name="source_organisation_id" value={organisation.id} />
+					<Dropdown
+						name="target_organisation_id"
+						bind:value={selectedSharingTargetOrgId}
+						options={sharingTargetOptions}
+						placeholder="Target organisation"
+						search={sharingTargetOptions.length > 6}
+						hideLabel
+						class="w-full"
+					/>
+					<select
+						name="sharing_scope"
+						bind:value={selectedSharingScope}
+						class="border-border bg-input text-foreground h-10 rounded border px-3 text-sm"
+					>
+						<option value="view">View</option>
+						<option value="export_org_template">Export (Org Template)</option>
+						<option value="export_broker_template">Export (Broker Template)</option>
+					</select>
+					<div class="flex justify-end">
+						<Button type="submit" size="md" variant="outline">Approve</Button>
+					</div>
+				</form>
+				<ul class="space-y-2">
+					{#each dataSharingPermissions as permission (permission.id)}
+						<li
+							class="border-border bg-muted flex flex-col gap-2 rounded border px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+						>
+							<div class="flex flex-col">
+								<span class="text-foreground text-sm font-medium">
+									{organisationNameById[permission.target_organisation_id] ?? permission.target_organisation_id}
+								</span>
+								<span class="text-muted-fg text-xs">{sharingScopeLabel(permission.sharing_scope)}</span>
+							</div>
+							<form method="POST" action="?/revokeDataSharingPermission">
+								<input type="hidden" name="permission_id" value={permission.id} />
+								<Button type="submit" variant="ghost" size="sm">Revoke</Button>
+							</form>
+						</li>
+					{:else}
+						<li class="text-muted-fg text-xs">No data sharing permissions for this source org.</li>
 					{/each}
 				</ul>
 			</div>

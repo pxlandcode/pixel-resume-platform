@@ -1,0 +1,47 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getSupabaseAdminClient } from '$lib/server/supabase';
+
+export type AuditActionType =
+	| 'RESUME_VIEW'
+	| 'RESUME_EXPORT'
+	| 'SHARING_APPROVED'
+	| 'LEGAL_ACCEPTED'
+	| 'TALENT_CREATED'
+	| 'ASSERTION_CONFIRMED';
+
+export type AuditLogPayload = {
+	actorUserId?: string | null;
+	organisationId: string;
+	actionType: AuditActionType;
+	resourceType: string;
+	resourceId?: string | null;
+	metadata?: Record<string, unknown>;
+};
+
+export const writeAuditLog = async (
+	payload: AuditLogPayload,
+	client?: SupabaseClient | null
+): Promise<{ ok: true } | { ok: false; error: string }> => {
+	const adminClient = client ?? getSupabaseAdminClient();
+	if (!adminClient) {
+		return { ok: false, error: 'Supabase admin client unavailable' };
+	}
+
+	const metadata = payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {};
+
+	const { error } = await adminClient.from('audit_logs').insert({
+		actor_user_id: payload.actorUserId ?? null,
+		organisation_id: payload.organisationId,
+		action_type: payload.actionType,
+		resource_type: payload.resourceType,
+		resource_id: payload.resourceId ?? null,
+		metadata_json: metadata,
+		created_at: new Date().toISOString()
+	});
+
+	if (error) {
+		return { ok: false, error: error.message };
+	}
+
+	return { ok: true };
+};

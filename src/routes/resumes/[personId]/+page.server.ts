@@ -7,6 +7,8 @@ import {
 import { error, fail } from '@sveltejs/kit';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 import { cloneResumeData, initResumeData, loadResumeData } from '$lib/server/resumes/store';
+import { getActorAccessContext } from '$lib/server/access';
+import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
 import {
 	PROFILE_AVAILABILITY_SELECT,
 	normalizeAvailabilityRow,
@@ -46,6 +48,35 @@ const normalizeId = (value: unknown): string | null => {
 		return String(value);
 	}
 	return null;
+};
+
+const ensureLegalAcceptanceForAction = async (
+	supabase: NonNullable<ReturnType<typeof createSupabaseServerClient>>,
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>
+) => {
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId) {
+		return { ok: false as const, status: 401, message: 'Unauthorized' };
+	}
+
+	try {
+		await assertAcceptedForSensitiveAction({
+			adminClient,
+			userId: actor.userId,
+			homeOrganisationId: actor.homeOrganisationId
+		});
+	} catch (acceptanceError) {
+		return {
+			ok: false as const,
+			status: 403,
+			message:
+				acceptanceError instanceof Error
+					? acceptanceError.message
+					: 'You must accept current legal documents before performing this action.'
+		};
+	}
+
+	return { ok: true as const };
 };
 
 export const load: PageServerLoad = async ({ params, cookies }) => {
@@ -217,6 +248,14 @@ export const actions: Actions = {
 		if (!supabase || !adminClient) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
 		}
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, {
+				ok: false,
+				type: 'updateProfile',
+				message: legalCheck.message
+			});
+		}
 
 		const formData = await request.formData();
 		const talentId = getTargetTalentId(formData, params.personId);
@@ -317,6 +356,10 @@ export const actions: Actions = {
 		if (!supabase || !adminClient) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
 		}
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, { ok: false, message: legalCheck.message });
+		}
 
 		const formData = await request.formData();
 		const talentId = getTargetTalentId(formData, params.personId);
@@ -375,6 +418,10 @@ export const actions: Actions = {
 		if (!supabase || !adminClient) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
 		}
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, { ok: false, message: legalCheck.message });
+		}
 
 		const formData = await request.formData();
 		const talentId = getTargetTalentId(formData, params.personId);
@@ -421,6 +468,10 @@ export const actions: Actions = {
 
 		if (!supabase || !adminClient) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, { ok: false, message: legalCheck.message });
 		}
 
 		const formData = await request.formData();
@@ -479,6 +530,10 @@ export const actions: Actions = {
 
 		if (!supabase || !adminClient) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, { ok: false, message: legalCheck.message });
 		}
 
 		const formData = await request.formData();
@@ -555,6 +610,10 @@ export const actions: Actions = {
 
 		if (!supabase || !adminClient) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, { ok: false, message: legalCheck.message });
 		}
 
 		const formData = await request.formData();

@@ -65,6 +65,12 @@
 			match: 'prefix'
 		},
 		{
+			label: 'Settings',
+			href: '/settings',
+			allowed: ['admin'],
+			match: 'prefix'
+		},
+		{
 			label: 'Talents',
 			href: '/talents',
 			allowed: ['admin', 'broker', 'employer', 'talent'],
@@ -301,32 +307,16 @@
 					<p class="text-primary text-xs font-semibold uppercase tracking-[0.28em]">TalentAtlas</p>
 					<p class="text-muted-fg mt-2 text-xs uppercase tracking-[0.18em]">Menu</p>
 				</div>
-				<Button type="button" variant="outline" size="sm" class="gap-2" onclick={closeMobileMenu}>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					class="inline-flex h-9 w-9 min-w-9 items-center justify-center p-0"
+					aria-label="Close menu"
+					onclick={closeMobileMenu}
+				>
 					<X size={16} />
-					Close
 				</Button>
-			</div>
-
-			<div class="border-border bg-card/50 mt-6 rounded-sm border p-4">
-				<p class="text-muted-fg text-[11px] font-semibold uppercase tracking-[0.16em]">
-					Signed in as
-				</p>
-				<p class="text-foreground mt-2 text-sm font-semibold">{displayName}</p>
-				{#if (roles?.length ?? 0) > 0}
-					<div class="mt-2 flex flex-wrap gap-1">
-						{#each roles as r}
-							<Badge variant="info" size="xs" class="uppercase tracking-wide">
-								{r.replace('_', ' ')}
-							</Badge>
-						{/each}
-					</div>
-				{:else if role}
-					<div class="mt-2">
-						<Badge variant="info" size="xs" class="uppercase tracking-wide">
-							{role.replace('_', ' ')}
-						</Badge>
-					</div>
-				{/if}
 			</div>
 
 			<nav class="mt-10 flex-1 overflow-y-auto">

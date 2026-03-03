@@ -1,12 +1,14 @@
 <script lang="ts">
-	import { Input } from '@pixelcode_/blocks/components';
+	import { Input, Button } from '@pixelcode_/blocks/components';
 	import { normalizeHexColor } from '$lib/branding/theme';
+	import { RotateCcw } from 'lucide-svelte';
 
 	type Props = {
 		id: string;
 		name: string;
 		label: string;
 		value?: string;
+		defaultValue?: string;
 		description?: string;
 	};
 
@@ -14,10 +16,13 @@
 
 	const resolveColor = (input: string | undefined) => normalizeHexColor(input) ?? FALLBACK_COLOR;
 
-	let { id, name, label, value = FALLBACK_COLOR, description }: Props = $props();
+	let { id, name, label, value = FALLBACK_COLOR, defaultValue, description }: Props = $props();
 
 	let color = $state(resolveColor(value));
 	let textValue = $state(resolveColor(value));
+
+	const normalizedDefault = $derived(defaultValue ? resolveColor(defaultValue) : null);
+	const isChanged = $derived(normalizedDefault !== null && color !== normalizedDefault);
 
 	$effect(() => {
 		const nextColor = resolveColor(value);
@@ -45,10 +50,29 @@
 		color = committed;
 		textValue = committed;
 	};
+
+	const onReset = () => {
+		if (!normalizedDefault) return;
+		color = normalizedDefault;
+		textValue = normalizedDefault;
+	};
 </script>
 
 <div class="space-y-1.5">
-	<label for={id} class="text-foreground block text-xs font-medium">{label}</label>
+	<div class="flex items-center justify-between gap-2">
+		<label for={id} class="text-foreground block text-xs font-medium">{label}</label>
+		{#if isChanged}
+			<button
+				type="button"
+				onclick={onReset}
+				class="text-muted-fg hover:text-foreground flex items-center gap-1 text-xs transition-colors"
+				title="Reset to default"
+			>
+				<RotateCcw class="h-3 w-3" />
+				<span>Reset</span>
+			</button>
+		{/if}
+	</div>
 	{#if description}
 		<p class="text-muted-fg text-xs">{description}</p>
 	{/if}

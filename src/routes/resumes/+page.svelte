@@ -7,6 +7,15 @@
 	import { clickOutside } from '$lib/utils/clickOutside';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		supabaseImageSizes,
+		supabaseImageSrcsetWidths,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	import { Button, Card, Input } from '@pixelcode_/blocks/components';
 	import { User, Search, SlidersHorizontal, LayoutGrid, List } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
@@ -244,6 +253,15 @@
 
 	const getTalentName = (talent: (typeof allTalents)[number]) =>
 		[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed';
+	const getCardAvatarSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarCard);
+	const getCardAvatarSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, supabaseImageSrcsetWidths.avatarCard, {
+			height: supabaseImagePresets.avatarCard.height,
+			quality: supabaseImagePresets.avatarCard.quality,
+			resize: supabaseImagePresets.avatarCard.resize
+		});
+	const getCardAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
 	const getTalentTechYearsByKey = (talent: (typeof allTalents)[number]) => {
 		const raw = talent.tech_years_by_key;
@@ -792,12 +810,18 @@
 						<Card
 							class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
 						>
-							<div class="bg-muted aspect-square w-full overflow-hidden">
+							<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
 								{#if talent.avatar_url}
 									<img
-										src={talent.avatar_url}
+										src={getCardAvatarSrc(talent.avatar_url)}
+										srcset={getCardAvatarSrcSet(talent.avatar_url)}
+										sizes={supabaseImageSizes.avatarCard}
 										alt={getTalentName(talent)}
-										class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
+										class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, getCardAvatarFallbackSrc(talent.avatar_url))}
 									/>
 								{:else}
 									<div class="text-muted-fg flex h-full w-full items-center justify-center">
@@ -840,16 +864,16 @@
 			<SuperList instance={listHandler} emptyMessage="No consultants found">
 				{#each listHandler.data as row (row.id)}
 					<Row.Root href={`/resumes/${encodeURIComponent(row.id)}`}>
-						<Cell.Value width={6}>
+						<Cell.Value width={6} class="hidden sm:block">
 							<Cell.Avatar src={row.avatar_url} alt={row.name} size={36} />
 						</Cell.Value>
-						<Cell.Value width={34}>
+						<Cell.Value width={34} class="mobile-fill-cell">
 							<span class="text-foreground truncate text-sm font-semibold">{row.name}</span>
 						</Cell.Value>
-						<Cell.Value width={35}>
+						<Cell.Value width={35} class="mobile-fill-cell">
 							<ConsultantAvailabilityPills compact availability={row.availability} />
 						</Cell.Value>
-						<Cell.Value width={25}>
+						<Cell.Value width={25} class="mobile-logo-cell">
 							{#if row.organisation_logo_url}
 								<img
 									src={row.organisation_logo_url}
@@ -904,13 +928,22 @@
 											? 'ring-2 ring-emerald-200'
 											: ''}"
 									>
-										<div class="relative aspect-square w-full">
+										<div class="relative hidden aspect-square w-full sm:block">
 											<div class="bg-muted absolute inset-0 overflow-hidden">
 												{#if talent.avatar_url}
 													<img
-														src={talent.avatar_url}
+														src={getCardAvatarSrc(talent.avatar_url)}
+														srcset={getCardAvatarSrcSet(talent.avatar_url)}
+														sizes={supabaseImageSizes.avatarCard}
 														alt={getTalentName(talent)}
-														class="h-full w-full object-cover object-top transition-transform duration-500 hover:scale-105"
+														class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+														loading="lazy"
+														decoding="async"
+														onerror={(event) =>
+															applyImageFallbackOnce(
+																event,
+																getCardAvatarFallbackSrc(talent.avatar_url)
+															)}
 													/>
 												{:else}
 													<div class="text-muted-fg flex h-full w-full items-center justify-center">
@@ -930,7 +963,20 @@
 										</div>
 
 										<div class="flex flex-1 flex-col p-5">
-											<h3 class="text-foreground text-lg font-semibold">{getTalentName(talent)}</h3>
+											<div class="flex items-center justify-between gap-2">
+												<h3 class="text-foreground text-lg font-semibold">
+													{getTalentName(talent)}
+												</h3>
+												<span
+													class={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium sm:hidden ${getMatchPillClass(
+														talent.metCount,
+														group.total,
+														talent.insufficientCount
+													)}`}
+												>
+													{talent.metCount}/{group.total}
+												</span>
+											</div>
 											<div class="mt-2">
 												<ConsultantAvailabilityPills
 													compact
@@ -976,10 +1022,10 @@
 									href={`/resumes/${encodeURIComponent(talent.id)}`}
 									highlight={isPerfectMatch(talent.metCount, group.total, talent.insufficientCount)}
 								>
-									<Cell.Value width={6}>
+									<Cell.Value width={6} class="hidden sm:block">
 										<Cell.Avatar src={talent.avatar_url} alt={getTalentName(talent)} size={36} />
 									</Cell.Value>
-									<Cell.Value width={24}>
+									<Cell.Value width={24} class="mobile-fill-cell">
 										<div class="flex flex-wrap items-center gap-2">
 											<span class="text-foreground truncate text-sm font-semibold">
 												{getTalentName(talent)}
@@ -995,13 +1041,13 @@
 											</span>
 										</div>
 									</Cell.Value>
-									<Cell.Value width={20}>
+									<Cell.Value width={20} class="mobile-fill-cell">
 										<ConsultantAvailabilityPills
 											compact
 											availability={talent.availability ?? null}
 										/>
 									</Cell.Value>
-									<Cell.Value width={30}>
+									<Cell.Value width={30} class="mobile-fill-cell">
 										<div class="flex flex-wrap gap-1">
 											{#each talent.techMatches as techMatch}
 												<span
@@ -1015,7 +1061,7 @@
 											{/each}
 										</div>
 									</Cell.Value>
-									<Cell.Value width={20}>
+									<Cell.Value width={20} class="mobile-logo-cell">
 										{#if talent.organisation_logo_url}
 											<img
 												src={talent.organisation_logo_url}
@@ -1044,3 +1090,17 @@
 		</div>
 	{/if}
 </div>
+
+<style>
+	@media (max-width: 639px) {
+		:global(.mobile-fill-cell) {
+			width: auto !important;
+			flex: 1 1 0% !important;
+		}
+
+		:global(.mobile-logo-cell) {
+			width: auto !important;
+			flex: 0 0 auto !important;
+		}
+	}
+</style>

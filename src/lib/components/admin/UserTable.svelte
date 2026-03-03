@@ -10,6 +10,13 @@
 		Cell,
 		type SuperTableHead
 	} from '@pixelcode_/blocks/components';
+	import {
+		applyImageFallbackOnce,
+		getOriginalImageUrl,
+		supabaseImagePresets,
+		transformSupabasePublicUrl,
+		transformSupabasePublicUrlSrcSet
+	} from '$lib/images/supabaseImage';
 	type Role = 'admin' | 'broker' | 'talent' | 'employer' | string;
 
 	type UserRow = {
@@ -70,6 +77,16 @@
 			};
 		});
 
+	const rowAvatarSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
+	const rowAvatarSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, [40, 80], {
+			height: supabaseImagePresets.avatarList.height,
+			quality: supabaseImagePresets.avatarList.quality,
+			resize: supabaseImagePresets.avatarList.resize
+		});
+	const rowAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
+
 	let tableRows: TableRow[] = toRows(users);
 	let tableInstance = new TableHandler<TableRow>(
 		headings,
@@ -91,9 +108,15 @@
 					<div class="flex gap-3">
 						{#if row.avatar_url}
 							<img
-								src={row.avatar_url}
+								src={rowAvatarSrc(row.avatar_url)}
+								srcset={rowAvatarSrcSet(row.avatar_url)}
+								sizes="40px"
 								alt={row.fullName}
-								class="h-10 w-10 rounded-full object-cover"
+								class="h-10 w-10 rounded-full object-contain"
+								loading="lazy"
+								decoding="async"
+								onerror={(event) =>
+									applyImageFallbackOnce(event, rowAvatarFallbackSrc(row.avatar_url))}
 							/>
 						{:else}
 							<div class="bg-muted h-10 w-10 rounded-full" />
@@ -134,7 +157,12 @@
 				<Cell.Value class="py-4 align-top">
 					{#if showEdit}
 						<div class="flex justify-end">
-							<Button variant="primary" size="sm" type="button" onclick={() => onEdit?.(row.source)}>
+							<Button
+								variant="primary"
+								size="sm"
+								type="button"
+								onclick={() => onEdit?.(row.source)}
+							>
 								Edit
 							</Button>
 						</div>
