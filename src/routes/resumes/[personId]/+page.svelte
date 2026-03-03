@@ -947,7 +947,7 @@
 								srcset={displayedAvatarSrcSet}
 								sizes={supabaseImageSizes.avatarProfile}
 								alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
-								class="h-full w-full object-contain"
+								class="h-full w-full object-cover"
 								loading="lazy"
 								decoding="async"
 								onerror={(event) =>

@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { hasDataSharingPermission } from '$lib/server/legalService';
 import { resolveOrganisationMainFont } from '$lib/branding/font';
 import {
@@ -159,7 +159,10 @@ const resolveOrganisationAssetUrl = (
 
 export const getActorAccessContext = async (
 	supabase: SupabaseClient | null,
-	adminClient: SupabaseClient | null
+	adminClient: SupabaseClient | null,
+	options?: {
+		authUser?: User | null;
+	}
 ): Promise<ActorAccessContext> => {
 	if (!supabase || !adminClient) {
 		return {
@@ -176,10 +179,10 @@ export const getActorAccessContext = async (
 		};
 	}
 
-	const {
-		data: { user }
-	} = await supabase.auth.getUser();
-	const authUser = user;
+	const authUser =
+		options && 'authUser' in options
+			? (options.authUser ?? null)
+			: (await supabase.auth.getUser()).data.user;
 
 	if (!authUser?.id) {
 		return {

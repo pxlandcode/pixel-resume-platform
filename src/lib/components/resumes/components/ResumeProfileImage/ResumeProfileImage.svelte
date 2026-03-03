@@ -61,7 +61,7 @@
 			srcset={resolved.srcset}
 			sizes={resolved.sizes}
 			alt={name || 'Profile'}
-			class="h-full w-full object-contain object-center"
+			class="h-full w-full object-cover object-center"
 			loading="lazy"
 			decoding="async"
 			onerror={(event) => applyImageFallbackOnce(event, resolved.fallbackSrc ?? resolved.src)}

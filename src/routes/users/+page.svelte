@@ -24,6 +24,12 @@
 		active: boolean;
 		linked_talent_id: string | null;
 	};
+	type TalentOption = {
+		id: string;
+		user_id: string | null;
+		first_name: string;
+		last_name: string;
+	};
 
 	type LoadUser = {
 		id: string;
@@ -65,10 +71,76 @@
 	let isMobileDetailOpen = $state(false);
 	let selectedUserForDetail = $state<UsersListRow | null>(null);
 	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
+	let talentOptions = $state<TalentOption[]>([]);
+	let talentOptionsStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let talentOptionsError = $state<string | null>(null);
+	let talentOptionsEtag = $state<string | null>(null);
 	let editUser = $state<EditableUser | null>(
 		data.users[0] ? toEditableUser(data.users[0] as LoadUser) : null
 	);
 	let editMode: 'create' | 'edit' = $state('create');
+
+	const loadTalentOptions = async () => {
+		if (!canEditUsers) return;
+		if (talentOptionsStatus === 'loading') return;
+		if (talentOptionsStatus === 'ready' && talentOptions.length > 0) return;
+
+		talentOptionsStatus = 'loading';
+		talentOptionsError = null;
+
+		try {
+			const response = await fetch('/internal/api/users/talent-options', {
+				method: 'GET',
+				credentials: 'include',
+				headers: talentOptionsEtag ? { 'If-None-Match': talentOptionsEtag } : undefined
+			});
+
+			if (response.status === 304) {
+				talentOptionsStatus = 'ready';
+				return;
+			}
+
+			if (!response.ok) {
+				const message = await response.text().catch(() => '');
+				throw new Error(message || 'Could not load talent options.');
+			}
+
+			const payload = (await response.json()) as {
+				items?: Array<{
+					id?: unknown;
+					user_id?: unknown;
+					first_name?: unknown;
+					last_name?: unknown;
+				}>;
+			};
+
+			talentOptions = (payload.items ?? [])
+				.filter(
+					(
+						item
+					): item is {
+						id: string;
+						user_id: string | null;
+						first_name: string;
+						last_name: string;
+					} => typeof item.id === 'string' && item.id.trim().length > 0
+				)
+				.map((item) => ({
+					id: item.id.trim(),
+					user_id: typeof item.user_id === 'string' ? item.user_id : null,
+					first_name: typeof item.first_name === 'string' ? item.first_name : '',
+					last_name: typeof item.last_name === 'string' ? item.last_name : ''
+				}));
+
+			talentOptionsEtag = response.headers.get('etag');
+			talentOptionsStatus = 'ready';
+			talentOptionsError = null;
+		} catch (error) {
+			talentOptionsStatus = 'error';
+			talentOptionsError =
+				error instanceof Error ? error.message : 'Could not load talent options.';
+		}
+	};
 
 	const handleUserCreated = (event: CustomEvent<{ message?: string }>) => {
 		feedback = { type: 'success', message: event.detail?.message ?? 'User created successfully.' };
@@ -86,6 +158,11 @@
 			type: form.ok ? 'success' : 'error',
 			message: form.message ?? ''
 		};
+	});
+
+	$effect(() => {
+		if (!isModalOpen || editMode !== 'edit') return;
+		void loadTalentOptions();
 	});
 
 	type UsersListRow = {
@@ -175,6 +252,7 @@
 							linked_talent_id: null
 						};
 						isModalOpen = true;
+						void loadTalentOptions();
 					}}
 				>
 					Create user
@@ -186,6 +264,11 @@
 	{#if feedback}
 		<Alert variant={feedback.type === 'success' ? 'success' : 'destructive'} size="sm">
 			<p class="text-foreground text-sm font-medium">{feedback.message}</p>
+		</Alert>
+	{/if}
+	{#if talentOptionsError && isModalOpen && editMode === 'edit'}
+		<Alert variant="destructive" size="sm">
+			<p class="text-foreground text-sm font-medium">{talentOptionsError}</p>
 		</Alert>
 	{/if}
 
@@ -239,6 +322,7 @@
 										editMode = 'edit';
 										editUser = toEditableUser(row.source);
 										isModalOpen = true;
+										void loadTalentOptions();
 									}}
 									class="gap-0 sm:gap-1.5"
 								>
@@ -257,7 +341,7 @@
 <UserFormModal
 	bind:open={isModalOpen}
 	mode={editMode}
-	talentOptions={data.talents ?? []}
+	{talentOptions}
 	allowedRoles={allowedCreateRoles}
 	{canEditUsers}
 	initial={editUser ?? undefined}
@@ -277,7 +361,7 @@
 						srcset={detailAvatarSrcSet(selectedUserForDetail.avatar_url)}
 						sizes="64px"
 						alt={selectedUserForDetail.fullName}
-						class="border-border h-16 w-16 rounded-full border object-contain"
+						class="border-border h-16 w-16 rounded-full border object-cover"
 						loading="lazy"
 						decoding="async"
 						onerror={(event) =>
@@ -343,6 +427,7 @@
 							editMode = 'edit';
 							editUser = toEditableUser(selectedUserForDetail.source);
 							isModalOpen = true;
+							void loadTalentOptions();
 						}}
 					>
 						<Pencil size={16} />

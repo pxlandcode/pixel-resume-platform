@@ -1,22 +1,16 @@
 import type { PageServerLoad } from './$types';
-import {
-	AUTH_COOKIE_NAMES,
-	createSupabaseServerClient,
-	getSupabaseAdminClient
-} from '$lib/server/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { siteMeta } from '$lib/seo';
 import {
 	PROFILE_AVAILABILITY_SELECT,
 	normalizeAvailabilityRow
 } from '$lib/server/consultantAvailability';
-import { getActorAccessContext, getAccessibleTalentIds } from '$lib/server/access';
+import { getAccessibleTalentIds } from '$lib/server/access';
+import type { ResumesTalentListItem } from '$lib/types/resumes';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 
-const resolveStoragePublicUrl = (
-	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
-	value: string | null | undefined
-) => {
+const resolveStoragePublicUrl = (adminClient: SupabaseClient, value: string | null | undefined) => {
 	if (!value || typeof value !== 'string') return null;
 	const trimmed = value.trim();
 	if (!trimmed) return null;
@@ -28,135 +22,69 @@ const resolveStoragePublicUrl = (
 	return data.publicUrl ?? null;
 };
 
-const toStringArray = (value: unknown): string[] => {
-	if (!Array.isArray(value)) return [];
-	return value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
+const emptyResult = {
+	talents: [] as ResumesTalentListItem[],
+	organisationOptions: [] as Array<{ id: string; name: string }>,
+	homeOrganisationId: null as string | null,
+	meta: null as {
+		title: string;
+		description: string;
+		noindex: true;
+		path: '/resumes';
+	} | null
 };
 
-const uniq = (values: string[]) => {
-	const seen = new Set<string>();
-	const uniqueValues: string[] = [];
+export const load: PageServerLoad = async ({ locals }) => {
+	const requestContext = locals.requestContext;
+	const supabase = requestContext.getSupabaseClient();
+	const adminClient = requestContext.getAdminClient();
 
-	for (const value of values) {
-		const key = value.toLowerCase();
-		if (seen.has(key)) continue;
-		seen.add(key);
-		uniqueValues.push(value);
+	if (!supabase || !adminClient) {
+		return emptyResult;
 	}
 
-	return uniqueValues;
-};
-
-const extractTalentTechs = (techStack: unknown): string[] => {
-	if (!Array.isArray(techStack)) return [];
-
-	const skills: string[] = [];
-	for (const category of techStack) {
-		if (!category || typeof category !== 'object') continue;
-		skills.push(...toStringArray((category as { skills?: unknown }).skills));
-	}
-
-	return uniq(skills);
-};
-
-const getSafeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
-const normalizeId = (value: unknown): string | null => {
-	if (typeof value === 'string') {
-		const normalized = value.trim();
-		return normalized || null;
-	}
-	if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
-		return String(value);
-	}
-	return null;
-};
-
-const normalizeTechKey = (value: string) => value.trim().toLowerCase();
-const ONGOING_END_DATE_KEYWORDS = new Set([
-	'present',
-	'current',
-	'ongoing',
-	'nuvarande',
-	'pågående'
-]);
-const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
-
-const parseDateToMs = (value: string | null | undefined): number | null => {
-	if (!value) return null;
-	const trimmed = value.trim();
-	if (!trimmed) return null;
-
-	const isoDateMatch = /^\d{4}-\d{2}-\d{2}$/.test(trimmed);
-	if (isoDateMatch) {
-		const parsed = Date.parse(`${trimmed}T00:00:00Z`);
-		return Number.isFinite(parsed) ? parsed : null;
-	}
-
-	const isoMonthMatch = /^\d{4}-\d{2}$/.test(trimmed);
-	if (isoMonthMatch) {
-		const parsed = Date.parse(`${trimmed}-01T00:00:00Z`);
-		return Number.isFinite(parsed) ? parsed : null;
-	}
-
-	const parsed = Date.parse(trimmed);
-	return Number.isFinite(parsed) ? parsed : null;
-};
-
-const parseEndDateToMs = (value: string | null | undefined, nowMs: number): number | null => {
-	if (!value) return nowMs;
-	const trimmed = value.trim();
-	if (!trimmed) return nowMs;
-	if (ONGOING_END_DATE_KEYWORDS.has(trimmed.toLowerCase())) return nowMs;
-	return parseDateToMs(trimmed);
-};
-
-export const load: PageServerLoad = async ({ cookies }) => {
-	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
-
-	if (!supabase) {
-		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
-	}
-
-	const adminClient = getSupabaseAdminClient();
-
-	if (!adminClient) {
-		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
-	}
-
-	const actor = await getActorAccessContext(supabase, adminClient);
+	const actor = await requestContext.getActorContext();
 	if (!actor.userId) {
-		return { talents: [], organisationOptions: [], homeOrganisationId: null, meta: null };
+		return emptyResult;
 	}
 
 	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
 
-	const [{ data: talents }, authUsersResult] = await Promise.all([
+	const talentsResult =
 		accessibleTalentIds === null
-			? adminClient
+			? await adminClient
 					.from('talents')
-					.select('id, user_id, first_name, last_name, avatar_url, tech_stack')
+					.select('id, first_name, last_name, avatar_url')
 					.order('last_name', { ascending: true })
+					.order('first_name', { ascending: true })
 			: accessibleTalentIds.length === 0
-				? Promise.resolve({
+				? {
 						data: [] as Array<{
 							id: string;
-							user_id: string | null;
 							first_name: string | null;
 							last_name: string | null;
 							avatar_url: string | null;
-							tech_stack: unknown;
 						}>,
 						error: null
-					})
-				: adminClient
+					}
+				: await adminClient
 						.from('talents')
-						.select('id, user_id, first_name, last_name, avatar_url, tech_stack')
+						.select('id, first_name, last_name, avatar_url')
 						.in('id', accessibleTalentIds)
-						.order('last_name', { ascending: true }),
-		adminClient.auth.admin.listUsers()
-	]);
+						.order('last_name', { ascending: true })
+						.order('first_name', { ascending: true });
 
-	const talentRows = talents ?? [];
+	if (talentsResult.error) {
+		console.warn('[resumes index] talents error', talentsResult.error);
+	}
+
+	const talentRows =
+		(talentsResult.data as Array<{
+			id: string;
+			first_name: string | null;
+			last_name: string | null;
+			avatar_url: string | null;
+		}> | null) ?? [];
 	const talentIds = talentRows.map((row) => row.id);
 
 	const availabilityByTalentId = new Map<string, ReturnType<typeof normalizeAvailabilityRow>>();
@@ -177,7 +105,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		}
 	}
 
-	// Fetch organisation memberships for talents
 	const orgMembershipsResult =
 		talentIds.length === 0
 			? { data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
@@ -196,8 +123,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	}
 
 	const orgIds = Array.from(new Set(orgIdByTalentId.values()));
-
-	// Fetch organisations and templates for logos
 	const [orgsResult, templatesResult] =
 		orgIds.length === 0
 			? [
@@ -228,339 +153,20 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	}
 	for (const template of templatesResult.data ?? []) {
 		const existing = orgById.get(template.organisation_id);
-		if (existing) {
-			existing.logoUrl = resolveStoragePublicUrl(adminClient, template.main_logotype_path);
-		}
+		if (!existing) continue;
+		existing.logoUrl = resolveStoragePublicUrl(adminClient, template.main_logotype_path);
 	}
 
-	const authMap = new Map<string, { email?: string }>();
-	for (const user of authUsersResult.data?.users ?? []) {
-		authMap.set(user.id, { email: user.email ?? undefined });
-	}
-
-	const resumesResult =
-		talentIds.length === 0
-			? { data: [] as Array<{ id: string; talent_id: string }>, error: null }
-			: await adminClient.from('resumes').select('id, talent_id').in('talent_id', talentIds);
-
-	if (resumesResult.error) {
-		console.warn('[resumes index] resumes error', resumesResult.error);
-	}
-
-	const resumeRows = resumesResult.data ?? [];
-	const resumeMetadata = resumeRows
-		.map((row) => ({
-			id: normalizeId((row as { id: unknown }).id) ?? '',
-			talentId: typeof row.talent_id === 'string' ? row.talent_id : ''
-		}))
-		.filter((row) => row.id.length > 0 && row.talentId.length > 0);
-	const resumeIds = resumeMetadata.map((row) => row.id);
-	const resumeIdToTalentId = new Map<string, string>(
-		resumeMetadata.map((row) => [row.id, row.talentId])
-	);
-
-	const [resumeSkillRowsResult, resumeExperienceRowsResult] =
-		resumeIds.length === 0
-			? [
-					{ data: [] as Array<{ resume_id: string; value: string }>, error: null },
-					{
-						data: [] as Array<{
-							id: string;
-							resume_id: string;
-							experience_id: string | null;
-							section: 'highlighted' | 'experience';
-							use_tech_override: boolean;
-							start_date_override: string | null;
-							end_date_override: string | null;
-						}>,
-						error: null
-					}
-				]
-			: await Promise.all([
-					adminClient
-						.from('resume_skill_items')
-						.select('resume_id, value')
-						.in('resume_id', resumeIds),
-					adminClient
-						.from('resume_experience_items')
-						.select(
-							'id, resume_id, experience_id, section, use_tech_override, start_date_override, end_date_override'
-						)
-						.in('resume_id', resumeIds)
-				]);
-
-	if (resumeSkillRowsResult.error) {
-		console.warn('[resumes index] resume_skill_items error', resumeSkillRowsResult.error);
-	}
-	if (resumeExperienceRowsResult.error) {
-		console.warn('[resumes index] resume_experience_items error', resumeExperienceRowsResult.error);
-	}
-
-	const resumeExperienceRows = resumeExperienceRowsResult.data ?? [];
-	const experienceIds = Array.from(
-		new Set(
-			resumeExperienceRows
-				.map((row) => normalizeId((row as { experience_id: unknown }).experience_id))
-				.filter((id): id is string => Boolean(id))
-		)
-	);
-	const resumeExperienceItemIds = resumeExperienceRows
-		.map((row) => normalizeId((row as { id: unknown }).id))
-		.filter((id): id is string => Boolean(id));
-
-	const [libraryRowsResult, libraryTechRowsResult, overrideTechRowsResult] = await Promise.all([
-		experienceIds.length === 0
-			? {
-					data: [] as Array<{
-						id: string;
-						company: string;
-						role_sv: string;
-						role_en: string;
-						start_date: string;
-						end_date: string | null;
-					}>,
-					error: null
-				}
-			: adminClient
-					.from('experience_library')
-					.select('id, company, role_sv, role_en, start_date, end_date')
-					.in('id', experienceIds),
-		experienceIds.length === 0
-			? { data: [] as Array<{ experience_id: string; value: string }>, error: null }
-			: adminClient
-					.from('experience_library_technologies')
-					.select('experience_id, value')
-					.in('experience_id', experienceIds),
-		resumeExperienceItemIds.length === 0
-			? { data: [] as Array<{ resume_experience_item_id: string; value: string }>, error: null }
-			: adminClient
-					.from('resume_experience_tech_overrides')
-					.select('resume_experience_item_id, value')
-					.in('resume_experience_item_id', resumeExperienceItemIds)
-	]);
-
-	if (libraryRowsResult.error) {
-		console.warn('[resumes index] experience_library error', libraryRowsResult.error);
-	}
-	if (libraryTechRowsResult.error) {
-		console.warn(
-			'[resumes index] experience_library_technologies error',
-			libraryTechRowsResult.error
-		);
-	}
-	if (overrideTechRowsResult.error) {
-		console.warn(
-			'[resumes index] resume_experience_tech_overrides error',
-			overrideTechRowsResult.error
-		);
-	}
-
-	const libraryById = new Map<
-		string,
-		{
-			company: string;
-			role_sv: string;
-			role_en: string;
-			start_date: string;
-			end_date: string | null;
-		}
-	>();
-	for (const row of libraryRowsResult.data ?? []) {
-		const libraryId = normalizeId((row as { id: unknown }).id);
-		if (!libraryId) continue;
-		libraryById.set(libraryId, {
-			company: getSafeText(row.company),
-			role_sv: getSafeText(row.role_sv),
-			role_en: getSafeText(row.role_en),
-			start_date: getSafeText(row.start_date),
-			end_date: row.end_date === null ? null : getSafeText(row.end_date)
-		});
-	}
-
-	const libraryTechByExperienceId = new Map<string, Set<string>>();
-	for (const row of libraryTechRowsResult.data ?? []) {
-		const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
-		if (!experienceId) continue;
-		const value = getSafeText(row.value);
-		if (!value) continue;
-		const set = libraryTechByExperienceId.get(experienceId) ?? new Set<string>();
-		set.add(value);
-		libraryTechByExperienceId.set(experienceId, set);
-	}
-
-	const overrideTechByItemId = new Map<string, Set<string>>();
-	for (const row of overrideTechRowsResult.data ?? []) {
-		const itemId = normalizeId(
-			(row as { resume_experience_item_id: unknown }).resume_experience_item_id
-		);
-		if (!itemId) continue;
-		const value = getSafeText(row.value);
-		if (!value) continue;
-		const set = overrideTechByItemId.get(itemId) ?? new Set<string>();
-		set.add(value);
-		overrideTechByItemId.set(itemId, set);
-	}
-
-	const resumeSearchMap = new Map<string, Set<string>>();
-	for (const row of resumeSkillRowsResult.data ?? []) {
-		const resumeId = normalizeId((row as { resume_id: unknown }).resume_id);
-		if (!resumeId) continue;
-		const value = getSafeText(row.value);
-		if (!value) continue;
-		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
-		set.add(value);
-		resumeSearchMap.set(resumeId, set);
-	}
-
-	for (const item of resumeExperienceRows) {
-		const resumeId = normalizeId((item as { resume_id: unknown }).resume_id);
-		const experienceId = normalizeId((item as { experience_id: unknown }).experience_id);
-		const itemId = normalizeId((item as { id: unknown }).id);
-		if (!resumeId || !experienceId || !itemId) continue;
-
-		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
-		const library = libraryById.get(experienceId);
-		if (library) {
-			if (library.company) set.add(library.company);
-			if (library.role_sv) set.add(library.role_sv);
-			if (library.role_en) set.add(library.role_en);
-		}
-
-		if (item.use_tech_override) {
-			for (const tech of overrideTechByItemId.get(itemId) ?? []) {
-				set.add(tech);
-			}
-		} else {
-			for (const tech of libraryTechByExperienceId.get(experienceId) ?? []) {
-				set.add(tech);
-			}
-		}
-
-		resumeSearchMap.set(resumeId, set);
-	}
-
-	const resumeSearchByTalentId = new Map<string, Set<string>>();
-	for (const [resumeId, set] of resumeSearchMap.entries()) {
-		const talentId = resumeIdToTalentId.get(resumeId);
-		if (!talentId) continue;
-		const talentSet = resumeSearchByTalentId.get(talentId) ?? new Set<string>();
-		for (const value of set) talentSet.add(value);
-		resumeSearchByTalentId.set(talentId, talentSet);
-	}
-
-	type TechInterval = { startMs: number; endMs: number };
-	const intervalsByTalentId = new Map<string, Map<string, Map<string, TechInterval>>>();
-	const nowMs = Date.now();
-
-	for (const item of resumeExperienceRows) {
-		const section = getSafeText((item as { section: unknown }).section);
-		if (section !== 'experience') continue;
-
-		const resumeId = normalizeId((item as { resume_id: unknown }).resume_id);
-		const itemId = normalizeId((item as { id: unknown }).id);
-		if (!resumeId || !itemId) continue;
-
-		const talentId = resumeIdToTalentId.get(resumeId);
-		if (!talentId) continue;
-
-		const experienceId = normalizeId((item as { experience_id: unknown }).experience_id);
-		const library = experienceId ? libraryById.get(experienceId) : undefined;
-
-		const overrideStartDate = getSafeText(
-			(item as { start_date_override: unknown }).start_date_override
-		);
-		const startDateValue = overrideStartDate || library?.start_date || '';
-		const startMs = parseDateToMs(startDateValue);
-		if (startMs === null) continue;
-
-		const endDateOverrideRaw = (item as { end_date_override: unknown }).end_date_override;
-		const endDateOverride =
-			typeof endDateOverrideRaw === 'string' ? getSafeText(endDateOverrideRaw) : null;
-		const endDateValue =
-			endDateOverrideRaw === null ? (library?.end_date ?? null) : (endDateOverride ?? null);
-		const endMs = parseEndDateToMs(endDateValue, nowMs);
-		if (endMs === null || endMs <= startMs) continue;
-
-		const techValues =
-			item.use_tech_override || !experienceId
-				? (overrideTechByItemId.get(itemId) ?? new Set<string>())
-				: (libraryTechByExperienceId.get(experienceId) ?? new Set<string>());
-		if (techValues.size === 0) continue;
-
-		let talentIntervals = intervalsByTalentId.get(talentId);
-		if (!talentIntervals) {
-			talentIntervals = new Map();
-			intervalsByTalentId.set(talentId, talentIntervals);
-		}
-
-		for (const rawTech of techValues) {
-			const techKey = normalizeTechKey(rawTech);
-			if (!techKey) continue;
-
-			let intervalMap = talentIntervals.get(techKey);
-			if (!intervalMap) {
-				intervalMap = new Map();
-				talentIntervals.set(techKey, intervalMap);
-			}
-
-			intervalMap.set(`${startMs}:${endMs}`, { startMs, endMs });
-		}
-	}
-
-	const techYearsByTalentId = new Map<string, Record<string, number>>();
-	for (const [talentId, techMap] of intervalsByTalentId.entries()) {
-		const yearsByKey: Record<string, number> = {};
-
-		for (const [techKey, intervalMap] of techMap.entries()) {
-			const sortedIntervals = Array.from(intervalMap.values()).sort((left, right) => {
-				if (left.startMs !== right.startMs) return left.startMs - right.startMs;
-				return left.endMs - right.endMs;
-			});
-			if (sortedIntervals.length === 0) continue;
-
-			let totalMs = 0;
-			let currentStart = sortedIntervals[0].startMs;
-			let currentEnd = sortedIntervals[0].endMs;
-
-			for (let index = 1; index < sortedIntervals.length; index += 1) {
-				const interval = sortedIntervals[index];
-				if (interval.startMs <= currentEnd) {
-					currentEnd = Math.max(currentEnd, interval.endMs);
-					continue;
-				}
-
-				totalMs += Math.max(0, currentEnd - currentStart);
-				currentStart = interval.startMs;
-				currentEnd = interval.endMs;
-			}
-
-			totalMs += Math.max(0, currentEnd - currentStart);
-			if (totalMs <= 0) continue;
-
-			yearsByKey[techKey] = totalMs / MS_PER_YEAR;
-		}
-
-		if (Object.keys(yearsByKey).length > 0) {
-			techYearsByTalentId.set(talentId, yearsByKey);
-		}
-	}
-
-	const talentsWithSearch = talentRows.map((talent) => {
-		const profileTechs = extractTalentTechs(talent.tech_stack);
-		const resumeTechs = Array.from(resumeSearchByTalentId.get(talent.id) ?? []);
-		const orgId = orgIdByTalentId.get(talent.id);
-		const org = orgId ? orgById.get(orgId) : undefined;
-
+	const talents: ResumesTalentListItem[] = talentRows.map((talent) => {
+		const orgId = orgIdByTalentId.get(talent.id) ?? null;
+		const org = orgId ? orgById.get(orgId) : null;
 		return {
 			id: talent.id,
 			first_name: talent.first_name ?? '',
 			last_name: talent.last_name ?? '',
 			avatar_url: talent.avatar_url ?? null,
-			email: talent.user_id ? (authMap.get(talent.user_id)?.email ?? null) : null,
 			availability: availabilityByTalentId.get(talent.id) ?? normalizeAvailabilityRow(null),
-			search_techs: uniq([...profileTechs, ...resumeTechs]),
-			tech_years_by_key: techYearsByTalentId.get(talent.id) ?? {},
-			organisation_id: orgId ?? null,
+			organisation_id: orgId,
 			organisation_name: org?.name ?? null,
 			organisation_logo_url: org?.logoUrl ?? null
 		};
@@ -586,7 +192,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	}));
 
 	return {
-		talents: talentsWithSearch,
+		talents,
 		organisationOptions,
 		homeOrganisationId: actor.homeOrganisationId ?? null,
 		meta: {

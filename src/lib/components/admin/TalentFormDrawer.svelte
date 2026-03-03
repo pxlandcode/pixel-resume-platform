@@ -169,7 +169,7 @@
 						srcset={avatarPreviewSrcSet(avatarUrl)}
 						sizes="96px"
 						alt="Talent avatar preview"
-						class="aspect-square w-full object-contain"
+						class="aspect-square w-full object-cover"
 						loading="lazy"
 						decoding="async"
 						onerror={(event) => applyImageFallbackOnce(event, avatarPreviewFallbackSrc(avatarUrl))}

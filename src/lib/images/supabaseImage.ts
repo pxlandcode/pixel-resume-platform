@@ -168,10 +168,10 @@ export const transformSupabasePublicUrlSrcSet = (
 
 export const supabaseImagePresets = {
 	gallery: { width: 1280, quality: 80, resize: 'contain' as const },
-	avatarCard: { width: 640, height: 640, quality: 78, resize: 'contain' as const },
-	avatarList: { width: 96, height: 96, quality: 72, resize: 'contain' as const },
-	avatarProfile: { width: 720, height: 720, quality: 80, resize: 'contain' as const },
-	avatarPrint: { width: 480, height: 480, quality: 74, resize: 'contain' as const }
+	avatarCard: { width: 640, height: 640, quality: 78, resize: 'cover' as const },
+	avatarList: { width: 96, height: 96, quality: 72, resize: 'cover' as const },
+	avatarProfile: { width: 720, height: 720, quality: 80, resize: 'cover' as const },
+	avatarPrint: { width: 480, height: 480, quality: 74, resize: 'cover' as const }
 };
 
 export const supabaseImageSrcsetWidths = {

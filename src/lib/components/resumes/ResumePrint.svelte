@@ -215,7 +215,7 @@
 								srcset={resolvedImage.srcset}
 								sizes={resolvedImage.sizes}
 								alt={displayName || 'Profile'}
-								class="h-full w-full object-contain object-center"
+								class="h-full w-full object-cover object-center"
 								data-debug="avatar-image"
 								data-fallback-src={resolvedImage.fallbackSrc ?? resolvedImage.src}
 								loading="lazy"

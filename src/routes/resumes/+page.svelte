@@ -7,6 +7,7 @@
 	import { clickOutside } from '$lib/utils/clickOutside';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import type { ResumeTechIndexResponse } from '$lib/types/resumes';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -16,6 +17,7 @@
 		transformSupabasePublicUrl,
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
+	import { resolve } from '$app/paths';
 	import { Button, Card, Input } from '@pixelcode_/blocks/components';
 	import { User, Search, SlidersHorizontal, LayoutGrid, List } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
@@ -37,6 +39,7 @@
 	};
 
 	const DEFAULT_AVAILABILITY_WITHIN_DAYS = 30;
+	const MS_PER_DAY = 24 * 60 * 60 * 1000;
 	const allTalents = data.talents ?? [];
 	let selectedTechs = $state<string[]>([]);
 	let requiredYearsByTechKey = $state<Record<string, number>>({});
@@ -49,6 +52,27 @@
 	let techRequirementDraft = $state('');
 	let techRequirementError = $state('');
 	let availabilityWithinDaysDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	let techIndexStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let techIndexError = $state<string | null>(null);
+	let loadedTechScopeSignature = $state<string | null>(null);
+	let activeTechScopeSignature = $state<string | null>(null);
+	let techIndexAbortController: AbortController | null = null;
+	let techScopeCache = $state<
+		Record<
+			string,
+			{
+				etag: string | null;
+				generatedAt: string | null;
+				itemsByTalentId: Record<
+					string,
+					{
+						searchTechs: string[];
+						techYearsByKey: Record<string, number>;
+					}
+				>;
+			}
+		>
+	>({});
 
 	const resumesViewMode = $derived($userSettingsStore.settings.views.resumes);
 	const homeOrganisationId = $derived(
@@ -85,6 +109,13 @@
 		return [availableOrganisationIds[0]];
 	});
 
+	const techScopeOrgIds = $derived(
+		Array.from(new Set(selectedOrganisationIds.map((id) => id.trim()).filter(Boolean))).sort()
+	);
+	const techScopeSignature = $derived(
+		techScopeOrgIds.length > 0 ? `org:${techScopeOrgIds.join(',')}` : 'default'
+	);
+
 	const organisationFilteredTalents = $derived.by(() => {
 		if (selectedOrganisationIds.length === 0) return allTalents;
 
@@ -97,7 +128,8 @@
 
 	const normalize = (value: string) => value.trim().toLowerCase();
 
-	const toIsoUtcDate = (date: Date) => {
+	const toIsoUtcDateFromMs = (timeMs: number) => {
+		const date = new globalThis.Date(timeMs);
 		const year = date.getUTCFullYear();
 		const month = String(date.getUTCMonth() + 1).padStart(2, '0');
 		const day = String(date.getUTCDate()).padStart(2, '0');
@@ -145,6 +177,8 @@
 
 	onDestroy(() => {
 		clearAvailabilityDaysDebounce();
+		techIndexAbortController?.abort();
+		techIndexAbortController = null;
 	});
 
 	const isAvailableNow = (
@@ -171,10 +205,7 @@
 			);
 		}
 
-		const now = new Date();
-		const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-		todayUtc.setUTCDate(todayUtc.getUTCDate() + availabilityWithinDays);
-		const latestAllowedDate = toIsoUtcDate(todayUtc);
+		const latestAllowedDate = toIsoUtcDateFromMs(Date.now() + availabilityWithinDays * MS_PER_DAY);
 
 		return organisationFilteredTalents.filter((talent) => {
 			const availability = talent.availability ?? null;
@@ -186,15 +217,15 @@
 	});
 
 	const selectedTechFilters = $derived.by<SelectedTechFilter[]>(() => {
-		const seen = new Set<string>();
+		const seen: Record<string, true> = {};
 		const filters: SelectedTechFilter[] = [];
 
 		for (const tech of selectedTechs) {
 			const trimmed = tech.trim();
 			if (!trimmed) continue;
 			const key = normalize(trimmed);
-			if (!key || seen.has(key)) continue;
-			seen.add(key);
+			if (!key || seen[key]) continue;
+			seen[key] = true;
 			filters.push({
 				label: trimmed,
 				key,
@@ -203,6 +234,172 @@
 		}
 
 		return filters;
+	});
+
+	const techIndexReady = $derived(
+		techIndexStatus === 'ready' && loadedTechScopeSignature === techScopeSignature
+	);
+	const activeTechIndexByTalentId = $derived(
+		loadedTechScopeSignature === techScopeSignature
+			? (techScopeCache[techScopeSignature]?.itemsByTalentId ?? {})
+			: {}
+	);
+	const techIndexIsLoadingForScope = $derived(
+		techIndexStatus === 'loading' && activeTechScopeSignature === techScopeSignature
+	);
+
+	const toItemsByTalentId = (items: ResumeTechIndexResponse['items']) => {
+		const normalized: Record<
+			string,
+			{
+				searchTechs: string[];
+				techYearsByKey: Record<string, number>;
+			}
+		> = {};
+
+		for (const item of items) {
+			if (!item || typeof item.talentId !== 'string' || item.talentId.trim().length === 0) continue;
+			const talentId = item.talentId.trim();
+
+			const searchTechs = Array.isArray(item.searchTechs)
+				? Array.from(
+						new Set(
+							item.searchTechs
+								.filter((value): value is string => typeof value === 'string')
+								.map((value) => value.trim())
+								.filter(Boolean)
+						)
+					)
+				: [];
+
+			const techYearsByKey: Record<string, number> = {};
+			if (item.techYearsByKey && typeof item.techYearsByKey === 'object') {
+				for (const [key, value] of Object.entries(item.techYearsByKey)) {
+					if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
+					techYearsByKey[normalize(key)] = value;
+				}
+			}
+
+			normalized[talentId] = { searchTechs, techYearsByKey };
+		}
+
+		return normalized;
+	};
+
+	const setTechCacheEntry = (
+		scopeSignature: string,
+		entry: {
+			etag: string | null;
+			generatedAt: string | null;
+			itemsByTalentId: Record<
+				string,
+				{
+					searchTechs: string[];
+					techYearsByKey: Record<string, number>;
+				}
+			>;
+		}
+	) => {
+		techScopeCache = {
+			...techScopeCache,
+			[scopeSignature]: entry
+		};
+	};
+
+	const loadTechIndexForScope = async (scopeSignature: string, orgIds: string[]) => {
+		if (techIndexStatus === 'loading' && activeTechScopeSignature === scopeSignature) return;
+
+		const cached = techScopeCache[scopeSignature];
+		if (cached) {
+			activeTechScopeSignature = scopeSignature;
+			loadedTechScopeSignature = scopeSignature;
+			techIndexStatus = 'ready';
+			techIndexError = null;
+			return;
+		}
+
+		techIndexAbortController?.abort();
+		const controller = new AbortController();
+		techIndexAbortController = controller;
+		activeTechScopeSignature = scopeSignature;
+		techIndexStatus = 'loading';
+		techIndexError = null;
+
+		try {
+			const query = orgIds.map((orgId) => `org=${encodeURIComponent(orgId)}`).join('&');
+			const endpoint = query
+				? `/internal/api/resumes/tech-index?${query}`
+				: '/internal/api/resumes/tech-index';
+			const response = await fetch(endpoint, {
+				method: 'GET',
+				credentials: 'include',
+				signal: controller.signal
+			});
+
+			if (response.status === 304) {
+				const existing = techScopeCache[scopeSignature];
+				if (!existing) {
+					throw new Error('Technology index cache was empty after revalidation.');
+				}
+				if (controller.signal.aborted) return;
+				activeTechScopeSignature = scopeSignature;
+				loadedTechScopeSignature = scopeSignature;
+				techIndexStatus = 'ready';
+				techIndexError = null;
+				return;
+			}
+
+			if (!response.ok) {
+				const message = await response.text().catch(() => '');
+				throw new Error(message || 'Could not load technology search index.');
+			}
+
+			const payload = (await response.json()) as ResumeTechIndexResponse;
+			const responseScopeSignature =
+				typeof payload?.scope?.signature === 'string' && payload.scope.signature.trim().length > 0
+					? payload.scope.signature.trim()
+					: scopeSignature;
+
+			const itemsByTalentId = toItemsByTalentId(Array.isArray(payload?.items) ? payload.items : []);
+			setTechCacheEntry(responseScopeSignature, {
+				etag: response.headers.get('etag'),
+				generatedAt:
+					typeof payload?.generatedAt === 'string' && payload.generatedAt.trim().length > 0
+						? payload.generatedAt
+						: null,
+				itemsByTalentId
+			});
+
+			if (controller.signal.aborted) return;
+			activeTechScopeSignature = responseScopeSignature;
+			loadedTechScopeSignature = responseScopeSignature;
+			techIndexStatus = 'ready';
+			techIndexError = null;
+		} catch (error) {
+			if (controller.signal.aborted) return;
+			techIndexStatus = 'error';
+			loadedTechScopeSignature = null;
+			techIndexError = error instanceof Error ? error.message : 'Could not load technology index.';
+		} finally {
+			if (techIndexAbortController === controller) {
+				techIndexAbortController = null;
+			}
+		}
+	};
+
+	$effect(() => {
+		const hasTechFilters = selectedTechFilters.length > 0;
+		if (!hasTechFilters) {
+			if (techIndexStatus === 'loading') {
+				techIndexAbortController?.abort();
+				techIndexAbortController = null;
+			}
+			techIndexStatus = 'idle';
+			techIndexError = null;
+			return;
+		}
+
+		void loadTechIndexForScope(techScopeSignature, techScopeOrgIds);
 	});
 
 	const recordsEqual = (left: Record<string, number>, right: Record<string, number>) => {
@@ -263,31 +460,25 @@
 		});
 	const getCardAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
-	const getTalentTechYearsByKey = (talent: (typeof allTalents)[number]) => {
-		const raw = talent.tech_years_by_key;
-		if (!raw || typeof raw !== 'object') return {} as Record<string, number>;
-
-		const normalized: Record<string, number> = {};
-		for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
-			if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) continue;
-			normalized[normalize(key)] = value;
-		}
-
-		return normalized;
-	};
+	const getTalentTechData = (talentId: string) =>
+		activeTechIndexByTalentId[talentId] ?? { searchTechs: [], techYearsByKey: {} };
+	const getResumeHref = (talentId: string) =>
+		resolve('/resumes/[personId]', { personId: talentId });
 
 	const groupedTalents = $derived.by<TalentGroup[]>(() => {
 		if (selectedTechFilters.length === 0) return [];
+		if (!techIndexReady) return [];
 
 		const scoredTalents: TalentWithScore[] = availabilityFilteredTalents
 			.map((talent) => {
+				const techData = getTalentTechData(talent.id);
 				const talentTechSet = new Set(
-					(talent.search_techs ?? [])
+					techData.searchTechs
 						.filter((tech): tech is string => typeof tech === 'string')
 						.map((tech) => normalize(tech))
 						.filter((tech) => tech.length > 0)
 				);
-				const talentTechYearsByKey = getTalentTechYearsByKey(talent);
+				const talentTechYearsByKey = techData.techYearsByKey;
 
 				const techMatches: TechMatch[] = selectedTechFilters.map((techFilter) => {
 					const hasTech = talentTechSet.has(techFilter.key);
@@ -333,23 +524,23 @@
 				return getTalentName(left).localeCompare(getTalentName(right));
 			});
 
-		const groupsByScore = new Map<string, TalentGroup>();
+		const groupsByScore: Record<string, TalentGroup> = {};
 		for (const talent of scoredTalents) {
 			const key = `${talent.metCount}:${talent.insufficientCount}`;
-			const group = groupsByScore.get(key);
+			const group = groupsByScore[key];
 			if (group) {
 				group.talents.push(talent);
 				continue;
 			}
-			groupsByScore.set(key, {
+			groupsByScore[key] = {
 				metCount: talent.metCount,
 				insufficientCount: talent.insufficientCount,
 				total: talent.total,
 				talents: [talent]
-			});
+			};
 		}
 
-		return Array.from(groupsByScore.values());
+		return Object.values(groupsByScore);
 	});
 
 	const totalMatches = $derived(
@@ -419,20 +610,6 @@
 		const nearestInteger = Math.round(rounded);
 		if (Math.abs(rounded - nearestInteger) < 0.000001) return `${nearestInteger}y`;
 		return `${rounded.toFixed(1).replace(/\.0$/, '')}y`;
-	};
-
-	const getTechMatchTooltip = (techMatch: TechMatch) => {
-		const actualYearsLabel = formatYears(techMatch.actualYears);
-		if (techMatch.requiredYears === null) {
-			return `${techMatch.label}: ${actualYearsLabel} experience`;
-		}
-
-		const requiredYearsLabel = formatYears(techMatch.requiredYears);
-		if (techMatch.status === 'missing') {
-			return `${techMatch.label}: missing (required ${requiredYearsLabel})`;
-		}
-
-		return `${techMatch.label}: ${actualYearsLabel} (required ${requiredYearsLabel})`;
 	};
 
 	const searchFilteredTalents = $derived.by(() => {
@@ -506,8 +683,9 @@
 		const raw = rawDraft.trim().replace(',', '.');
 
 		if (!raw) {
-			const { [techKey]: _, ...rest } = requiredYearsByTechKey;
-			requiredYearsByTechKey = rest;
+			const next = { ...requiredYearsByTechKey };
+			delete next[techKey];
+			requiredYearsByTechKey = next;
 			techRequirementError = '';
 			if (closeOnSuccess) closeTechRequirementPopover();
 			return true;
@@ -530,8 +708,9 @@
 	};
 
 	const clearTechRequirement = (techKey: string) => {
-		const { [techKey]: _, ...rest } = requiredYearsByTechKey;
-		requiredYearsByTechKey = rest;
+		const next = { ...requiredYearsByTechKey };
+		delete next[techKey];
+		requiredYearsByTechKey = next;
 		closeTechRequirementPopover();
 	};
 
@@ -776,7 +955,13 @@
 
 					<p class="text-muted-fg mt-3 text-sm">
 						{#if selectedTechFilters.length > 0}
-							{totalMatches} of {availabilityFilteredTalents.length} consultants match.
+							{#if techIndexIsLoadingForScope}
+								Loading tech matches...
+							{:else if techIndexError}
+								Could not load tech matches: {techIndexError}
+							{:else}
+								{totalMatches} of {availabilityFilteredTalents.length} consultants match.
+							{/if}
 						{:else}
 							{availabilityFilteredTalents.length} consultants in current result set.
 						{/if}
@@ -806,7 +991,7 @@
 			</div>
 			<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 				{#each searchFilteredTalents as talent (talent.id)}
-					<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
+					<a href={resolve('/resumes/[personId]', { personId: talent.id })} class="block h-full">
 						<Card
 							class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
 						>
@@ -817,7 +1002,7 @@
 										srcset={getCardAvatarSrcSet(talent.avatar_url)}
 										sizes={supabaseImageSizes.avatarCard}
 										alt={getTalentName(talent)}
-										class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+										class="h-full w-full object-cover object-center transition-transform duration-500 hover:scale-105"
 										loading="lazy"
 										decoding="async"
 										onerror={(event) =>
@@ -863,7 +1048,7 @@
 		{:else}
 			<SuperList instance={listHandler} emptyMessage="No consultants found">
 				{#each listHandler.data as row (row.id)}
-					<Row.Root href={`/resumes/${encodeURIComponent(row.id)}`}>
+					<Row.Root href={getResumeHref(row.id)}>
 						<Cell.Value width={6} class="hidden sm:block">
 							<Cell.Avatar src={row.avatar_url} alt={row.name} size={36} />
 						</Cell.Value>
@@ -888,6 +1073,18 @@
 				{/each}
 			</SuperList>
 		{/if}
+	{:else if techIndexIsLoadingForScope}
+		<div class="border-border rounded-none border-2 border-dashed p-10 text-center">
+			<h3 class="text-foreground text-lg font-medium">Loading tech matches</h3>
+			<p class="text-muted-fg mt-2 text-sm">
+				Calculating skill matches for the selected consultants.
+			</p>
+		</div>
+	{:else if techIndexError}
+		<div class="border-border rounded-none border-2 border-dashed p-10 text-center">
+			<h3 class="text-foreground text-lg font-medium">Could not load tech matches</h3>
+			<p class="text-muted-fg mt-2 text-sm">{techIndexError}</p>
+		</div>
 	{:else if groupedTalents.length > 0}
 		<!-- Search active - show grouped by score -->
 		<div class="space-y-10">
@@ -921,7 +1118,10 @@
 					{#if resumesViewMode === 'grid'}
 						<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 							{#each group.talents as talent (talent.id)}
-								<a href={`/resumes/${encodeURIComponent(talent.id)}`} class="block h-full">
+								<a
+									href={resolve('/resumes/[personId]', { personId: talent.id })}
+									class="block h-full"
+								>
 									<Card
 										class="flex h-full flex-col overflow-visible rounded-none transition-all hover:shadow-md
 											{isPerfectMatch(talent.metCount, group.total, talent.insufficientCount)
@@ -936,7 +1136,7 @@
 														srcset={getCardAvatarSrcSet(talent.avatar_url)}
 														sizes={supabaseImageSizes.avatarCard}
 														alt={getTalentName(talent)}
-														class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+														class="h-full w-full object-cover object-center transition-transform duration-500 hover:scale-105"
 														loading="lazy"
 														decoding="async"
 														onerror={(event) =>
@@ -984,7 +1184,7 @@
 												/>
 											</div>
 											<div class="mt-3 flex flex-wrap gap-1">
-												{#each talent.techMatches as techMatch}
+												{#each talent.techMatches as techMatch, techMatchIndex (`${techMatch.key}-${techMatchIndex}`)}
 													<span
 														class={`rounded-sm px-2 py-0.5 text-xs font-medium ${getTechStatusClass(techMatch.status)}`}
 													>
@@ -1019,7 +1219,7 @@
 						<div class="border-border divide-border divide-y border-x border-b">
 							{#each group.talents as talent (talent.id)}
 								<Row.Root
-									href={`/resumes/${encodeURIComponent(talent.id)}`}
+									href={getResumeHref(talent.id)}
 									highlight={isPerfectMatch(talent.metCount, group.total, talent.insufficientCount)}
 								>
 									<Cell.Value width={6} class="hidden sm:block">
@@ -1049,7 +1249,7 @@
 									</Cell.Value>
 									<Cell.Value width={30} class="mobile-fill-cell">
 										<div class="flex flex-wrap gap-1">
-											{#each talent.techMatches as techMatch}
+											{#each talent.techMatches as techMatch, techMatchIndex (`${techMatch.key}-${techMatchIndex}`)}
 												<span
 													class={`rounded-sm px-2 py-0.5 text-xs font-medium ${getTechStatusClass(techMatch.status)}`}
 												>

@@ -19,12 +19,107 @@
 		CalendarCheck,
 		User
 	} from 'lucide-svelte';
+	import { resolve } from '$app/paths';
 
 	const { data } = $props();
 
 	const stats = $derived(data.stats ?? { totalTalents: 0, totalResumes: 0, availableNow: 0 });
-	const recentResumes = $derived(data.recentResumes ?? []);
-	const availableSoon = $derived(data.availableSoon ?? []);
+	let recentResumes = $state<
+		Array<{
+			id: string;
+			talentId: string;
+			versionName: string | null;
+			updatedAt: string | null;
+			talentName: string;
+			talentAvatarUrl: string | null;
+		}>
+	>([]);
+	let availableSoon = $state<
+		Array<{
+			id: string;
+			name: string;
+			avatarUrl: string | null;
+			availability: {
+				nowPercent: number | null;
+				futurePercent: number | null;
+				noticePeriodDays: number | null;
+				switchFromDate: string | null;
+				plannedFromDate: string | null;
+				hasData: boolean;
+			};
+			organisationName: string | null;
+			organisationLogoUrl: string | null;
+		}>
+	>([]);
+	let panelsStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let panelsError = $state<string | null>(null);
+	let panelsEtag = $state<string | null>(null);
+
+	const loadDashboardPanels = async () => {
+		if (panelsStatus === 'loading') return;
+		if (panelsStatus === 'ready') return;
+
+		panelsStatus = 'loading';
+		panelsError = null;
+
+		try {
+			const response = await fetch('/internal/api/dashboard/panels', {
+				method: 'GET',
+				credentials: 'include',
+				headers: panelsEtag ? { 'If-None-Match': panelsEtag } : undefined
+			});
+
+			if (response.status === 304) {
+				panelsStatus = 'ready';
+				return;
+			}
+
+			if (!response.ok) {
+				const message = await response.text().catch(() => '');
+				throw new Error(message || 'Could not load dashboard panels.');
+			}
+
+			const payload = (await response.json()) as {
+				recentResumes?: Array<{
+					id: string;
+					talentId: string;
+					versionName: string | null;
+					updatedAt: string | null;
+					talentName: string;
+					talentAvatarUrl: string | null;
+				}>;
+				availableSoon?: Array<{
+					id: string;
+					name: string;
+					avatarUrl: string | null;
+					availability: {
+						nowPercent: number | null;
+						futurePercent: number | null;
+						noticePeriodDays: number | null;
+						switchFromDate: string | null;
+						plannedFromDate: string | null;
+						hasData: boolean;
+					};
+					organisationName: string | null;
+					organisationLogoUrl: string | null;
+				}>;
+			};
+
+			recentResumes = Array.isArray(payload.recentResumes) ? payload.recentResumes : [];
+			availableSoon = Array.isArray(payload.availableSoon) ? payload.availableSoon : [];
+			panelsEtag = response.headers.get('etag');
+			panelsStatus = 'ready';
+			panelsError = null;
+		} catch (error) {
+			panelsStatus = 'error';
+			panelsError = error instanceof Error ? error.message : 'Could not load dashboard panels.';
+		}
+	};
+
+	$effect(() => {
+		if (panelsStatus !== 'idle') return;
+		void loadDashboardPanels();
+	});
 	const listAvatarSrc = (url: string | null | undefined) =>
 		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
 	const listAvatarSrcSet = (url: string | null | undefined) =>
@@ -34,23 +129,6 @@
 			resize: supabaseImagePresets.avatarList.resize
 		});
 	const listAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
-
-	const quickActions = [
-		{
-			title: 'View Talents',
-			description: 'Browse all consultants and their talent profiles',
-			href: '/talents',
-			icon: Users,
-			color: 'bg-blue-500'
-		},
-		{
-			title: 'Manage Resumes',
-			description: 'Create, edit, and organize consultant resumes',
-			href: '/resumes',
-			icon: FileText,
-			color: 'bg-emerald-500'
-		}
-	];
 
 	const tips = [
 		{
@@ -103,7 +181,7 @@
 
 	<!-- Stats -->
 	<div class="grid gap-4 sm:grid-cols-3">
-		<a href="/talents">
+		<a href={resolve('/talents')}>
 			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
 				<div class="flex items-start gap-4">
 					<div
@@ -122,7 +200,7 @@
 				/>
 			</Card>
 		</a>
-		<a href="/resumes">
+		<a href={resolve('/resumes')}>
 			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
 				<div class="flex items-start gap-4">
 					<div
@@ -141,7 +219,7 @@
 				/>
 			</Card>
 		</a>
-		<a href="/resumes">
+		<a href={resolve('/resumes')}>
 			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
 				<div class="flex items-start gap-4">
 					<div
@@ -171,15 +249,19 @@
 					<Clock size={18} class="text-muted-fg" />
 					Recently Updated
 				</h2>
-				<a href="/resumes" class="text-primary text-sm hover:underline">View all</a>
+				<a href={resolve('/resumes')} class="text-primary text-sm hover:underline">View all</a>
 			</div>
-			{#if recentResumes.length === 0}
+			{#if panelsStatus === 'loading'}
+				<p class="text-muted-fg text-sm">Loading recent resumes...</p>
+			{:else if panelsError}
+				<p class="text-muted-fg text-sm">{panelsError}</p>
+			{:else if recentResumes.length === 0}
 				<p class="text-muted-fg text-sm">No resumes yet.</p>
 			{:else}
 				<div class="space-y-3">
-					{#each recentResumes as resume}
+					{#each recentResumes as resume (resume.id)}
 						<a
-							href="/resumes/{resume.talentId}"
+							href={resolve('/resumes/[personId]', { personId: resume.talentId })}
 							class="hover:bg-muted -mx-2 flex items-center gap-3 rounded-sm px-2 py-2 transition-colors"
 						>
 							<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
@@ -189,7 +271,7 @@
 										srcset={listAvatarSrcSet(resume.talentAvatarUrl)}
 										sizes="36px"
 										alt={resume.talentName}
-										class="h-9 w-9 rounded-sm object-contain"
+										class="h-9 w-9 rounded-sm object-cover"
 										loading="lazy"
 										decoding="async"
 										onerror={(event) =>
@@ -219,15 +301,19 @@
 					<CalendarCheck size={18} class="text-muted-fg" />
 					Available Soon
 				</h2>
-				<a href="/resumes" class="text-primary text-sm hover:underline">Search</a>
+				<a href={resolve('/resumes')} class="text-primary text-sm hover:underline">Search</a>
 			</div>
-			{#if availableSoon.length === 0}
+			{#if panelsStatus === 'loading'}
+				<p class="text-muted-fg text-sm">Loading upcoming availability...</p>
+			{:else if panelsError}
+				<p class="text-muted-fg text-sm">{panelsError}</p>
+			{:else if availableSoon.length === 0}
 				<p class="text-muted-fg text-sm">No consultants becoming available within 30 days.</p>
 			{:else}
 				<div class="space-y-3">
-					{#each availableSoon as consultant}
+					{#each availableSoon as consultant (consultant.id)}
 						<a
-							href="/resumes/{consultant.id}"
+							href={resolve('/resumes/[personId]', { personId: consultant.id })}
 							class="hover:bg-muted -mx-2 flex items-center gap-3 rounded-sm px-2 py-2 transition-colors"
 						>
 							<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
@@ -237,7 +323,7 @@
 										srcset={listAvatarSrcSet(consultant.avatarUrl)}
 										sizes="36px"
 										alt={consultant.name}
-										class="h-9 w-9 rounded-sm object-contain"
+										class="h-9 w-9 rounded-sm object-cover"
 										loading="lazy"
 										decoding="async"
 										onerror={(event) =>
@@ -269,7 +355,7 @@
 	<div>
 		<h2 class="text-foreground mb-4 text-lg font-semibold">Tips for better resumes</h2>
 		<div class="grid gap-4 sm:grid-cols-3">
-			{#each tips as tip}
+			{#each tips as tip (tip.title)}
 				<div class="border-border bg-muted rounded-sm border p-4">
 					<div
 						class="bg-card text-primary mb-3 flex h-10 w-10 items-center justify-center rounded-sm shadow-sm"

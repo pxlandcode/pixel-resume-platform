@@ -307,7 +307,7 @@
 					srcset={avatarDetailSrcSet(user.avatar_url)}
 					sizes="96px"
 					alt="{user.first_name} {user.last_name}"
-					class="border-border h-24 w-24 rounded-full border object-contain"
+					class="border-border h-24 w-24 rounded-full border object-cover"
 					loading="lazy"
 					decoding="async"
 					onerror={(event) => applyImageFallbackOnce(event, avatarFallbackSrc(user.avatar_url))}
@@ -595,7 +595,7 @@
 										srcset={avatarPreviewSrcSet(previewUrl)}
 										sizes="128px"
 										alt="Avatar preview"
-										class="aspect-square w-full object-contain"
+										class="aspect-square w-full object-cover"
 										loading="lazy"
 										decoding="async"
 										onerror={(event) =>

@@ -112,7 +112,7 @@
 								srcset={rowAvatarSrcSet(row.avatar_url)}
 								sizes="40px"
 								alt={row.fullName}
-								class="h-10 w-10 rounded-full object-contain"
+								class="h-10 w-10 rounded-full object-cover"
 								loading="lazy"
 								decoding="async"
 								onerror={(event) =>

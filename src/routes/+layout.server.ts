@@ -1,10 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import {
-	AUTH_COOKIE_NAMES,
-	clearAuthCookies,
-	createSupabaseServerClient,
-	getSupabaseAdminClient
-} from '$lib/server/supabase';
+import { clearAuthCookies } from '$lib/server/supabase';
 import {
 	DEFAULT_ORGANISATION_BRANDING_THEME,
 	resolveOrganisationBrandingTheme,
@@ -109,9 +104,10 @@ const appMeta = (pathname: string): PageMetaInput => ({
 	noindex: true
 });
 
-export const load: LayoutServerLoad = async ({ cookies, url }) => {
+export const load: LayoutServerLoad = async ({ cookies, url, locals }) => {
 	const pathname = normalizePath(url.pathname);
-	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
+	const requestContext = locals.requestContext;
+	const accessToken = requestContext.accessToken;
 	const defaultMainFont = resolveOrganisationMainFont(null);
 
 	if (!accessToken) {
@@ -151,27 +147,26 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 		} satisfies LoadResult;
 	}
 
-	const supabase = createSupabaseServerClient(accessToken);
+	const supabase = requestContext.getSupabaseClient();
 	if (!supabase) {
 		clearAuthCookies(cookies);
 		throw redirect(303, '/login');
 	}
 
 	try {
-		const { data: userData, error: userError } = await supabase.auth.getUser();
-
-		if (userError || !userData.user) {
+		const authUser = await requestContext.getAuthenticatedUser();
+		if (!authUser) {
 			clearAuthCookies(cookies);
 			throw redirect(303, '/login');
 		}
 
-		const userId = userData.user.id;
-		if (userData.user.app_metadata?.active === false) {
+		const userId = authUser.id;
+		if (authUser.app_metadata?.active === false) {
 			clearAuthCookies(cookies);
 			throw redirect(303, '/login?inactive=1');
 		}
 
-		const adminClient = getSupabaseAdminClient();
+		const adminClient = requestContext.getAdminClient();
 
 		const [{ data: profileData }, roleResult, talentResult, homeOrgResult] = await Promise.all([
 			supabase
@@ -211,8 +206,8 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 		let roles = rolesFromTable;
 		if (roles.length === 0) {
 			const appRolesNormalized = (
-				Array.isArray(userData.user.app_metadata?.roles)
-					? (userData.user.app_metadata?.roles as string[])
+				Array.isArray(authUser.app_metadata?.roles)
+					? (authUser.app_metadata?.roles as string[])
 					: []
 			)
 				.map((value) => normalizeRole(value))
@@ -220,8 +215,8 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 
 			if (appRolesNormalized.length > 0) {
 				roles = appRolesNormalized;
-			} else if (typeof userData.user.app_metadata?.role === 'string') {
-				const normalizedRole = normalizeRole(userData.user.app_metadata.role);
+			} else if (typeof authUser.app_metadata?.role === 'string') {
+				const normalizedRole = normalizeRole(authUser.app_metadata.role);
 				if (normalizedRole) roles = [normalizedRole];
 			}
 		}
@@ -295,7 +290,7 @@ export const load: LayoutServerLoad = async ({ cookies, url }) => {
 		}
 
 		return {
-			user: { id: userId, email: userData.user.email ?? undefined },
+			user: { id: userId, email: authUser.email ?? undefined },
 			profile: (profileData as Profile | null) ?? null,
 			role: primaryRole,
 			roles: effectiveRoles,

@@ -19,6 +19,7 @@
 	import { resolve } from '$app/paths';
 	import { slide } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
+	import { onDestroy } from 'svelte';
 
 	const { data, form } = $props();
 
@@ -71,12 +72,158 @@
 		);
 	});
 
+	const contactScopeOrgIds = $derived(
+		Array.from(new Set(selectedOrganisationIds.map((id) => id.trim()).filter(Boolean))).sort()
+	);
+	const contactScopeSignature = $derived(
+		contactScopeOrgIds.length > 0 ? `org:${contactScopeOrgIds.join(',')}` : 'default'
+	);
+
 	let isCreateDrawerOpen = $state(false);
 	let filtersOpen = $state(false);
 	let searchQuery = $state('');
+	let contactIndexStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let contactIndexError = $state<string | null>(null);
+	let loadedContactScopeSignature = $state<string | null>(null);
+	let activeContactScopeSignature = $state<string | null>(null);
+	let contactIndexByScope = $state<Record<string, Record<string, string | null>>>({});
+	let contactEtagByScope = $state<Record<string, string | null>>({});
+	let contactIndexAbortController: AbortController | null = null;
+
+	const needsContactIndex = $derived(talentsViewMode === 'list' || searchQuery.trim().length > 0);
+	const contactIndexLoadingForScope = $derived(
+		contactIndexStatus === 'loading' && activeContactScopeSignature === contactScopeSignature
+	);
+	const activeContactByTalentId = $derived(
+		loadedContactScopeSignature === contactScopeSignature
+			? (contactIndexByScope[contactScopeSignature] ?? {})
+			: {}
+	);
+
+	const toContactByTalentId = (
+		items: Array<{ talentId: unknown; email: unknown }>
+	): Record<string, string | null> => {
+		const result: Record<string, string | null> = {};
+
+		for (const item of items) {
+			if (typeof item.talentId !== 'string' || item.talentId.trim().length === 0) continue;
+			const talentId = item.talentId.trim();
+			result[talentId] = typeof item.email === 'string' ? item.email : null;
+		}
+
+		return result;
+	};
+
+	const loadContactIndexForScope = async (scopeSignature: string, orgIds: string[]) => {
+		if (contactIndexStatus === 'loading' && activeContactScopeSignature === scopeSignature) return;
+
+		const cached = contactIndexByScope[scopeSignature];
+		if (cached) {
+			activeContactScopeSignature = scopeSignature;
+			loadedContactScopeSignature = scopeSignature;
+			contactIndexStatus = 'ready';
+			contactIndexError = null;
+			return;
+		}
+
+		contactIndexAbortController?.abort();
+		const controller = new AbortController();
+		contactIndexAbortController = controller;
+		activeContactScopeSignature = scopeSignature;
+		contactIndexStatus = 'loading';
+		contactIndexError = null;
+
+		try {
+			const query = orgIds.map((orgId) => `org=${encodeURIComponent(orgId)}`).join('&');
+			const endpoint = query
+				? `/internal/api/talents/contact-index?${query}`
+				: '/internal/api/talents/contact-index';
+
+			const response = await fetch(endpoint, {
+				method: 'GET',
+				credentials: 'include',
+				signal: controller.signal,
+				headers: contactEtagByScope[scopeSignature]
+					? { 'If-None-Match': contactEtagByScope[scopeSignature] }
+					: undefined
+			});
+
+			if (response.status === 304) {
+				if (!contactIndexByScope[scopeSignature]) {
+					throw new Error('Contact index cache was empty after revalidation.');
+				}
+				if (controller.signal.aborted) return;
+				activeContactScopeSignature = scopeSignature;
+				loadedContactScopeSignature = scopeSignature;
+				contactIndexStatus = 'ready';
+				contactIndexError = null;
+				return;
+			}
+
+			if (!response.ok) {
+				const message = await response.text().catch(() => '');
+				throw new Error(message || 'Could not load talent contact index.');
+			}
+
+			const payload = (await response.json()) as {
+				scope?: { signature?: unknown };
+				items?: Array<{ talentId: unknown; email: unknown }>;
+			};
+			const responseScopeSignature =
+				typeof payload.scope?.signature === 'string' && payload.scope.signature.trim().length > 0
+					? payload.scope.signature.trim()
+					: scopeSignature;
+			const contactsByTalentId = toContactByTalentId(payload.items ?? []);
+
+			contactIndexByScope = {
+				...contactIndexByScope,
+				[responseScopeSignature]: contactsByTalentId
+			};
+			contactEtagByScope = {
+				...contactEtagByScope,
+				[responseScopeSignature]: response.headers.get('etag')
+			};
+
+			if (controller.signal.aborted) return;
+			activeContactScopeSignature = responseScopeSignature;
+			loadedContactScopeSignature = responseScopeSignature;
+			contactIndexStatus = 'ready';
+			contactIndexError = null;
+		} catch (error) {
+			if (controller.signal.aborted) return;
+			contactIndexStatus = 'error';
+			loadedContactScopeSignature = null;
+			contactIndexError =
+				error instanceof Error ? error.message : 'Could not load talent contacts.';
+		} finally {
+			if (contactIndexAbortController === controller) {
+				contactIndexAbortController = null;
+			}
+		}
+	};
+
+	$effect(() => {
+		if (!needsContactIndex) {
+			if (contactIndexStatus === 'loading') {
+				contactIndexAbortController?.abort();
+				contactIndexAbortController = null;
+			}
+			contactIndexStatus = 'idle';
+			contactIndexError = null;
+			return;
+		}
+
+		void loadContactIndexForScope(contactScopeSignature, contactScopeOrgIds);
+	});
+
+	onDestroy(() => {
+		contactIndexAbortController?.abort();
+		contactIndexAbortController = null;
+	});
 
 	const getTalentName = (talent: (typeof allTalents)[number]) =>
 		[talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed Talent';
+	const getTalentEmail = (talentId: string) => activeContactByTalentId[talentId] ?? null;
 	const getCardAvatarSrc = (url: string | null | undefined) =>
 		transformSupabasePublicUrl(url, supabaseImagePresets.avatarCard);
 	const getCardAvatarSrcSet = (url: string | null | undefined) =>
@@ -111,7 +258,7 @@
 			name: getTalentName(t),
 			avatar_url: t.avatar_url ?? null,
 			title: t.title ?? null,
-			email: t.email ?? null,
+			email: getTalentEmail(t.id),
 			organisation_name: t.organisation_name ?? null,
 			organisation_logo_url: t.organisation_logo_url ?? null
 		}));
@@ -128,7 +275,7 @@
 		return talents.filter((t) => {
 			const name = getTalentName(t).toLowerCase();
 			const title = (t.title ?? '').toLowerCase();
-			const email = (t.email ?? '').toLowerCase();
+			const email = (getTalentEmail(t.id) ?? '').toLowerCase();
 			return name.includes(q) || title.includes(q) || email.includes(q);
 		});
 	});
@@ -252,6 +399,13 @@
 			<p class="text-foreground text-sm font-medium">{actionMessage}</p>
 		</Alert>
 	{/if}
+	{#if needsContactIndex && contactIndexLoadingForScope}
+		<p class="text-muted-fg text-sm">Loading contact emails...</p>
+	{:else if contactIndexError && needsContactIndex}
+		<Alert variant="destructive" size="sm">
+			<p class="text-foreground text-sm font-medium">{contactIndexError}</p>
+		</Alert>
+	{/if}
 
 	{#if canManageTalents}
 		<TalentFormDrawer bind:open={isCreateDrawerOpen} />
@@ -286,7 +440,7 @@
 									srcset={getCardAvatarSrcSet(talent.avatar_url)}
 									sizes={supabaseImageSizes.avatarCard}
 									alt={getTalentName(talent)}
-									class="h-full w-full object-contain object-center transition-transform duration-500 hover:scale-105"
+									class="h-full w-full object-cover object-center transition-transform duration-500 hover:scale-105"
 									loading="lazy"
 									decoding="async"
 									onerror={(event) =>
@@ -303,8 +457,10 @@
 							{#if talent.title}
 								<p class="text-muted-fg mt-1 text-sm">{talent.title}</p>
 							{/if}
-							{#if talent.email}
-								<p class="text-muted-fg mt-2 hidden text-xs sm:block">{talent.email}</p>
+							{#if getTalentEmail(talent.id)}
+								<p class="text-muted-fg mt-2 hidden text-xs sm:block">
+									{getTalentEmail(talent.id)}
+								</p>
 							{/if}
 							{#if talent.organisation_logo_url || talent.organisation_name}
 								<div class="mt-auto pt-3">
