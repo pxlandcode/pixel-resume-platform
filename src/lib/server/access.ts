@@ -10,6 +10,7 @@ import {
 export type AppRole = 'admin' | 'broker' | 'talent' | 'employer';
 
 const KNOWN_ROLES = new Set<AppRole>(['admin', 'broker', 'talent', 'employer']);
+const ACTOR_CONTEXT_CACHE_TTL_MS = 30_000;
 
 type RoleJoinRow = {
 	roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
@@ -81,6 +82,13 @@ export type ResolvedTemplateContext = {
 };
 
 export type PrintTemplateMode = 'auto' | 'org' | 'broker';
+
+type ActorContextCacheEntry = {
+	expiresAt: number;
+	value: ActorAccessContext;
+};
+
+const actorContextCache = new Map<string, ActorContextCacheEntry>();
 
 const normalizeRole = (value: string | null | undefined): AppRole | null => {
 	if (!value) return null;
@@ -199,6 +207,14 @@ export const getActorAccessContext = async (
 		};
 	}
 	const userId = authUser.id;
+	const now = Date.now();
+	const cached = actorContextCache.get(userId);
+	if (cached && cached.expiresAt > now) {
+		return cached.value;
+	}
+	if (cached) {
+		actorContextCache.delete(userId);
+	}
 
 	const [roleResult, homeOrgResult, grantsResult, ownTalentResult] = await Promise.all([
 		adminClient.from('user_roles').select('roles(key)').eq('user_id', userId),
@@ -244,7 +260,7 @@ export const getActorAccessContext = async (
 		? []
 		: unique([homeOrganisationId ?? '', ...(isBroker || isEmployer ? grantOrgIds : [])]);
 
-	return {
+	const value: ActorAccessContext = {
 		userId,
 		roles,
 		primaryRole: roles[0] ?? null,
@@ -256,6 +272,12 @@ export const getActorAccessContext = async (
 		accessibleOrganisationIds,
 		talentId: ownTalentResult.data?.id ?? null
 	};
+	actorContextCache.set(userId, {
+		expiresAt: now + ACTOR_CONTEXT_CACHE_TTL_MS,
+		value
+	});
+
+	return value;
 };
 
 export const getAccessibleTalentIds = async (

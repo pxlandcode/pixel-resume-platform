@@ -9,6 +9,41 @@ import { getAccessibleTalentIds } from '$lib/server/access';
 import type { ResumesTalentListItem } from '$lib/types/resumes';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
+const RESUMES_INDEX_CACHE_TTL_MS = 60_000;
+
+type OrganisationOption = { id: string; name: string };
+type ResumesIndexCachePayload = {
+	talents: ResumesTalentListItem[];
+	organisationOptions: OrganisationOption[];
+	homeOrganisationId: string | null;
+};
+
+type ResumesIndexCacheEntry = {
+	expiresAt: number;
+	payload: ResumesIndexCachePayload;
+};
+
+const resumesIndexCache = new Map<string, ResumesIndexCacheEntry>();
+
+const buildActorScopeCacheKey = (actor: {
+	userId: string;
+	isAdmin: boolean;
+	roles: string[];
+	homeOrganisationId: string | null;
+	accessibleOrganisationIds: string[];
+	talentId: string | null;
+}) => {
+	const scope = actor.isAdmin
+		? 'admin'
+		: [
+				`roles:${actor.roles.join(',')}`,
+				`home:${actor.homeOrganisationId ?? ''}`,
+				`talent:${actor.talentId ?? ''}`,
+				`orgs:${[...actor.accessibleOrganisationIds].sort().join(',')}`
+			].join('|');
+
+	return `${actor.userId}:${scope}`;
+};
 
 const resolveStoragePublicUrl = (adminClient: SupabaseClient, value: string | null | undefined) => {
 	if (!value || typeof value !== 'string') return null;
@@ -24,7 +59,7 @@ const resolveStoragePublicUrl = (adminClient: SupabaseClient, value: string | nu
 
 const emptyResult = {
 	talents: [] as ResumesTalentListItem[],
-	organisationOptions: [] as Array<{ id: string; name: string }>,
+	organisationOptions: [] as OrganisationOption[],
 	homeOrganisationId: null as string | null,
 	meta: null as {
 		title: string;
@@ -47,6 +82,40 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!actor.userId) {
 		return emptyResult;
 	}
+	const cacheKey = buildActorScopeCacheKey({
+		userId: actor.userId,
+		isAdmin: actor.isAdmin,
+		roles: actor.roles,
+		homeOrganisationId: actor.homeOrganisationId,
+		accessibleOrganisationIds: actor.accessibleOrganisationIds,
+		talentId: actor.talentId
+	});
+	const now = Date.now();
+	const cached = resumesIndexCache.get(cacheKey);
+	if (cached && cached.expiresAt > now) {
+		return {
+			...cached.payload,
+			meta: {
+				title: `${siteMeta.name} — Resumes`,
+				description: 'Manage consultant resumes and export packages.',
+				noindex: true,
+				path: '/resumes'
+			}
+		};
+	}
+	if (cached) {
+		resumesIndexCache.delete(cacheKey);
+	}
+
+	const accessibleOrgRowsPromise = actor.isAdmin
+		? adminClient.from('organisations').select('id, name').order('name', { ascending: true })
+		: actor.accessibleOrganisationIds.length === 0
+			? Promise.resolve({ data: [] as OrganisationOption[], error: null })
+			: adminClient
+					.from('organisations')
+					.select('id, name')
+					.in('id', actor.accessibleOrganisationIds)
+					.order('name', { ascending: true });
 
 	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
 
@@ -87,34 +156,41 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}> | null) ?? [];
 	const talentIds = talentRows.map((row) => row.id);
 
-	const availabilityByTalentId = new Map<string, ReturnType<typeof normalizeAvailabilityRow>>();
-	if (talentIds.length > 0) {
-		const { data: availabilityRows, error: availabilityError } = await adminClient
-			.from('profile_availability')
-			.select(PROFILE_AVAILABILITY_SELECT)
-			.in('profile_id', talentIds);
-
-		if (availabilityError) {
-			console.warn('[resumes index] profile_availability error', availabilityError);
-		}
-
-		for (const row of availabilityRows ?? []) {
-			const profileId = (row as { profile_id?: unknown }).profile_id;
-			if (typeof profileId !== 'string' || profileId.length === 0) continue;
-			availabilityByTalentId.set(profileId, normalizeAvailabilityRow(row));
-		}
-	}
-
-	const orgMembershipsResult =
+	const [availabilityResult, orgMembershipsResult] =
 		talentIds.length === 0
-			? { data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
-			: await adminClient
-					.from('organisation_talents')
-					.select('talent_id, organisation_id')
-					.in('talent_id', talentIds);
+			? [
+					{
+						data: [] as Array<{
+							profile_id: string;
+						}>,
+						error: null
+					},
+					{ data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
+				]
+			: await Promise.all([
+					adminClient
+						.from('profile_availability')
+						.select(PROFILE_AVAILABILITY_SELECT)
+						.in('profile_id', talentIds),
+					adminClient
+						.from('organisation_talents')
+						.select('talent_id, organisation_id')
+						.in('talent_id', talentIds)
+				]);
+
+	if (availabilityResult.error) {
+		console.warn('[resumes index] profile_availability error', availabilityResult.error);
+	}
 
 	if (orgMembershipsResult.error) {
 		console.warn('[resumes index] organisation_talents error', orgMembershipsResult.error);
+	}
+
+	const availabilityByTalentId = new Map<string, ReturnType<typeof normalizeAvailabilityRow>>();
+	for (const row of availabilityResult.data ?? []) {
+		const profileId = (row as { profile_id?: unknown }).profile_id;
+		if (typeof profileId !== 'string' || profileId.length === 0) continue;
+		availabilityByTalentId.set(profileId, normalizeAvailabilityRow(row));
 	}
 
 	const orgIdByTalentId = new Map<string, string>();
@@ -172,15 +248,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	});
 
-	const accessibleOrgRowsResult = actor.isAdmin
-		? await adminClient.from('organisations').select('id, name').order('name', { ascending: true })
-		: actor.accessibleOrganisationIds.length === 0
-			? { data: [] as Array<{ id: string; name: string }>, error: null }
-			: await adminClient
-					.from('organisations')
-					.select('id, name')
-					.in('id', actor.accessibleOrganisationIds)
-					.order('name', { ascending: true });
+	const accessibleOrgRowsResult = await accessibleOrgRowsPromise;
 
 	if (accessibleOrgRowsResult.error) {
 		console.warn('[resumes index] accessible organisations error', accessibleOrgRowsResult.error);
@@ -190,11 +258,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 		id: org.id,
 		name: org.name
 	}));
-
-	return {
+	const payload: ResumesIndexCachePayload = {
 		talents,
 		organisationOptions,
-		homeOrganisationId: actor.homeOrganisationId ?? null,
+		homeOrganisationId: actor.homeOrganisationId ?? null
+	};
+	resumesIndexCache.set(cacheKey, {
+		expiresAt: now + RESUMES_INDEX_CACHE_TTL_MS,
+		payload
+	});
+
+	return {
+		...payload,
 		meta: {
 			title: `${siteMeta.name} — Resumes`,
 			description: 'Manage consultant resumes and export packages.',
