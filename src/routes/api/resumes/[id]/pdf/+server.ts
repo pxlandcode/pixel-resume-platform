@@ -48,12 +48,6 @@ const PDF_ALLOW_SVG_RASTERIZATION = process.env.PDF_ALLOW_SVG_RASTERIZATION === 
 const RESUME_EXPORTS_BUCKET = (process.env.RESUME_EXPORTS_BUCKET ?? 'resume-exports').trim();
 const EXPORT_SIGNED_URL_TTL_SECONDS = 60 * 10;
 
-const toSafeFilename = (value: string) =>
-	value
-		.replace(/[\\/:*?"<>|]+/g, '')
-		.trim()
-		.replace(/\s+/g, ' ') || 'resume';
-
 const toSafePathSegment = (value: string) =>
 	value
 		.toLowerCase()
@@ -438,7 +432,7 @@ const buildExportObjectPath = ({
 	return `resume-exports/${toSafePathSegment(userId)}/${toSafePathSegment(resumeId)}/${timestamp}-${safeFilename}.pdf`;
 };
 
-const PDF_FILENAME = async (id: string, lang: string) => {
+const PDF_FILENAME = async (id: string, organisationSlug: string | null) => {
 	try {
 		const resume = await ResumeService.getResume(id);
 		if (!resume) {
@@ -446,9 +440,9 @@ const PDF_FILENAME = async (id: string, lang: string) => {
 			return 'Resume.pdf';
 		}
 		const person = await ResumeService.getPerson(resume.personId);
-		const name = toSafeFilename(person?.name ?? 'resume');
-		const kind = lang === 'sv' ? 'CV' : 'Resume';
-		const filename = `${name} - Pixel and Code - ${kind}.pdf`;
+		const nameSlug = toSafePathSegment(person?.name ?? 'resume');
+		const orgSlug = toSafePathSegment(organisationSlug ?? '');
+		const filename = orgSlug ? `${nameSlug}-${orgSlug}-resume.pdf` : `${nameSlug}-resume.pdf`;
 		console.log('[pdf] Generated filename:', filename);
 		return filename;
 	} catch (err) {
@@ -504,6 +498,24 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		exportPolicy.sourceOrganisationId ?? exportPolicy.targetOrganisationId ?? null;
 	if (!auditOrganisationId) {
 		throw error(400, 'Resume export requires a linked source or target organisation.');
+	}
+	let sourceOrganisationSlug: string | null = null;
+	if (exportPolicy.sourceOrganisationId) {
+		const { data: sourceOrg, error: sourceOrgError } = await adminClient
+			.from('organisations')
+			.select('slug')
+			.eq('id', exportPolicy.sourceOrganisationId)
+			.maybeSingle();
+		if (sourceOrgError) {
+			console.warn('[pdf] Could not resolve source organisation slug', {
+				resumeId,
+				sourceOrganisationId: exportPolicy.sourceOrganisationId,
+				error: sourceOrgError.message
+			});
+		} else {
+			const rawSlug = (sourceOrg as { slug?: string } | null)?.slug ?? '';
+			sourceOrganisationSlug = rawSlug.trim().length > 0 ? rawSlug.trim() : null;
+		}
 	}
 
 	let browser: import('playwright-core').Browser | null = null;
@@ -846,7 +858,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			});
 		}
 
-		const filename = await PDF_FILENAME(resumeId, lang);
+		const filename = await PDF_FILENAME(resumeId, sourceOrganisationSlug);
 		console.log('[pdf] Response filename:', filename, 'type:', typeof filename);
 		if (!RESUME_EXPORTS_BUCKET) {
 			throw error(500, 'Resume exports bucket is not configured.');
