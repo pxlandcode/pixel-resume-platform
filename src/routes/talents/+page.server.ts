@@ -49,10 +49,22 @@ const resolveStoragePublicUrl = (
 	return data.publicUrl ?? null;
 };
 
-export const load: PageServerLoad = async ({ cookies }) => {
-	const { supabase, adminClient, actor } = await getActorContext(cookies);
+export const load: PageServerLoad = async ({ locals }) => {
+	const requestContext = locals.requestContext;
+	const supabase = requestContext.getSupabaseClient();
+	const adminClient = requestContext.getAdminClient();
 
-	if (!supabase || !adminClient || !actor.userId) {
+	if (!supabase || !adminClient) {
+		return {
+			talents: [],
+			organisationOptions: [],
+			homeOrganisationId: null,
+			canManageTalents: false,
+			meta: null
+		};
+	}
+	const actor = await requestContext.getActorContext();
+	if (!actor.userId) {
 		return {
 			talents: [],
 			organisationOptions: [],
@@ -64,15 +76,15 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
 
-	const [talentsResult, authUsersResult] = await Promise.all([
+	const talentsResult =
 		accessibleTalentIds === null
-			? adminClient
+			? await adminClient
 					.from('talents')
 					.select('id, user_id, first_name, last_name, avatar_url, title')
 					.order('last_name', { ascending: true })
 					.order('first_name', { ascending: true })
 			: accessibleTalentIds.length === 0
-				? Promise.resolve({
+				? {
 						data: [] as Array<{
 							id: string;
 							user_id: string | null;
@@ -82,15 +94,13 @@ export const load: PageServerLoad = async ({ cookies }) => {
 							title: string | null;
 						}>,
 						error: null
-					})
-				: adminClient
+					}
+				: await adminClient
 						.from('talents')
 						.select('id, user_id, first_name, last_name, avatar_url, title')
 						.in('id', accessibleTalentIds)
 						.order('last_name', { ascending: true })
-						.order('first_name', { ascending: true }),
-		adminClient.auth.admin.listUsers()
-	]);
+						.order('first_name', { ascending: true });
 
 	if (talentsResult.error) {
 		console.warn('[talents index] talents error', talentsResult.error);
@@ -155,9 +165,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		}
 	}
 
-	const authUsers = authUsersResult.data?.users ?? [];
-	const emailByUserId = new Map(authUsers.map((user) => [user.id, user.email ?? null]));
-
 	const talents = talentRows.map((talent) => {
 		const orgId = orgIdByTalentId.get(talent.id);
 		const org = orgId ? orgById.get(orgId) : undefined;
@@ -168,7 +175,6 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			last_name: talent.last_name ?? '',
 			avatar_url: talent.avatar_url ?? null,
 			title: talent.title ?? '',
-			email: talent.user_id ? (emailByUserId.get(talent.user_id) ?? null) : null,
 			organisation_id: orgId ?? null,
 			organisation_name: org?.name ?? null,
 			organisation_logo_url: org?.logoUrl ?? null

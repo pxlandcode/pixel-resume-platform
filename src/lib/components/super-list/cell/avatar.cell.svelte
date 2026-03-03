@@ -40,7 +40,7 @@
 			srcset={transformedSrcSet}
 			sizes={sizeHint}
 			{alt}
-			class="h-full w-full object-contain object-center"
+			class="h-full w-full object-cover object-center"
 			loading="lazy"
 			decoding="async"
 			onerror={(event) => applyImageFallbackOnce(event, fallbackSrc || src)}

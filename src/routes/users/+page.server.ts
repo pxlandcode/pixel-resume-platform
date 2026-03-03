@@ -87,36 +87,24 @@ const resolveRoleIds = async (
 	return roleIdMap;
 };
 
-export const load: PageServerLoad = async ({ cookies }) => {
-	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+export const load: PageServerLoad = async ({ locals }) => {
+	const requestContext = locals.requestContext;
+	const supabase = requestContext.getSupabaseClient();
+	const adminClient = requestContext.getAdminClient();
 
-	if (!supabase) {
+	if (!supabase || !adminClient) {
 		return {
 			users: [],
-			talents: [],
 			canCreateUsers: false,
 			canEditUsers: false,
 			allowedCreateRoles: ['talent'] as Role[]
 		};
 	}
 
-	const adminClient = getSupabaseAdminClient();
-
-	if (!adminClient) {
-		return {
-			users: [],
-			talents: [],
-			canCreateUsers: false,
-			canEditUsers: false,
-			allowedCreateRoles: ['talent'] as Role[]
-		};
-	}
-
-	const actor = await getActorAccessContext(supabase, adminClient);
+	const actor = await requestContext.getActorContext();
 	if (!actor.userId || (!actor.isAdmin && !actor.isBroker && !actor.isEmployer)) {
 		return {
 			users: [],
-			talents: [],
 			canCreateUsers: false,
 			canEditUsers: false,
 			allowedCreateRoles: ['talent'] as Role[]
@@ -147,11 +135,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			.order('last_name', { ascending: true }),
 		adminClient.from('user_roles').select('user_id, roles(key)'),
 		adminClient.auth.admin.listUsers(),
-		adminClient
-			.from('talents')
-			.select('id, user_id, first_name, last_name, avatar_url')
-			.order('last_name', { ascending: true })
-			.order('first_name', { ascending: true })
+		adminClient.from('talents').select('id, user_id, avatar_url').not('user_id', 'is', null)
 	]);
 
 	const organisationMembershipsResult = await adminClient
@@ -160,22 +144,20 @@ export const load: PageServerLoad = async ({ cookies }) => {
 
 	const [profiles, roleRows, authUsers, talentRows, organisationMembershipRows] = [
 		profilesResult.data ?? [],
-		((rolesResult.data as Array<{
+		(rolesResult.data as Array<{
 			user_id: string;
 			roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
-		}> | null) ?? []),
+		}> | null) ?? [],
 		authUsersResult.data?.users ?? [],
-		((talentsResult.data as Array<{
+		(talentsResult.data as Array<{
 			id: string;
 			user_id: string | null;
-			first_name: string | null;
-			last_name: string | null;
 			avatar_url: string | null;
-		}> | null) ?? []),
-		((organisationMembershipsResult.data as Array<{
+		}> | null) ?? [],
+		(organisationMembershipsResult.data as Array<{
 			user_id: string;
 			organisations?: { name?: string | null } | Array<{ name?: string | null }> | null;
-		}> | null) ?? [])
+		}> | null) ?? []
 	];
 
 	if (rolesResult.error) {
@@ -185,7 +167,10 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		console.error('[users load] talent fetch error', talentsResult.error);
 	}
 	if (organisationMembershipsResult.error) {
-		console.error('[users load] organisation membership fetch error', organisationMembershipsResult.error);
+		console.error(
+			'[users load] organisation membership fetch error',
+			organisationMembershipsResult.error
+		);
 	}
 
 	const roleMap = new Map<string, Role[]>();
@@ -222,10 +207,12 @@ export const load: PageServerLoad = async ({ cookies }) => {
 	const organisationNameByUserId = new Map<string, string>();
 	for (const membership of organisationMembershipRows) {
 		const joined = membership.organisations;
-		const orgName = Array.isArray(joined)
-			? (joined[0]?.name ?? null)
-			: (joined?.name ?? null);
-		if (typeof membership.user_id === 'string' && typeof orgName === 'string' && orgName.length > 0) {
+		const orgName = Array.isArray(joined) ? (joined[0]?.name ?? null) : (joined?.name ?? null);
+		if (
+			typeof membership.user_id === 'string' &&
+			typeof orgName === 'string' &&
+			orgName.length > 0
+		) {
 			organisationNameByUserId.set(membership.user_id, orgName);
 		}
 	}
@@ -261,16 +248,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 			return nameA.localeCompare(nameB);
 		});
 
-	const talents = actor.isAdmin
-		? talentRows.map((talent) => ({
-				id: talent.id,
-				user_id: talent.user_id ?? null,
-				first_name: talent.first_name ?? '',
-				last_name: talent.last_name ?? ''
-			}))
-		: [];
-
-	return { users, talents, canCreateUsers, canEditUsers, allowedCreateRoles };
+	return { users, canCreateUsers, canEditUsers, allowedCreateRoles };
 };
 
 export const actions: Actions = {

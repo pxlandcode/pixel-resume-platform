@@ -657,7 +657,7 @@
 								srcset={previewImageSrcSet(previewUrl)}
 								sizes="128px"
 								alt="Avatar preview"
-								class="aspect-square w-full object-contain"
+								class="aspect-square w-full object-cover"
 								loading="lazy"
 								decoding="async"
 								onerror={(event) =>

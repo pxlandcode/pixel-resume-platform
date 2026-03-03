@@ -222,21 +222,6 @@ const parseOptionalJsonObject = (value: string | null) => {
 	return parsed as Record<string, unknown>;
 };
 
-const resolveStoragePublicUrl = (
-	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
-	value: string | null | undefined
-) => {
-	if (!value || typeof value !== 'string') return null;
-	const trimmed = value.trim();
-	if (!trimmed) return null;
-	if (/^https?:\/\//i.test(trimmed)) return trimmed;
-	const normalizedPath = trimmed.replace(/^\/+/, '').replace(/^organisation-images\//, '');
-	const { data } = adminClient.storage
-		.from(ORGANISATION_IMAGES_BUCKET)
-		.getPublicUrl(normalizedPath);
-	return data.publicUrl ?? null;
-};
-
 const getAdminContext = async (cookies: { get(name: string): string | undefined }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 	const adminClient = getSupabaseAdminClient();
@@ -417,8 +402,12 @@ const disconnectTalentAndLinkedUserHomeOrg = async (
 	}
 };
 
-export const load: PageServerLoad = async ({ cookies }) => {
-	const { supabase, adminClient, actor } = await getAdminContext(cookies);
+export const load: PageServerLoad = async ({ locals }) => {
+	const requestContext = locals.requestContext;
+	const supabase = requestContext.getSupabaseClient();
+	const adminClient = requestContext.getAdminClient();
+	const actor = await requestContext.getActorContext();
+
 	if (!supabase || !adminClient || !actor.userId) {
 		throw error(401, 'Unauthorized');
 	}
@@ -426,100 +415,19 @@ export const load: PageServerLoad = async ({ cookies }) => {
 		throw error(403, 'Only admins can view organisation settings.');
 	}
 
-	const [
-		organisationsResult,
-		templatesResult,
-		membershipsUsersResult,
-		membershipsTalentsResult,
-		accessGrantsResult,
-		dataSharingPermissionsResult,
-		usersResult,
-		userRolesResult,
-		talentsResult
-	] = await Promise.all([
-		adminClient
-			.from('organisations')
-			.select('id, name, slug, homepage_url, brand_settings, created_at, updated_at')
-			.order('name', { ascending: true }),
-		adminClient
-			.from('organisation_templates')
-			.select(
-				'id, organisation_id, template_key, template_json, template_version, main_logotype_path, accent_logo_path, end_logo_path'
-			),
-		adminClient
-			.from('organisation_users')
-			.select('id, organisation_id, user_id, created_at, updated_at'),
-		adminClient
-			.from('organisation_talents')
-			.select('id, organisation_id, talent_id, created_at, updated_at'),
-		adminClient
-			.from('organisation_access_grants')
-			.select('id, organisation_id, grantee_user_id, created_at, created_by_user_id'),
-		adminClient
-			.from('data_sharing_permissions')
-			.select(
-				'id, source_organisation_id, target_organisation_id, sharing_scope, approved_by_admin_id, approved_at'
-			),
-		adminClient
-			.from('user_profiles')
-			.select('user_id, first_name, last_name, email')
-			.order('last_name', { ascending: true })
-			.order('first_name', { ascending: true }),
-		adminClient.from('user_roles').select('user_id, roles(key)'),
-		adminClient
-			.from('talents')
-			.select('id, user_id, first_name, last_name')
-			.order('last_name', { ascending: true })
-			.order('first_name', { ascending: true })
-	]);
+	const organisationsResult = await adminClient
+		.from('organisations')
+		.select('id, name, slug, homepage_url, created_at, updated_at')
+		.order('name', { ascending: true });
 
-	if (organisationsResult.error) throw error(500, organisationsResult.error.message);
-	if (templatesResult.error) throw error(500, templatesResult.error.message);
-	if (membershipsUsersResult.error) throw error(500, membershipsUsersResult.error.message);
-	if (membershipsTalentsResult.error) throw error(500, membershipsTalentsResult.error.message);
-	if (accessGrantsResult.error) throw error(500, accessGrantsResult.error.message);
-	if (dataSharingPermissionsResult.error)
-		throw error(500, dataSharingPermissionsResult.error.message);
-	if (usersResult.error) throw error(500, usersResult.error.message);
-	if (userRolesResult.error) throw error(500, userRolesResult.error.message);
-	if (talentsResult.error) throw error(500, talentsResult.error.message);
-
-	const templates = (templatesResult.data ?? []).map((template) => ({
-		...template,
-		main_logotype_url: resolveStoragePublicUrl(adminClient, template.main_logotype_path),
-		accent_logo_url: resolveStoragePublicUrl(adminClient, template.accent_logo_path),
-		end_logo_url: resolveStoragePublicUrl(adminClient, template.end_logo_path)
-	}));
-
-	const rolesByUserId = new Map<string, Role[]>();
-	for (const row of (userRolesResult.data ?? []) as Array<{
-		user_id: string;
-		roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
-	}>) {
-		rolesByUserId.set(row.user_id, normalizeRolesFromJoinRows([{ roles: row.roles }]) as Role[]);
+	if (organisationsResult.error) {
+		throw error(500, organisationsResult.error.message);
 	}
 
-	const users = (usersResult.data ?? []).map((row) => ({
-		user_id: row.user_id,
-		first_name: row.first_name ?? '',
-		last_name: row.last_name ?? '',
-		email: row.email ?? null,
-		roles: rolesByUserId.get(row.user_id) ?? ['talent']
-	}));
-
 	return {
-		organisations: organisationsResult.data ?? [],
-		templates,
-		membershipsUsers: membershipsUsersResult.data ?? [],
-		membershipsTalents: membershipsTalentsResult.data ?? [],
-		accessGrants: accessGrantsResult.data ?? [],
-		dataSharingPermissions: dataSharingPermissionsResult.data ?? [],
-		users,
-		talents: talentsResult.data ?? []
+		organisations: organisationsResult.data ?? []
 	};
 };
-
-type Role = 'admin' | 'broker' | 'talent' | 'employer';
 
 export const actions: Actions = {
 	createOrganisation: async ({ request, cookies }) => {
