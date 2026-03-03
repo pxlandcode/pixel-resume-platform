@@ -64,6 +64,39 @@ export type UserAcceptanceStatus = {
 	latestAcceptance: AcceptanceSnapshot | null;
 };
 
+const HOME_ORG_CACHE_TTL_MS = 30_000;
+const ACTIVE_LEGAL_VERSIONS_CACHE_TTL_MS = 60_000;
+const USER_ACCEPTANCE_CACHE_TTL_MS = 30_000;
+
+type HomeOrgCacheEntry = {
+	expiresAt: number;
+	organisationId: string | null;
+};
+
+type ActiveVersionsCacheEntry = {
+	expiresAt: number;
+	value: ActiveLegalVersions;
+};
+
+type UserAcceptanceCacheEntry = {
+	expiresAt: number;
+	value: UserAcceptanceStatus;
+};
+
+const homeOrganisationIdCache = new Map<string, HomeOrgCacheEntry>();
+let activeVersionsCache: ActiveVersionsCacheEntry | null = null;
+const userAcceptanceStatusCache = new Map<string, UserAcceptanceCacheEntry>();
+
+const buildActiveDocumentIdsSignature = (activeDocumentIds: ActiveDocumentIds) =>
+	[
+		activeDocumentIds.tos_document_id ?? '',
+		activeDocumentIds.privacy_document_id ?? '',
+		activeDocumentIds.ai_notice_document_id ?? '',
+		activeDocumentIds.data_sharing_document_id ?? '',
+		activeDocumentIds.data_processing_agreement_document_id ?? '',
+		activeDocumentIds.subprocessor_list_document_id ?? ''
+	].join('|');
+
 const isLegalDocType = (value: unknown): value is LegalDocumentType =>
 	LEGAL_DOCUMENT_TYPE_ORDER.some((type) => type === value);
 
@@ -186,6 +219,15 @@ export const getHomeOrganisationIdForUser = async (
 	client: SupabaseClient,
 	userId: string
 ): Promise<string | null> => {
+	const now = Date.now();
+	const cached = homeOrganisationIdCache.get(userId);
+	if (cached && cached.expiresAt > now) {
+		return cached.organisationId;
+	}
+	if (cached) {
+		homeOrganisationIdCache.delete(userId);
+	}
+
 	const { data, error } = await client
 		.from('organisation_users')
 		.select('organisation_id')
@@ -199,12 +241,22 @@ export const getHomeOrganisationIdForUser = async (
 		return null;
 	}
 
-	return typeof data?.organisation_id === 'string' ? data.organisation_id : null;
+	const organisationId = typeof data?.organisation_id === 'string' ? data.organisation_id : null;
+	homeOrganisationIdCache.set(userId, {
+		expiresAt: now + HOME_ORG_CACHE_TTL_MS,
+		organisationId
+	});
+	return organisationId;
 };
 
 export const getActiveLegalVersions = async (
 	client: SupabaseClient
 ): Promise<ActiveLegalVersions> => {
+	const now = Date.now();
+	if (activeVersionsCache && activeVersionsCache.expiresAt > now) {
+		return activeVersionsCache.value;
+	}
+
 	const { data, error } = await client
 		.from('view_active_legal_documents')
 		.select('id, doc_type, version, content_html, effective_date, acceptance_scope, created_at');
@@ -217,7 +269,12 @@ export const getActiveLegalVersions = async (
 		.map((row) => asLegalDocumentRecord(row))
 		.filter((row): row is LegalDocumentRecord => row !== null);
 
-	return buildActiveVersions(parsedRows);
+	const value = buildActiveVersions(parsedRows);
+	activeVersionsCache = {
+		expiresAt: now + ACTIVE_LEGAL_VERSIONS_CACHE_TTL_MS,
+		value
+	};
+	return value;
 };
 
 export const getUserAcceptanceStatus = async (
@@ -227,6 +284,16 @@ export const getUserAcceptanceStatus = async (
 ): Promise<UserAcceptanceStatus> => {
 	const activeVersions = await getActiveLegalVersions(client);
 	const activeDocumentIds = buildActiveDocumentIds(activeVersions);
+	const activeSignature = buildActiveDocumentIdsSignature(activeDocumentIds);
+	const cacheKey = `${userId}:${organisationId}:${activeSignature}`;
+	const now = Date.now();
+	const cached = userAcceptanceStatusCache.get(cacheKey);
+	if (cached && cached.expiresAt > now) {
+		return cached.value;
+	}
+	if (cached) {
+		userAcceptanceStatusCache.delete(cacheKey);
+	}
 	const requiredDocTypes = LEGAL_DOCUMENT_TYPE_ORDER.filter(
 		(type) => activeVersions[type]?.acceptance_scope === 'platform_access'
 	);
@@ -276,13 +343,18 @@ export const getUserAcceptanceStatus = async (
 					})
 			));
 
-	return {
+	const value: UserAcceptanceStatus = {
 		hasAcceptedCurrent,
 		missingActiveDocuments,
 		requiredDocTypes,
 		activeDocumentIds,
 		latestAcceptance
 	};
+	userAcceptanceStatusCache.set(cacheKey, {
+		expiresAt: now + USER_ACCEPTANCE_CACHE_TTL_MS,
+		value
+	});
+	return value;
 };
 
 export const recordUserAcceptance = async (payload: {
@@ -305,6 +377,15 @@ export const recordUserAcceptance = async (payload: {
 	const mapped = mapAcceptanceSnapshot(row);
 	if (!mapped) {
 		throw new Error('Could not parse acceptance record');
+	}
+	homeOrganisationIdCache.set(mapped.user_id, {
+		expiresAt: Date.now() + HOME_ORG_CACHE_TTL_MS,
+		organisationId: mapped.organisation_id
+	});
+	for (const key of userAcceptanceStatusCache.keys()) {
+		if (key.startsWith(`${mapped.user_id}:${mapped.organisation_id}:`)) {
+			userAcceptanceStatusCache.delete(key);
+		}
 	}
 
 	return mapped;

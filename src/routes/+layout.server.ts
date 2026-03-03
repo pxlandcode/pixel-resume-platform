@@ -34,6 +34,7 @@ type LoadResult = {
 	};
 	meta?: PageMetaInput;
 };
+const DATA_CACHE_CONTROL = 'private, max-age=20, stale-while-revalidate=60';
 
 const normalizePath = (pathname: string) => pathname.replace(/\/$/, '') || '/';
 
@@ -48,40 +49,6 @@ const roleGuards: Array<{ pattern: RegExp; roles: Role[] }> = [
 	{ pattern: /^\/talents(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] }
 ];
-
-const normalizeRolesFromJoin = (
-	rows: Array<{ roles?: { key?: string | null } | Array<{ key?: string | null }> | null }>
-): Role[] =>
-	rows
-		.flatMap((row) => {
-			if (Array.isArray(row.roles)) {
-				return row.roles
-					.map((roleRow) => normalizeRole(roleRow?.key))
-					.filter((value): value is Role => value !== null);
-			}
-			const role = normalizeRole(row.roles?.key);
-			return role ? [role] : [];
-		})
-		.filter((value, index, all) => all.indexOf(value) === index);
-
-const normalizeRole = (role: string | null | undefined): Role | null => {
-	if (!role) return null;
-	const value = role.toLowerCase().replace(/\s+/g, '_');
-
-	switch (value) {
-		case 'admin':
-			return 'admin';
-		case 'broker':
-			return 'broker';
-		case 'talent':
-			return 'talent';
-		case 'employer':
-		case 'employers':
-			return 'employer';
-		default:
-			return null;
-	}
-};
 
 const guardRoute = (pathname: string, roles: Role[]): string | null => {
 	const match = roleGuards.find((guard) => guard.pattern.test(pathname));
@@ -104,7 +71,7 @@ const appMeta = (pathname: string): PageMetaInput => ({
 	noindex: true
 });
 
-export const load: LayoutServerLoad = async ({ cookies, url, locals }) => {
+export const load: LayoutServerLoad = async ({ cookies, url, locals, setHeaders }) => {
 	const pathname = normalizePath(url.pathname);
 	const requestContext = locals.requestContext;
 	const accessToken = requestContext.accessToken;
@@ -152,6 +119,10 @@ export const load: LayoutServerLoad = async ({ cookies, url, locals }) => {
 		clearAuthCookies(cookies);
 		throw redirect(303, '/login');
 	}
+	setHeaders({
+		'cache-control': DATA_CACHE_CONTROL,
+		vary: 'cookie'
+	});
 
 	try {
 		const authUser = await requestContext.getAuthenticatedUser();
@@ -167,66 +138,20 @@ export const load: LayoutServerLoad = async ({ cookies, url, locals }) => {
 		}
 
 		const adminClient = requestContext.getAdminClient();
-
-		const [{ data: profileData }, roleResult, talentResult, homeOrgResult] = await Promise.all([
+		const [profileResult, actorContext] = await Promise.all([
 			supabase
 				.from('user_profiles')
 				.select('first_name, last_name')
 				.eq('user_id', userId)
 				.maybeSingle(),
-			adminClient
-				? adminClient.from('user_roles').select('roles(key)').eq('user_id', userId)
-				: Promise.resolve({ data: null, error: null }),
-			supabase.from('talents').select('id').eq('user_id', userId).maybeSingle(),
-			adminClient
-				? adminClient
-						.from('organisation_users')
-						.select('organisation_id')
-						.eq('user_id', userId)
-						.order('updated_at', { ascending: false })
-						.order('created_at', { ascending: false })
-						.limit(1)
-						.maybeSingle()
-				: Promise.resolve({ data: null, error: null })
+			requestContext.getActorContext()
 		]);
-
-		if (roleResult.error) {
-			console.warn('[layout] could not load user roles', roleResult.error);
-		}
-		if (homeOrgResult.error) {
-			console.warn('[layout] could not load home organisation branding', homeOrgResult.error);
-		}
-
-		const roleRows =
-			(roleResult.data as Array<{
-				roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
-			}> | null) ?? [];
-		const rolesFromTable = normalizeRolesFromJoin(roleRows);
-
-		let roles = rolesFromTable;
-		if (roles.length === 0) {
-			const appRolesNormalized = (
-				Array.isArray(authUser.app_metadata?.roles)
-					? (authUser.app_metadata?.roles as string[])
-					: []
-			)
-				.map((value) => normalizeRole(value))
-				.filter(Boolean) as Role[];
-
-			if (appRolesNormalized.length > 0) {
-				roles = appRolesNormalized;
-			} else if (typeof authUser.app_metadata?.role === 'string') {
-				const normalizedRole = normalizeRole(authUser.app_metadata.role);
-				if (normalizedRole) roles = [normalizedRole];
-			}
-		}
-
-		roles = Array.from(new Set(roles));
-		const primaryRole = (roles[0] as Role | undefined) ?? 'talent';
-		const effectiveRoles: Role[] = roles.length ? roles : ['talent'];
-		const currentTalentId =
-			talentResult.data && typeof talentResult.data.id === 'string' ? talentResult.data.id : null;
-		let homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
+		const profileData = profileResult.data;
+		const roles = actorContext.roles as Role[];
+		const effectiveRoles: Role[] = roles.length > 0 ? roles : ['talent'];
+		const primaryRole = (actorContext.primaryRole as Role | null) ?? effectiveRoles[0] ?? 'talent';
+		const currentTalentId = actorContext.talentId;
+		let homeOrganisationId = actorContext.homeOrganisationId;
 		let brandingTheme = DEFAULT_ORGANISATION_BRANDING_THEME;
 		let brandingFont = defaultMainFont;
 
