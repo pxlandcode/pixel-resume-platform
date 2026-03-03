@@ -1,17 +1,13 @@
-import { redirect } from '@sveltejs/kit';
 import { clearAuthCookies } from '$lib/server/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import {
 	DEFAULT_ORGANISATION_BRANDING_THEME,
 	resolveOrganisationBrandingTheme,
 	type OrganisationBrandingTheme
 } from '$lib/branding/theme';
 import { resolveOrganisationMainFont } from '$lib/branding/font';
-import {
-	isLegalExemptPath,
-	normalizeSafeRedirect,
-	resolveLegalAcceptanceState
-} from '$lib/server/legalGate';
 import type { PageMetaInput } from '$lib/seo';
+import { resolveHomeOrganisationId } from '$lib/server/homeOrganisation';
 import type { LayoutServerLoad } from './$types';
 
 type Role = 'admin' | 'broker' | 'talent' | 'employer';
@@ -34,91 +30,176 @@ type LoadResult = {
 	};
 	meta?: PageMetaInput;
 };
-const DATA_CACHE_CONTROL = 'private, max-age=20, stale-while-revalidate=60';
 
-const normalizePath = (pathname: string) => pathname.replace(/\/$/, '') || '/';
-
-const isPublicPagePath = (pathname: string) =>
-	pathname === '/login' || pathname === '/reset-password' || pathname.startsWith('/print/');
-
-const roleGuards: Array<{ pattern: RegExp; roles: Role[] }> = [
-	{ pattern: /^\/$/, roles: ['admin', 'broker', 'talent', 'employer'] },
-	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'broker', 'employer'] },
-	{ pattern: /^\/organisations(\/.*)?$/, roles: ['admin'] },
-	{ pattern: /^\/settings(\/.*)?$/, roles: ['admin'] },
-	{ pattern: /^\/talents(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
-	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] }
-];
-
-const guardRoute = (pathname: string, roles: Role[]): string | null => {
-	const match = roleGuards.find((guard) => guard.pattern.test(pathname));
-	if (!match) return null;
-
-	const allowed = roles.some((role) => match.roles.includes(role));
-	if (allowed) return null;
-
-	if (roles.includes('talent') || roles.includes('employer')) {
-		return '/';
-	}
-
-	return '/?unauthorized=1';
+type ProfileCacheEntry = {
+	expiresAt: number;
+	value: Profile | null;
 };
 
-const appMeta = (pathname: string): PageMetaInput => ({
+type BrandingCacheEntry = {
+	expiresAt: number;
+	value: {
+		theme: OrganisationBrandingTheme;
+		font: {
+			cssStack: string;
+			fontFaceCss: string | null;
+		};
+	};
+};
+
+const DATA_CACHE_CONTROL = 'private, max-age=20, stale-while-revalidate=60';
+const PROFILE_CACHE_TTL_MS = 60_000;
+const BRANDING_CACHE_TTL_MS = 120_000;
+const DEFAULT_MAIN_FONT = resolveOrganisationMainFont(null);
+
+const profileCache = new Map<string, ProfileCacheEntry>();
+const brandingCache = new Map<string, BrandingCacheEntry>();
+
+const APP_META: PageMetaInput = {
 	title: 'Resume Platform',
 	description: 'Secure workspace for managing talents and consultant resumes.',
-	path: pathname,
 	noindex: true
-});
+};
 
-export const load: LayoutServerLoad = async ({ cookies, url, locals, setHeaders }) => {
-	const pathname = normalizePath(url.pathname);
-	const requestContext = locals.requestContext;
-	const accessToken = requestContext.accessToken;
-	const defaultMainFont = resolveOrganisationMainFont(null);
+const getCachedProfile = (
+	userId: string,
+	now: number
+): { hit: true; value: Profile | null } | null => {
+	const cached = profileCache.get(userId);
+	if (!cached) return null;
+	if (cached.expiresAt <= now) {
+		profileCache.delete(userId);
+		return null;
+	}
+	return { hit: true, value: cached.value };
+};
 
-	if (!accessToken) {
-		if (isPublicPagePath(pathname)) {
-			return {
-				user: null,
-				profile: null,
-				role: null,
-				roles: [],
-				currentTalentId: null,
-				brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
-				brandingFont: {
-					cssStack: defaultMainFont.cssStack,
-					fontFaceCss: defaultMainFont.fontFaceCss
-				},
-				meta: appMeta(pathname)
-			} satisfies LoadResult;
+const setCachedProfile = (userId: string, value: Profile | null, now: number) => {
+	profileCache.set(userId, {
+		expiresAt: now + PROFILE_CACHE_TTL_MS,
+		value
+	});
+};
+
+const getCachedBranding = (
+	organisationId: string,
+	now: number
+): BrandingCacheEntry['value'] | null => {
+	const cached = brandingCache.get(organisationId);
+	if (!cached) return null;
+	if (cached.expiresAt <= now) {
+		brandingCache.delete(organisationId);
+		return null;
+	}
+	return cached.value;
+};
+
+const setCachedBranding = (
+	organisationId: string,
+	value: BrandingCacheEntry['value'],
+	now: number
+) => {
+	brandingCache.set(organisationId, {
+		expiresAt: now + BRANDING_CACHE_TTL_MS,
+		value
+	});
+};
+
+const resolveProfile = async (payload: { supabase: SupabaseClient; userId: string }) => {
+	const now = Date.now();
+	const cached = getCachedProfile(payload.userId, now);
+	if (cached) return cached.value;
+
+	const profileResult = await payload.supabase
+		.from('user_profiles')
+		.select('first_name, last_name')
+		.eq('user_id', payload.userId)
+		.maybeSingle();
+	const profileData = (profileResult.data as Profile | null) ?? null;
+	setCachedProfile(payload.userId, profileData, now);
+	return profileData;
+};
+
+const resolveBranding = async (payload: {
+	adminClient: SupabaseClient | null;
+	organisationId: string | null;
+}) => {
+	const fallback = {
+		theme: DEFAULT_ORGANISATION_BRANDING_THEME,
+		font: {
+			cssStack: DEFAULT_MAIN_FONT.cssStack,
+			fontFaceCss: DEFAULT_MAIN_FONT.fontFaceCss
 		}
+	};
 
-		const redirectParam = encodeURIComponent(pathname);
-		throw redirect(303, `/login?redirect=${redirectParam}`);
+	if (!payload.adminClient || !payload.organisationId) return fallback;
+	const adminClient = payload.adminClient;
+
+	const now = Date.now();
+	const cached = getCachedBranding(payload.organisationId, now);
+	if (cached) return cached;
+
+	const { data: organisationRow, error: organisationError } = await adminClient
+		.from('organisations')
+		.select('brand_settings')
+		.eq('id', payload.organisationId)
+		.maybeSingle();
+
+	if (organisationError) {
+		console.warn('[layout] could not resolve organisation brand settings', organisationError);
+		return fallback;
 	}
 
-	if (isPublicPagePath(pathname)) {
-		return {
-			user: null,
-			profile: null,
-			role: null,
-			roles: [],
-			currentTalentId: null,
-			brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
-			brandingFont: {
-				cssStack: defaultMainFont.cssStack,
-				fontFaceCss: defaultMainFont.fontFaceCss
-			},
-			meta: appMeta(pathname)
-		} satisfies LoadResult;
+	const theme = resolveOrganisationBrandingTheme(organisationRow?.brand_settings ?? null);
+	const resolvedFont = resolveOrganisationMainFont(organisationRow?.brand_settings ?? null, {
+		pathToUrl: (path) => {
+			const normalizedPath = path.replace(/^\/+/, '').replace(/^organisation-images\//, '');
+			const { data } = adminClient.storage.from('organisation-images').getPublicUrl(normalizedPath);
+			return data.publicUrl ?? null;
+		}
+	});
+
+	const value = {
+		theme,
+		font: {
+			cssStack: resolvedFont.cssStack,
+			fontFaceCss: resolvedFont.fontFaceCss
+		}
+	};
+	setCachedBranding(payload.organisationId, value, now);
+	return value;
+};
+
+const buildAnonymousResult = () => {
+	return {
+		user: null,
+		profile: null,
+		role: null,
+		roles: [],
+		currentTalentId: null,
+		brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
+		brandingFont: {
+			cssStack: DEFAULT_MAIN_FONT.cssStack,
+			fontFaceCss: DEFAULT_MAIN_FONT.fontFaceCss
+		},
+		meta: APP_META
+	} satisfies LoadResult;
+};
+
+export const load: LayoutServerLoad = async ({ cookies, locals, setHeaders }) => {
+	const requestContext = locals.requestContext;
+	const accessToken = requestContext.accessToken;
+
+	if (!accessToken) {
+		return buildAnonymousResult();
 	}
 
 	const supabase = requestContext.getSupabaseClient();
 	if (!supabase) {
 		clearAuthCookies(cookies);
-		throw redirect(303, '/login');
+		return buildAnonymousResult();
 	}
+
 	setHeaders({
 		'cache-control': DATA_CACHE_CONTROL,
 		vary: 'cookie'
@@ -128,111 +209,44 @@ export const load: LayoutServerLoad = async ({ cookies, url, locals, setHeaders 
 		const authUser = await requestContext.getAuthenticatedUser();
 		if (!authUser) {
 			clearAuthCookies(cookies);
-			throw redirect(303, '/login');
+			return buildAnonymousResult();
+		}
+		if (authUser.app_metadata?.active === false) {
+			clearAuthCookies(cookies);
+			return buildAnonymousResult();
 		}
 
 		const userId = authUser.id;
-		if (authUser.app_metadata?.active === false) {
-			clearAuthCookies(cookies);
-			throw redirect(303, '/login?inactive=1');
-		}
-
-		const adminClient = requestContext.getAdminClient();
-		const [profileResult, actorContext] = await Promise.all([
-			supabase
-				.from('user_profiles')
-				.select('first_name, last_name')
-				.eq('user_id', userId)
-				.maybeSingle(),
-			requestContext.getActorContext()
-		]);
-		const profileData = profileResult.data;
+		const actorContext = await requestContext.getActorContext();
 		const roles = actorContext.roles as Role[];
 		const effectiveRoles: Role[] = roles.length > 0 ? roles : ['talent'];
 		const primaryRole = (actorContext.primaryRole as Role | null) ?? effectiveRoles[0] ?? 'talent';
-		const currentTalentId = actorContext.talentId;
-		let homeOrganisationId = actorContext.homeOrganisationId;
-		let brandingTheme = DEFAULT_ORGANISATION_BRANDING_THEME;
-		let brandingFont = defaultMainFont;
-
-		if (!homeOrganisationId && adminClient && currentTalentId) {
-			const { data: talentHomeRow, error: talentHomeError } = await adminClient
-				.from('organisation_talents')
-				.select('organisation_id')
-				.eq('talent_id', currentTalentId)
-				.order('updated_at', { ascending: false })
-				.order('created_at', { ascending: false })
-				.limit(1)
-				.maybeSingle();
-			if (talentHomeError) {
-				console.warn(
-					'[layout] could not resolve home organisation from talent membership',
-					talentHomeError
-				);
-			} else {
-				homeOrganisationId = talentHomeRow?.organisation_id ?? null;
-			}
-		}
-
-		if (adminClient && !isLegalExemptPath(pathname)) {
-			const legalState = await resolveLegalAcceptanceState({
+		const adminClient = requestContext.getAdminClient();
+		const homeOrganisationId = await resolveHomeOrganisationId({
+			adminClient,
+			homeOrganisationId: actorContext.homeOrganisationId,
+			talentId: actorContext.talentId
+		});
+		const [profile, branding] = await Promise.all([
+			resolveProfile({ supabase, userId }),
+			resolveBranding({
 				adminClient,
-				userId,
-				homeOrganisationId
-			});
-
-			homeOrganisationId = legalState.homeOrganisationId;
-			if (!legalState.homeOrganisationId || !legalState.status?.hasAcceptedCurrent) {
-				const destination = normalizeSafeRedirect(`${url.pathname}${url.search}`, '/');
-				throw redirect(303, `/legal/accept?redirect=${encodeURIComponent(destination)}`);
-			}
-		}
-
-		const redirectTo = guardRoute(pathname, effectiveRoles);
-		if (redirectTo) throw redirect(303, redirectTo);
-
-		if (adminClient && homeOrganisationId) {
-			const { data: organisationRow, error: organisationError } = await adminClient
-				.from('organisations')
-				.select('brand_settings')
-				.eq('id', homeOrganisationId)
-				.maybeSingle();
-			if (organisationError) {
-				console.warn('[layout] could not resolve organisation brand settings', organisationError);
-			} else {
-				brandingTheme = resolveOrganisationBrandingTheme(organisationRow?.brand_settings ?? null);
-				brandingFont = resolveOrganisationMainFont(organisationRow?.brand_settings ?? null, {
-					pathToUrl: (path) => {
-						if (!adminClient) return null;
-						const normalizedPath = path.replace(/^\/+/, '').replace(/^organisation-images\//, '');
-						const { data } = adminClient.storage
-							.from('organisation-images')
-							.getPublicUrl(normalizedPath);
-						return data.publicUrl ?? null;
-					}
-				});
-			}
-		}
+				organisationId: homeOrganisationId
+			})
+		]);
 
 		return {
 			user: { id: userId, email: authUser.email ?? undefined },
-			profile: (profileData as Profile | null) ?? null,
+			profile,
 			role: primaryRole,
 			roles: effectiveRoles,
-			currentTalentId,
-			brandingTheme,
-			brandingFont: {
-				cssStack: brandingFont.cssStack,
-				fontFaceCss: brandingFont.fontFaceCss
-			},
-			meta: appMeta(pathname)
+			currentTalentId: actorContext.talentId,
+			brandingTheme: branding.theme,
+			brandingFont: branding.font,
+			meta: APP_META
 		} satisfies LoadResult;
-	} catch (error) {
-		if (error && typeof error === 'object' && 'status' in error && 'location' in error) {
-			throw error;
-		}
-
+	} catch {
 		clearAuthCookies(cookies);
-		throw redirect(303, '/login');
+		return buildAnonymousResult();
 	}
 };
