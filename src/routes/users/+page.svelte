@@ -23,12 +23,17 @@
 		avatar_url: string | null;
 		active: boolean;
 		linked_talent_id: string | null;
+		organisation_id: string | null;
 	};
 	type TalentOption = {
 		id: string;
 		user_id: string | null;
 		first_name: string;
 		last_name: string;
+	};
+	type OrganisationOption = {
+		id: string;
+		name: string;
 	};
 
 	type LoadUser = {
@@ -40,14 +45,24 @@
 		avatar_url: string | null;
 		active: boolean;
 		linked_talent_id: string | null;
+		organisation_id?: string | null;
 		organisation_name?: string | null;
 	};
 
 	let { data, form } = $props();
 	const canCreateUsers = $derived(Boolean(data.canCreateUsers));
+	const canDeleteUsers = $derived(Boolean(data.canDeleteUsers));
 	const canEditUsers = $derived(Boolean(data.canEditUsers));
+	const currentUserId = $derived(
+		typeof data.currentUserId === 'string' && data.currentUserId.length > 0
+			? data.currentUserId
+			: null
+	);
 	const allowedCreateRoles = $derived(
 		(data.allowedCreateRoles as Role[] | undefined) ?? ['talent']
+	);
+	const organisationOptions = $derived(
+		(data.organisationOptions as OrganisationOption[] | undefined) ?? []
 	);
 	const normalizeRoles = (roles: string[] | null | undefined): Role[] => {
 		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
@@ -64,20 +79,41 @@
 		roles: normalizeRoles(user.roles),
 		avatar_url: user.avatar_url ?? null,
 		active: user.active,
-		linked_talent_id: user.linked_talent_id ?? null
+		linked_talent_id: user.linked_talent_id ?? null,
+		organisation_id: user.organisation_id ?? null
 	});
+
+	const parseActionMessage = async (response: Response) => {
+		const payload = (await response.json().catch(() => null)) as {
+			message?: unknown;
+			ok?: unknown;
+			data?: { message?: unknown; ok?: unknown } | null;
+		} | null;
+		const message =
+			typeof payload?.message === 'string'
+				? payload.message
+				: typeof payload?.data?.message === 'string'
+					? payload.data.message
+					: null;
+		const ok =
+			typeof payload?.ok === 'boolean'
+				? payload.ok
+				: typeof payload?.data?.ok === 'boolean'
+					? payload.data.ok
+					: response.ok;
+		return { ok, message };
+	};
 
 	let isModalOpen = $state(false);
 	let isMobileDetailOpen = $state(false);
 	let selectedUserForDetail = $state<UsersListRow | null>(null);
 	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
+	let users = $state<LoadUser[]>((data.users as LoadUser[] | undefined) ?? []);
 	let talentOptions = $state<TalentOption[]>([]);
 	let talentOptionsStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let talentOptionsError = $state<string | null>(null);
 	let talentOptionsEtag = $state<string | null>(null);
-	let editUser = $state<EditableUser | null>(
-		data.users[0] ? toEditableUser(data.users[0] as LoadUser) : null
-	);
+	let editUser = $state<EditableUser | null>(null);
 	let editMode: 'create' | 'edit' = $state('create');
 
 	const loadTalentOptions = async () => {
@@ -151,6 +187,55 @@
 		feedback = { type: 'error', message: event.detail?.message ?? 'Failed to create user.' };
 	};
 
+	const canDeleteRow = (user: { id: string } | null | undefined) =>
+		Boolean(canDeleteUsers && user?.id && user.id !== currentUserId);
+
+	const handleDeleteUserById = async (userId: string) => {
+		const user = users.find((candidate) => candidate.id === userId);
+		if (!user) {
+			feedback = { type: 'error', message: 'User not found.' };
+			return;
+		}
+		await handleDeleteUser(user);
+	};
+
+	const handleDeleteUser = async (user: LoadUser) => {
+		const formData = new FormData();
+		formData.set('user_id', user.id);
+
+		try {
+			const response = await fetch('?/deleteUser', { method: 'POST', body: formData });
+			const result = await parseActionMessage(response);
+			if (!response.ok || !result.ok) {
+				feedback = {
+					type: 'error',
+					message: result.message ?? 'Failed to delete user.'
+				};
+				return;
+			}
+
+			users = users.filter((candidate) => candidate.id !== user.id);
+			if (selectedUserForDetail?.id === user.id) {
+				selectedUserForDetail = null;
+				isMobileDetailOpen = false;
+			}
+			if (editUser?.id === user.id) {
+				editUser = null;
+				isModalOpen = false;
+			}
+
+			feedback = {
+				type: 'success',
+				message: result.message ?? 'User deleted.'
+			};
+		} catch (error) {
+			feedback = {
+				type: 'error',
+				message: error instanceof Error ? error.message : 'Failed to delete user.'
+			};
+		}
+	};
+
 	$effect(() => {
 		if (form?.type !== 'updateRole') return;
 
@@ -161,7 +246,7 @@
 	});
 
 	$effect(() => {
-		if (!isModalOpen || editMode !== 'edit') return;
+		if (!isModalOpen || !canEditUsers) return;
 		void loadTalentOptions();
 	});
 
@@ -205,7 +290,7 @@
 		});
 
 	const userListHandler = $derived(
-		new ListHandler<UsersListRow>(usersListHeadings, toListRows(data.users as LoadUser[]))
+		new ListHandler<UsersListRow>(usersListHeadings, toListRows(users))
 	);
 	const detailAvatarSrc = (url: string | null | undefined) =>
 		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
@@ -249,7 +334,8 @@
 							roles: ['talent'],
 							avatar_url: null,
 							active: true,
-							linked_talent_id: null
+							linked_talent_id: null,
+							organisation_id: null
 						};
 						isModalOpen = true;
 						void loadTalentOptions();
@@ -266,13 +352,13 @@
 			<p class="text-foreground text-sm font-medium">{feedback.message}</p>
 		</Alert>
 	{/if}
-	{#if talentOptionsError && isModalOpen && editMode === 'edit'}
+	{#if talentOptionsError && isModalOpen}
 		<Alert variant="destructive" size="sm">
 			<p class="text-foreground text-sm font-medium">{talentOptionsError}</p>
 		</Alert>
 	{/if}
 
-	{#if data.users.length === 0}
+	{#if users.length === 0}
 		<p class="text-muted-fg text-sm font-medium">
 			No users yet. Invite your first teammate with Create user.
 		</p>
@@ -312,13 +398,14 @@
 					</Cell.Value>
 					<Cell.Value width={10} class="mobile-action-cell">
 						{#if canEditUsers}
-							<div class="flex justify-end">
+							<div class="flex justify-end gap-2">
 								<Button
 									variant="outline"
 									size="sm"
 									type="button"
 									aria-label={`Edit ${row.fullName}`}
-									onclick={() => {
+									onclick={(event) => {
+										event.stopPropagation();
 										editMode = 'edit';
 										editUser = toEditableUser(row.source);
 										isModalOpen = true;
@@ -342,11 +429,16 @@
 	bind:open={isModalOpen}
 	mode={editMode}
 	{talentOptions}
+	{organisationOptions}
 	allowedRoles={allowedCreateRoles}
 	{canEditUsers}
 	initial={editUser ?? undefined}
+	canDelete={Boolean(editUser && canDeleteRow(editUser))}
 	on:success={handleUserCreated}
 	on:error={handleCreateError}
+	on:requestDelete={(event) => {
+		void handleDeleteUserById(event.detail.userId);
+	}}
 	on:close={() => (isModalOpen = false)}
 />
 
@@ -416,23 +508,25 @@
 
 			{#if canEditUsers}
 				<div class="border-border border-t pt-4">
-					<Button
-						variant="outline"
-						size="md"
-						type="button"
-						class="w-full gap-2"
-						onclick={() => {
-							if (!selectedUserForDetail) return;
-							isMobileDetailOpen = false;
-							editMode = 'edit';
-							editUser = toEditableUser(selectedUserForDetail.source);
-							isModalOpen = true;
-							void loadTalentOptions();
-						}}
-					>
-						<Pencil size={16} />
-						Edit user
-					</Button>
+					<div class="flex gap-2">
+						<Button
+							variant="outline"
+							size="md"
+							type="button"
+							class="w-full gap-2"
+							onclick={() => {
+								if (!selectedUserForDetail) return;
+								isMobileDetailOpen = false;
+								editMode = 'edit';
+								editUser = toEditableUser(selectedUserForDetail.source);
+								isModalOpen = true;
+								void loadTalentOptions();
+							}}
+						>
+							<Pencil size={16} />
+							Edit user
+						</Button>
+					</div>
 				</div>
 			{/if}
 		</div>

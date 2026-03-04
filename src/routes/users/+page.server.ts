@@ -96,8 +96,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		return {
 			users: [],
 			canCreateUsers: false,
+			canDeleteUsers: false,
 			canEditUsers: false,
-			allowedCreateRoles: ['talent'] as Role[]
+			allowedCreateRoles: ['talent'] as Role[],
+			organisationOptions: [] as Array<{ id: string; name: string }>,
+			currentUserId: null as string | null
 		};
 	}
 
@@ -106,14 +109,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 		return {
 			users: [],
 			canCreateUsers: false,
+			canDeleteUsers: false,
 			canEditUsers: false,
-			allowedCreateRoles: ['talent'] as Role[]
+			allowedCreateRoles: ['talent'] as Role[],
+			organisationOptions: [] as Array<{ id: string; name: string }>,
+			currentUserId: null as string | null
 		};
 	}
 
 	const canCreateUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
+	const canDeleteUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
 	const canEditUsers = actor.isAdmin;
 	const allowedCreateRoles = getAllowedCreateRoles(actor);
+	const organisationsResult = actor.isAdmin
+		? await adminClient.from('organisations').select('id, name').order('name', { ascending: true })
+		: { data: [], error: null };
 
 	const visibleUserIdsForNonAdmin = new Set<string>([actor.userId]);
 	if (!actor.isAdmin && actor.accessibleOrganisationIds.length > 0) {
@@ -140,7 +150,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const organisationMembershipsResult = await adminClient
 		.from('organisation_users')
-		.select('user_id, organisations(name)');
+		.select('user_id, organisations(id, name)');
 
 	const [profiles, roleRows, authUsers, talentRows, organisationMembershipRows] = [
 		profilesResult.data ?? [],
@@ -156,7 +166,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}> | null) ?? [],
 		(organisationMembershipsResult.data as Array<{
 			user_id: string;
-			organisations?: { name?: string | null } | Array<{ name?: string | null }> | null;
+			organisations?:
+				| { id?: string | null; name?: string | null }
+				| Array<{ id?: string | null; name?: string | null }>
+				| null;
 		}> | null) ?? []
 	];
 
@@ -205,15 +218,25 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}
 	}
 	const organisationNameByUserId = new Map<string, string>();
+	const organisationIdByUserId = new Map<string, string>();
 	for (const membership of organisationMembershipRows) {
 		const joined = membership.organisations;
-		const orgName = Array.isArray(joined) ? (joined[0]?.name ?? null) : (joined?.name ?? null);
+		const org = Array.isArray(joined) ? (joined[0] ?? null) : (joined ?? null);
+		const orgName = org?.name ?? null;
+		const orgId = org?.id ?? null;
 		if (
 			typeof membership.user_id === 'string' &&
 			typeof orgName === 'string' &&
 			orgName.length > 0
 		) {
 			organisationNameByUserId.set(membership.user_id, orgName);
+		}
+		if (
+			typeof membership.user_id === 'string' &&
+			typeof orgId === 'string' &&
+			orgId.length > 0
+		) {
+			organisationIdByUserId.set(membership.user_id, orgId);
 		}
 	}
 
@@ -238,6 +261,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 				avatar_url: profile?.avatar_url ?? linkedTalentAvatarByUserId.get(userId) ?? null,
 				active: authMap.get(userId)?.active ?? true,
 				linked_talent_id: linkedTalentByUserId.get(userId) ?? null,
+				organisation_id: organisationIdByUserId.get(userId) ?? null,
 				organisation_name: organisationNameByUserId.get(userId) ?? null,
 				roles: mergedRoles.length > 0 ? mergedRoles : ['talent']
 			};
@@ -248,7 +272,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return nameA.localeCompare(nameB);
 		});
 
-	return { users, canCreateUsers, canEditUsers, allowedCreateRoles };
+	const organisationOptions =
+		(
+			(organisationsResult.data as Array<{ id: string; name: string }> | null) ?? []
+		).filter(
+			(organisation): organisation is { id: string; name: string } =>
+				typeof organisation.id === 'string' &&
+				organisation.id.length > 0 &&
+				typeof organisation.name === 'string' &&
+				organisation.name.length > 0
+		);
+
+	return {
+		users,
+		canCreateUsers,
+		canDeleteUsers,
+		canEditUsers,
+		allowedCreateRoles,
+		organisationOptions,
+		currentUserId: actor.userId
+	};
 };
 
 export const actions: Actions = {
@@ -397,6 +440,8 @@ export const actions: Actions = {
 		const avatar_url = formData.get('avatar_url');
 		const linkedTalentRaw = formData.get('linked_talent_id');
 		const linkedTalentId = normalizeOptionalUuid(linkedTalentRaw);
+		const organisationRaw = formData.get('organisation_id');
+		const organisationId = normalizeOptionalUuid(organisationRaw);
 
 		if (
 			typeof userId !== 'string' ||
@@ -413,6 +458,13 @@ export const actions: Actions = {
 				type: 'updateUser',
 				ok: false,
 				message: 'Talent selection must be a valid UUID or empty.'
+			});
+		}
+		if (organisationId === '__invalid__') {
+			return fail(400, {
+				type: 'updateUser',
+				ok: false,
+				message: 'Organisation selection must be a valid UUID or empty.'
 			});
 		}
 
@@ -452,6 +504,7 @@ export const actions: Actions = {
 			user_id: string | null;
 			avatar_url: string | null;
 		} | null = null;
+		let selectedOrganisation: { id: string } | null = null;
 
 		if (linkedTalentRaw !== null && linkedTalentId) {
 			const { data, error: selectedTalentError } = await adminClient
@@ -485,6 +538,23 @@ export const actions: Actions = {
 			) {
 				syncedAvatar = data.avatar_url;
 			}
+		}
+		if (organisationRaw !== null && organisationId) {
+			const { data, error: selectedOrganisationError } = await adminClient
+				.from('organisations')
+				.select('id')
+				.eq('id', organisationId)
+				.maybeSingle();
+
+			if (selectedOrganisationError || !data) {
+				return fail(404, {
+					type: 'updateUser',
+					ok: false,
+					message: 'Selected organisation was not found.'
+				});
+			}
+
+			selectedOrganisation = data;
 		}
 
 		const updates: Parameters<typeof adminClient.auth.admin.updateUserById>[1] = {
@@ -554,6 +624,43 @@ export const actions: Actions = {
 			return fail(500, { type: 'updateUser', ok: false, message: roleError.message });
 		}
 
+		if (organisationRaw !== null) {
+			const { error: clearMembershipsError } = await adminClient
+				.from('organisation_users')
+				.delete()
+				.eq('user_id', userId);
+
+			if (clearMembershipsError) {
+				return fail(500, {
+					type: 'updateUser',
+					ok: false,
+					message: clearMembershipsError.message
+				});
+			}
+
+			if (organisationId) {
+				if (!selectedOrganisation) {
+					return fail(404, {
+						type: 'updateUser',
+						ok: false,
+						message: 'Selected organisation was not found.'
+					});
+				}
+
+				const { error: assignOrganisationError } = await adminClient
+					.from('organisation_users')
+					.insert({ organisation_id: selectedOrganisation.id, user_id: userId });
+
+				if (assignOrganisationError) {
+					return fail(500, {
+						type: 'updateUser',
+						ok: false,
+						message: assignOrganisationError.message
+					});
+				}
+			}
+		}
+
 		if (linkedTalentRaw !== null) {
 			if (linkedTalentId) {
 				if (!selectedTalent) {
@@ -606,5 +713,124 @@ export const actions: Actions = {
 		}
 
 		return { type: 'updateUser', ok: true, message: 'User updated.' };
+	},
+	deleteUser: async ({ request, cookies }) => {
+		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+		if (!supabase) {
+			return fail(401, { type: 'deleteUser', ok: false, message: 'You are not authenticated.' });
+		}
+
+		const adminClient = getSupabaseAdminClient();
+		if (!adminClient) {
+			return fail(500, {
+				type: 'deleteUser',
+				ok: false,
+				message: 'Server configuration missing Supabase service role key.'
+			});
+		}
+
+		const actor = await getActorAccessContext(supabase, adminClient);
+		if (!actor.userId || (!actor.isAdmin && !actor.isBroker && !actor.isEmployer)) {
+			return fail(403, {
+				type: 'deleteUser',
+				ok: false,
+				message: 'You are not authorized to delete users.'
+			});
+		}
+
+		const formData = await request.formData();
+		const userId = normalizeOptionalUuid(formData.get('user_id'));
+		if (!userId || userId === '__invalid__') {
+			return fail(400, {
+				type: 'deleteUser',
+				ok: false,
+				message: 'User ID must be a valid UUID.'
+			});
+		}
+		if (userId === actor.userId) {
+			return fail(400, {
+				type: 'deleteUser',
+				ok: false,
+				message: 'You cannot delete your own account.'
+			});
+		}
+
+		const { data: targetUserResult, error: targetUserError } = await adminClient.auth.admin.getUserById(
+			userId
+		);
+		if (targetUserError || !targetUserResult.user) {
+			return fail(404, { type: 'deleteUser', ok: false, message: 'User not found.' });
+		}
+
+		const targetRoleRowsResult = await adminClient
+			.from('user_roles')
+			.select('roles(key)')
+			.eq('user_id', userId);
+		const targetRolesFromDb = normalizeRolesFromJoinRows(
+			((targetRoleRowsResult.data as Array<{
+				roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
+			}> | null) ?? []).map((row) => ({ roles: row.roles }))
+		);
+		const targetRolesFromMetadata = normalizeRoles(
+			Array.isArray(targetUserResult.user.app_metadata?.roles)
+				? (targetUserResult.user.app_metadata.roles as string[])
+				: typeof targetUserResult.user.app_metadata?.role === 'string'
+					? [targetUserResult.user.app_metadata.role as string]
+					: []
+		);
+		const targetRoles = normalizeRoles([...targetRolesFromDb, ...targetRolesFromMetadata]);
+
+		if (!actor.isAdmin) {
+			if (!actor.homeOrganisationId) {
+				return fail(403, {
+					type: 'deleteUser',
+					ok: false,
+					message: 'You must be linked to an organisation to delete users.'
+				});
+			}
+			if (targetRoles.includes('admin')) {
+				return fail(403, {
+					type: 'deleteUser',
+					ok: false,
+					message: 'Only admins can delete admin users.'
+				});
+			}
+
+			const targetMembershipsResult = await adminClient
+				.from('organisation_users')
+				.select('organisation_id')
+				.eq('user_id', userId);
+			if (targetMembershipsResult.error) {
+				return fail(500, {
+					type: 'deleteUser',
+					ok: false,
+					message: targetMembershipsResult.error.message
+				});
+			}
+
+			const targetOrgIds = (
+				(targetMembershipsResult.data as Array<{ organisation_id?: string | null }> | null) ?? []
+			)
+				.map((row) =>
+					typeof row.organisation_id === 'string' && row.organisation_id.length > 0
+						? row.organisation_id
+						: null
+				)
+				.filter((value): value is string => value !== null);
+			if (!targetOrgIds.includes(actor.homeOrganisationId)) {
+				return fail(403, {
+					type: 'deleteUser',
+					ok: false,
+					message: 'You can only delete users in your own organisation.'
+				});
+			}
+		}
+
+		const { error: deleteError } = await adminClient.auth.admin.deleteUser(userId);
+		if (deleteError) {
+			return fail(500, { type: 'deleteUser', ok: false, message: deleteError.message });
+		}
+
+		return { type: 'deleteUser', ok: true, message: 'User deleted.' };
 	}
 };

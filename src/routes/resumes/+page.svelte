@@ -780,9 +780,7 @@
 
 	<header>
 		<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Resumes</h1>
-		<p class="text-muted-fg mt-3 text-lg">
-			Manage and view talents and resumes for all Pixel&Code consultants.
-		</p>
+		<p class="text-muted-fg mt-3 text-lg">Manage and view talents and resumes.</p>
 	</header>
 
 	{#if filtersOpen}

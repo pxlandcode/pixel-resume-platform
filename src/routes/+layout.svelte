@@ -483,6 +483,7 @@
 			profile={data.profile}
 			role={layoutRole}
 			roles={layoutRoles}
+			currentTalentId={data.currentTalentId ?? null}
 			userEmail={data.user?.email ?? null}
 			{unauthorizedMessage}
 		>
