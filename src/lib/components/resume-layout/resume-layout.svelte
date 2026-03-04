@@ -22,6 +22,7 @@
 		profile?: Profile | null;
 		role?: AdminRole | null;
 		roles?: AdminRole[];
+		currentTalentId?: string | null;
 		userEmail?: string | null;
 		unauthorizedMessage?: string | null;
 		children: Snippet;
@@ -32,6 +33,7 @@
 		profile = null,
 		role = null,
 		roles = [],
+		currentTalentId = null,
 		userEmail = null,
 		unauthorizedMessage = null,
 		children,
@@ -39,52 +41,63 @@
 	}: Props = $props();
 
 	type NavItem = {
+		id: 'dashboard' | 'users' | 'organisations' | 'talents' | 'resumes' | 'profile' | 'settings';
 		label: string;
 		href: string;
 		allowed: AdminRole[];
 		match: 'exact' | 'prefix';
 	};
 
-	const navItems: NavItem[] = [
+	const baseNavItems: NavItem[] = [
 		{
+			id: 'dashboard',
 			label: 'Dashboard',
 			href: '/',
 			allowed: ['admin', 'broker', 'talent', 'employer'],
 			match: 'exact'
 		},
 		{
+			id: 'users',
 			label: 'Users',
 			href: '/users',
 			allowed: ['admin', 'broker', 'employer'],
 			match: 'prefix'
 		},
 		{
+			id: 'organisations',
 			label: 'Organisations',
 			href: '/organisations',
 			allowed: ['admin'],
 			match: 'prefix'
 		},
 		{
-			label: 'Settings',
-			href: '/settings',
-			allowed: ['admin'],
-			match: 'prefix'
-		},
-		{
+			id: 'talents',
 			label: 'Talents',
 			href: '/talents',
 			allowed: ['admin', 'broker', 'employer', 'talent'],
 			match: 'prefix'
 		},
 		{
+			id: 'resumes',
 			label: 'Resumes',
 			href: '/resumes',
 			allowed: ['admin', 'broker', 'talent', 'employer'],
+			match: 'prefix'
+		},
+		{
+			id: 'settings',
+			label: 'Settings',
+			href: '/settings',
+			allowed: ['admin', 'talent'],
 			match: 'prefix'
 		}
 	];
 
 	const activePath = $derived($page.url.pathname);
+	const effectiveRoles = $derived(roles.length ? roles : role ? [role] : []);
+	const hasTalentRole = $derived(effectiveRoles.includes('talent'));
+	const isTalentOnly = $derived(effectiveRoles.length === 1 && effectiveRoles[0] === 'talent');
+	const profileHref = $derived(currentTalentId ? `/resumes/${currentTalentId}` : null);
 	const displayName = $derived(
 		profile
 			? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || userEmail || 'User'
@@ -95,7 +108,6 @@
 	const pixelcodeLogo = $derived(mode.current === 'dark' ? pixelcodeLogoLight : pixelcodeLogoDark);
 
 	const canView = (allowed: AdminRole[]) => {
-		const effectiveRoles = roles.length ? roles : role ? [role] : [];
 		return effectiveRoles.some((r) => allowed.includes(r));
 	};
 
@@ -109,7 +121,35 @@
 	let isMobileMenuOpen = $state(false);
 	let previousPath = '';
 
-	const visibleNavItems = $derived(navItems.filter((item) => canView(item.allowed)));
+	const visibleNavItems = $derived.by(() => {
+		const allowedItems = baseNavItems.filter((item) => canView(item.allowed));
+		let nextItems = isTalentOnly
+			? allowedItems.filter((item) => item.id !== 'talents' && item.id !== 'resumes')
+			: [...allowedItems];
+
+		const profilePath = profileHref;
+		if (!hasTalentRole || !profilePath) return nextItems;
+
+		const profileItem: NavItem = {
+			id: 'profile',
+			label: 'Profile',
+			href: profilePath,
+			allowed: ['talent'],
+			match: 'prefix'
+		};
+		const settingsIndex = nextItems.findIndex((item) => item.id === 'settings');
+		if (settingsIndex === -1) {
+			nextItems.push(profileItem);
+			return nextItems;
+		}
+
+		nextItems = [
+			...nextItems.slice(0, settingsIndex),
+			profileItem,
+			...nextItems.slice(settingsIndex)
+		];
+		return nextItems;
+	});
 
 	const closeMobileMenu = () => {
 		isMobileMenuOpen = false;
@@ -185,20 +225,18 @@
 
 		<!-- Navigation -->
 		<nav class="flex-1 space-y-1 px-3 py-4">
-			{#each navItems as item}
-				{#if canView(item.allowed)}
-					<a
-						href={item.href}
-						class="flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-medium transition-colors {isActive(
-							item,
-							activePath
-						)
-							? 'bg-primary/10 text-primary'
-							: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'}"
-					>
-						{item.label}
-					</a>
-				{/if}
+			{#each visibleNavItems as item}
+				<a
+					href={item.href}
+					class="flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-medium transition-colors {isActive(
+						item,
+						activePath
+					)
+						? 'bg-primary/10 text-primary'
+						: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'}"
+				>
+					{item.label}
+				</a>
 			{/each}
 		</nav>
 

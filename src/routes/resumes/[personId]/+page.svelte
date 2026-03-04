@@ -41,6 +41,12 @@
 	const resumes = data.resumes ?? [];
 	const availability = data.availability ?? null;
 	const canEdit = data.canEdit ?? false;
+	const actorRoles = $derived.by(() => {
+		const fromRoles = Array.isArray($page.data?.roles) ? $page.data.roles : [];
+		if (fromRoles.length > 0) return fromRoles;
+		return typeof $page.data?.role === 'string' ? [$page.data.role] : [];
+	});
+	const isTalentOnly = $derived(actorRoles.length === 1 && actorRoles[0] === 'talent');
 	type ResumeListItem = (typeof resumes)[number];
 	type TechCategory = { name?: string; skills?: string[] };
 	const techStack = (profile?.tech_stack as TechCategory[]) ?? [];
@@ -916,13 +922,15 @@
 <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
 	<div class="mb-8">
 		<div class="mb-6 flex items-center justify-between">
-			<Button variant="ghost" href="/resumes" class="hover:text-primary pl-0 hover:bg-transparent">
-				<ArrowLeft size={16} class="mr-2" />
-				Back to all talents
-			</Button>
+			{#if !isTalentOnly}
+				<Button variant="ghost" href="/resumes" class="hover:text-primary pl-0 hover:bg-transparent">
+					<ArrowLeft size={16} class="mr-2" />
+					Back to all talents
+				</Button>
+			{/if}
 
 			{#if profile && canEdit}
-				<div class="flex gap-2">
+				<div class="ml-auto flex gap-2">
 					{#if isEditing}
 						<Button type="button" variant="ghost" onclick={cancelProfileEdit}>Cancel</Button>
 						<Button form="profile-form" type="submit" variant="primary" disabled={avatarUploading}>

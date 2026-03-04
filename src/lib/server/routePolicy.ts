@@ -39,7 +39,7 @@ const roleGuards: Array<{ pattern: RegExp; roles: AppRole[] }> = [
 	{ pattern: /^\/$/, roles: ['admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'broker', 'employer'] },
 	{ pattern: /^\/organisations(\/.*)?$/, roles: ['admin'] },
-	{ pattern: /^\/settings(\/.*)?$/, roles: ['admin'] },
+	{ pattern: /^\/settings(\/.*)?$/, roles: ['admin', 'talent'] },
 	{ pattern: /^\/talents(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] }
 ];

@@ -11,7 +11,8 @@
 	import XHRUpload from '@uppy/xhr-upload';
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
 	import type { Body, Meta } from '@uppy/utils/lib/UppyFile';
-	import { Lock, Unlock } from 'lucide-svelte';
+	import { Lock, Trash2, Unlock } from 'lucide-svelte';
+	import { confirm } from '$lib/utils/confirm';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -26,6 +27,7 @@
 		success: { message?: string };
 		close: void;
 		error: { message?: string };
+		requestDelete: { userId: string };
 	}>();
 
 	const roleOptions: Array<{ value: UserRole; label: string; description: string }> = [
@@ -48,6 +50,7 @@
 		avatar_url?: string | null;
 		active: boolean;
 		linked_talent_id?: string | null;
+		organisation_id?: string | null;
 	};
 
 	type TalentOption = {
@@ -57,14 +60,21 @@
 		user_id: string | null;
 	};
 
+	type OrganisationOption = {
+		id: string;
+		name: string;
+	};
+
 	let {
 		open = $bindable(false),
 		loading = $bindable(false),
 		error = $bindable<string | null>(null),
 		mode = $bindable<'create' | 'edit'>('create'),
 		talentOptions = $bindable<TalentOption[]>([]),
+		organisationOptions = $bindable<OrganisationOption[]>([]),
 		allowedRoles = $bindable<UserRole[]>(['admin', 'broker', 'talent', 'employer']),
 		canEditUsers = $bindable(true),
+		canDelete = $bindable(false),
 		initial = $bindable<InitialUser>({
 			id: '',
 			first_name: '',
@@ -73,7 +83,8 @@
 			roles: ['talent'],
 			avatar_url: null,
 			active: true,
-			linked_talent_id: null
+			linked_talent_id: null,
+			organisation_id: null
 		})
 	} = $props();
 
@@ -96,19 +107,25 @@
 	let passwordUnlocked = $state(false);
 	let passwordError = $state<string | null>(null);
 	let linkedTalentId = $state(initial.linked_talent_id ?? '');
+	let organisationId = $state(initial.organisation_id ?? '');
 
 	const showUploader = $derived(!previewUrl);
 	const previewImageSrc = (url: string | null | undefined) =>
-		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
+		transformSupabasePublicUrl(url, {
+			width: 256,
+			height: 256,
+			quality: supabaseImagePresets.avatarList.quality,
+			resize: 'cover'
+		});
 	const previewImageSrcSet = (url: string | null | undefined) =>
 		transformSupabasePublicUrlSrcSet(url, [128, 256], {
-			height: supabaseImagePresets.avatarList.height,
+			height: 256,
 			quality: supabaseImagePresets.avatarList.quality,
-			resize: supabaseImagePresets.avatarList.resize
+			resize: 'cover'
 		});
 	const previewImageFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 	const availableTalentOptions = $derived.by(() => {
-		if (mode !== 'edit' || !canEditUsers) return [] as TalentOption[];
+		if (!canEditUsers) return [] as TalentOption[];
 
 		const filtered = talentOptions.filter(
 			(talent) => !talent.user_id || talent.user_id === initial.id
@@ -127,6 +144,18 @@
 		const name = [talent.first_name, talent.last_name].filter(Boolean).join(' ').trim();
 		return name || talent.id;
 	};
+
+	const availableOrganisationOptions = $derived(
+		organisationOptions
+			.filter(
+				(org): org is OrganisationOption =>
+					typeof org.id === 'string' &&
+					org.id.length > 0 &&
+					typeof org.name === 'string' &&
+					org.name.length > 0
+			)
+			.sort((a, b) => a.name.localeCompare(b.name))
+	);
 
 	const allowedRoleSet = $derived(new Set(allowedRoles));
 	const visibleRoleOptions = $derived(
@@ -291,6 +320,7 @@
 			passwordUnlocked = false;
 			passwordError = null;
 			linkedTalentId = initial.linked_talent_id ?? '';
+			organisationId = initial.organisation_id ?? '';
 			resetUploaderState();
 
 			lastInitialId = currentInitialId;
@@ -311,15 +341,26 @@
 			passwordUnlocked = false;
 			passwordError = null;
 			linkedTalentId = initial.linked_talent_id ?? '';
+			organisationId = initial.organisation_id ?? '';
 		}
 	});
 
 	const title = $derived(mode === 'create' ? 'Create user' : 'Edit user');
 	const submitLabel = $derived(mode === 'create' ? 'Create user' : 'Save changes');
+	const deleteTargetLabel = $derived(
+		[initial.first_name, initial.last_name].filter(Boolean).join(' ').trim() ||
+			initial.email ||
+			'this user'
+	);
 
 	const close = () => {
 		open = false;
 		dispatch('close');
+	};
+
+	const requestDelete = () => {
+		if (!initial.id) return;
+		dispatch('requestDelete', { userId: initial.id });
 	};
 
 	const toggleRole = (role: UserRole) => {
@@ -368,8 +409,9 @@
 		formData.delete('roles');
 		selectedRoles.forEach((role) => formData.append('roles', role));
 		formData.set('avatar_url', avatarUrl);
-		if (mode === 'edit') {
+		if (canEditUsers) {
 			formData.set('linked_talent_id', linkedTalentId);
+			formData.set('organisation_id', organisationId);
 		}
 
 		try {
@@ -381,7 +423,9 @@
 					body: JSON.stringify({
 						...payload,
 						roles: selectedRoles,
-						avatar_url: avatarUrl
+						avatar_url: avatarUrl,
+						linked_talent_id: canEditUsers ? linkedTalentId : undefined,
+						organisation_id: canEditUsers ? organisationId : undefined
 					})
 				});
 
@@ -407,6 +451,8 @@
 				form.reset();
 				selectedRoles = ['talent'];
 				avatarUrl = '';
+				linkedTalentId = '';
+				organisationId = '';
 			}
 
 			open = false;
@@ -421,12 +467,12 @@
 	bind:open
 	{title}
 	subtitle={mode === 'create'
-		? 'Provision a new user with access and role.'
-		: 'Update role, activation status, and talent link.'}
+		? 'Provision a new user with access, role, and optional links.'
+		: 'Update role, activation status, talent link, and organisation.'}
 	class="mr-0 w-full max-w-2xl"
 	dismissable
 >
-	<form class="flex flex-col gap-5 overflow-y-auto pb-16" onsubmit={handleSubmit}>
+	<form class="relative flex flex-col gap-5 overflow-y-auto pb-16" onsubmit={handleSubmit}>
 		{#if mode === 'edit'}
 			<input type="hidden" name="user_id" value={initial.id} />
 		{/if}
@@ -465,11 +511,11 @@
 			/>
 		</FormControl>
 
-		{#if mode === 'edit' && canEditUsers}
+		{#if canEditUsers}
 			<FormControl
 				label="Linked talent"
 				class="gap-2 text-sm"
-				bl="Link this user to one talent profile. Existing linking is managed here in edit mode."
+				bl="Link this user to one talent profile. Unlinked talents are available."
 			>
 				<Select
 					id="linked_talent_id"
@@ -486,6 +532,27 @@
 					<p class="text-muted-fg text-xs">
 						No unlinked talents are available right now. Create a talent first.
 					</p>
+				{/if}
+			</FormControl>
+
+			<FormControl
+				label="Organisation"
+				class="gap-2 text-sm"
+				bl="Set the user's home organisation. Leave empty to keep the user unassigned."
+			>
+				<Select
+					id="organisation_id"
+					name="organisation_id"
+					bind:value={organisationId}
+					class="bg-input text-foreground"
+				>
+					<option value="">No organisation</option>
+					{#each availableOrganisationOptions as organisation (organisation.id)}
+						<option value={organisation.id}>{organisation.name}</option>
+					{/each}
+				</Select>
+				{#if availableOrganisationOptions.length === 0}
+					<p class="text-muted-fg text-xs">No organisations are available.</p>
 				{/if}
 			</FormControl>
 		{/if}
@@ -657,7 +724,7 @@
 								srcset={previewImageSrcSet(previewUrl)}
 								sizes="128px"
 								alt="Avatar preview"
-								class="aspect-square w-full object-cover"
+								class="aspect-square w-full object-cover object-center"
 								loading="lazy"
 								decoding="async"
 								onerror={(event) =>
@@ -741,19 +808,30 @@
 			</Alert>
 		{/if}
 
-		<div
-			class="sticky bottom-0 flex flex-wrap justify-end gap-3 pt-4 {mode === 'edit'
-				? 'bg-transparent'
-				: 'border-border bg-card border-t'}"
-		>
-			<Button
-				variant="outline"
-				type="button"
-				onclick={close}
-				class={mode === 'edit' ? 'bg-input hover:bg-muted/70' : ''}
+		{#if mode === 'edit' && canDelete}
+			<div
+				class="border-border bg-card/95 pointer-events-none absolute inset-x-0 bottom-0 z-30 flex justify-start border-t pt-4 backdrop-blur-sm"
 			>
-				Cancel
-			</Button>
+				<button
+					type="button"
+					class="pointer-events-auto inline-flex items-center gap-2 rounded-sm border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100"
+					use:confirm={{
+						title: 'Delete user?',
+						description: `Delete ${deleteTargetLabel}? This cannot be undone.`,
+						actionLabel: 'Delete',
+						action: requestDelete
+					}}
+				>
+					<Trash2 size={14} />
+					Delete user
+				</button>
+			</div>
+		{/if}
+
+		<div
+			class="border-border sticky bottom-0 z-40 mt-2 flex flex-wrap justify-end gap-3 border-t pt-4"
+		>
+			<Button variant="outline" type="button" onclick={close}>Cancel</Button>
 			<Button variant="primary" type="submit" {loading} loading-text="Saving…">
 				{submitLabel}
 			</Button>

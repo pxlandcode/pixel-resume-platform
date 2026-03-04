@@ -26,10 +26,15 @@
 		last_name: string;
 		user_id: string | null;
 	};
+	type OrganisationOption = {
+		id: string;
+		name: string;
+	};
 
 	let { data, form } = $props();
 	const user = $derived(data.user);
 	const talents = $derived(data.talents as TalentOption[]);
+	const organisations = $derived((data.organisations as OrganisationOption[] | undefined) ?? []);
 	const canEditUsers = $derived(Boolean(data.canEditUsers));
 	const allowedEditRoles = $derived((data.allowedEditRoles as Role[] | undefined) ?? ['talent']);
 
@@ -56,6 +61,7 @@
 	let passwordUnlocked = $state(false);
 	let passwordError = $state<string | null>(null);
 	let linkedTalentId = $state('');
+	let organisationId = $state('');
 	let tempObjectUrl: string | null = null;
 
 	// Initialize state from user data
@@ -65,6 +71,7 @@
 		previewUrl = user.avatar_url ?? '';
 		isActive = user.active ?? true;
 		linkedTalentId = user.linked_talent_id ?? '';
+		organisationId = user.organisation_id ?? '';
 	});
 
 	const uploadEndpoint = '/internal/api/users/upload-avatar';
@@ -431,6 +438,20 @@
 							No unlinked talents are available right now. Create a talent first.
 						</p>
 					{/if}
+				</FormControl>
+
+				<FormControl label="Organisation" class="gap-2 text-sm">
+					<Select
+						id="organisation_id"
+						name="organisation_id"
+						bind:value={organisationId}
+						class="bg-input text-foreground"
+					>
+						<option value="">No organisation</option>
+						{#each organisations as organisation (organisation.id)}
+							<option value={organisation.id}>{organisation.name}</option>
+						{/each}
+					</Select>
 				</FormControl>
 
 				<FormControl label="Roles" required class="gap-2 text-sm" tag="div">

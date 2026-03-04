@@ -133,7 +133,8 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 		rolesResult,
 		authUserResult,
 		linkedTalentResult,
-		organisationMembershipResult
+		organisationMembershipResult,
+		organisationsResult
 	] = await Promise.all([
 		adminClient
 			.from('user_profiles')
@@ -151,7 +152,8 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 			.from('organisation_users')
 			.select('user_id, organisations(id, name)')
 			.eq('user_id', userId)
-			.maybeSingle()
+			.maybeSingle(),
+		adminClient.from('organisations').select('id, name').order('name', { ascending: true })
 	]);
 
 	const profile = profileResult.data;
@@ -224,7 +226,27 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 			}))
 		: [];
 
-	return { user, talents, canEditUsers, allowedEditRoles };
+	const organisations = actor.isAdmin
+		? (
+				(organisationsResult.data ?? []) as Array<{
+					id: string;
+					name: string | null;
+				}>
+			)
+				.filter(
+					(organisation): organisation is { id: string; name: string } =>
+						typeof organisation.id === 'string' &&
+						organisation.id.length > 0 &&
+						typeof organisation.name === 'string' &&
+						organisation.name.length > 0
+				)
+				.map((organisation) => ({
+					id: organisation.id,
+					name: organisation.name
+				}))
+		: [];
+
+	return { user, talents, organisations, canEditUsers, allowedEditRoles };
 };
 
 export const actions: Actions = {
@@ -248,6 +270,8 @@ export const actions: Actions = {
 		const avatar_url = formData.get('avatar_url');
 		const linkedTalentRaw = formData.get('linked_talent_id');
 		const linkedTalentId = normalizeOptionalUuid(linkedTalentRaw);
+		const organisationRaw = formData.get('organisation_id');
+		const organisationId = normalizeOptionalUuid(organisationRaw);
 
 		if (
 			typeof first_name !== 'string' ||
@@ -263,6 +287,13 @@ export const actions: Actions = {
 				type: 'updateUser',
 				ok: false,
 				message: 'Talent selection must be a valid UUID or empty.'
+			});
+		}
+		if (organisationId === '__invalid__') {
+			return fail(400, {
+				type: 'updateUser',
+				ok: false,
+				message: 'Organisation selection must be a valid UUID or empty.'
 			});
 		}
 
@@ -303,6 +334,7 @@ export const actions: Actions = {
 			user_id: string | null;
 			avatar_url: string | null;
 		} | null = null;
+		let selectedOrganisation: { id: string } | null = null;
 
 		if (linkedTalentRaw !== null && linkedTalentId) {
 			const { data, error: selectedTalentError } = await adminClient
@@ -336,6 +368,23 @@ export const actions: Actions = {
 			) {
 				syncedAvatar = data.avatar_url;
 			}
+		}
+		if (organisationRaw !== null && organisationId) {
+			const { data, error: selectedOrganisationError } = await adminClient
+				.from('organisations')
+				.select('id')
+				.eq('id', organisationId)
+				.maybeSingle();
+
+			if (selectedOrganisationError || !data) {
+				return fail(404, {
+					type: 'updateUser',
+					ok: false,
+					message: 'Selected organisation was not found.'
+				});
+			}
+
+			selectedOrganisation = data;
 		}
 
 		const updates: Parameters<typeof adminClient.auth.admin.updateUserById>[1] = {
@@ -403,6 +452,43 @@ export const actions: Actions = {
 		const { error: roleError } = await adminClient.from('user_roles').insert(roleAssignments);
 		if (roleError) {
 			return fail(500, { type: 'updateUser', ok: false, message: roleError.message });
+		}
+
+		if (organisationRaw !== null) {
+			const { error: clearMembershipsError } = await adminClient
+				.from('organisation_users')
+				.delete()
+				.eq('user_id', userId);
+
+			if (clearMembershipsError) {
+				return fail(500, {
+					type: 'updateUser',
+					ok: false,
+					message: clearMembershipsError.message
+				});
+			}
+
+			if (organisationId) {
+				if (!selectedOrganisation) {
+					return fail(404, {
+						type: 'updateUser',
+						ok: false,
+						message: 'Selected organisation was not found.'
+					});
+				}
+
+				const { error: assignOrganisationError } = await adminClient
+					.from('organisation_users')
+					.insert({ organisation_id: selectedOrganisation.id, user_id: userId });
+
+				if (assignOrganisationError) {
+					return fail(500, {
+						type: 'updateUser',
+						ok: false,
+						message: assignOrganisationError.message
+					});
+				}
+			}
 		}
 
 		if (linkedTalentRaw !== null) {
