@@ -70,7 +70,10 @@
 	{/if}
 
 	{#if commentFormOpen}
-		<div class="border-border bg-card rounded border p-4">
+		<div
+			class="border-border bg-card rounded border p-4"
+			class:mb-2={latestComments.length > 0}
+		>
 			<form class="space-y-3" onsubmit={onSubmitComment}>
 				<input type="hidden" name="comment_type_id" value={commentTypeId} />
 				<Dropdown

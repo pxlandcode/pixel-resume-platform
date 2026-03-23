@@ -53,7 +53,7 @@
 
 			<button
 				type="button"
-				class="border-border group relative h-full w-full overflow-hidden border-4 shadow-lg {isEditing &&
+				class="group relative h-full w-full overflow-hidden border-4 border-white {isEditing &&
 				canEdit
 					? 'cursor-pointer'
 					: 'cursor-default'}"
@@ -113,7 +113,6 @@
 		{/if}
 
 		{#if !isEditing}
-			<p class="text-sm">Current status</p>
 			<ConsultantAvailabilityPills {availability} compact />
 		{/if}
 	</div>

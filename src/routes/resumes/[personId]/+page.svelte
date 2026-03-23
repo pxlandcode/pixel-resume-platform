@@ -1200,21 +1200,32 @@
 
 		{#if profile}
 			<div class="flex flex-col gap-8 md:flex-row md:items-start">
-				<TalentProfileAvatar
-					{profile}
-					{availability}
-					{canEdit}
-					{isEditing}
-					{avatarUploading}
-					{editingAvatarUrl}
-					{avatarUploadError}
-					{displayedAvatarUrl}
-					{displayedAvatarSrc}
-					{displayedAvatarSrcSet}
-					{displayedAvatarFallbackSrc}
-					onAvatarUpload={handleAvatarUpload}
-					onRemoveImage={clearAvatarImage}
-				/>
+				<div class="w-32 flex-shrink-0 space-y-4 md:w-48">
+					<TalentProfileAvatar
+						{profile}
+						{availability}
+						{canEdit}
+						{isEditing}
+						{avatarUploading}
+						{editingAvatarUrl}
+						{avatarUploadError}
+						{displayedAvatarUrl}
+						{displayedAvatarSrc}
+						{displayedAvatarSrcSet}
+						{displayedAvatarFallbackSrc}
+						onAvatarUpload={handleAvatarUpload}
+						onRemoveImage={clearAvatarImage}
+					/>
+
+					{#if !isEditing && viewCategories.length > 0}
+						<TalentProfileTechStackSection
+							{isEditing}
+							{canEdit}
+							bind:editingTechStack
+							{viewCategories}
+						/>
+					{/if}
+				</div>
 				<div class="flex-1 space-y-4">
 					<TalentProfileProfileForm
 						{profile}
@@ -1286,12 +1297,14 @@
 						onOpenCommentHistory={openCommentsDrawer}
 					/>
 
-					<TalentProfileTechStackSection
-						{isEditing}
-						{canEdit}
-						bind:editingTechStack
-						{viewCategories}
-					/>
+					{#if isEditing && canEdit}
+						<TalentProfileTechStackSection
+							{isEditing}
+							{canEdit}
+							bind:editingTechStack
+							{viewCategories}
+						/>
+					{/if}
 				</div>
 			</div>
 		{:else}
