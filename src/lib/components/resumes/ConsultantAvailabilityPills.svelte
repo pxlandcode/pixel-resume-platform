@@ -88,7 +88,7 @@
 	<!-- Compact: single badge for cards -->
 	<div class="flex flex-col gap-1">
 		<span
-			class="inline-flex w-fit items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium
+			class="inline-flex w-fit items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium
 				{statusColor === 'emerald'
 				? 'bg-emerald-100 text-emerald-700'
 				: statusColor === 'amber'

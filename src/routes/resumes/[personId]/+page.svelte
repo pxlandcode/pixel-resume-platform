@@ -2,26 +2,43 @@
 	import { Button, Checkbox, Datepicker, Input, Radio } from '@pixelcode_/blocks/components';
 	import {
 		ArrowLeft,
-		Calendar,
+		BriefcaseBusiness,
+		Building2,
+		CalendarClock,
 		Camera,
 		CheckCircle2,
 		Copy,
+		Download,
 		FileText,
 		Loader2,
+		MessageSquare,
+		MessageSquarePlus,
+		Plus,
+		Shield,
 		Trash2,
 		Upload,
 		User,
+		Workflow,
 		AlertCircle
 	} from 'lucide-svelte';
+	import { deserialize } from '$app/forms';
 	import { base, resolve } from '$app/paths';
-	import { goto, replaceState } from '$app/navigation';
+	import { goto, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/stores';
 	import TechStackEditor from '$lib/components/tech-stack-editor/tech-stack-editor.svelte';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import { Dropdown } from '$lib/components/dropdown';
+	import { resumeDownloadStore } from '$lib/stores/resumeDownloadStore';
+	import TalentCommentCard from '$lib/components/talent-comments/TalentCommentCard.svelte';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
 	import { confirm } from '$lib/utils/confirm';
 	import { loading } from '$lib/stores/loading';
 	import { pdfImportStore } from '$lib/stores/pdfImportStore';
+	import {
+		TALENT_COMMENT_BODY_MAX_LENGTH,
+		type TalentComment,
+		type TalentCommentType
+	} from '$lib/types/talentComments';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -33,6 +50,7 @@
 	} from '$lib/images/supabaseImage';
 	import { get } from 'svelte/store';
 	import { onDestroy, onMount, tick } from 'svelte';
+	import { fly } from 'svelte/transition';
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
 
 	const { data, form } = $props();
@@ -47,12 +65,27 @@
 		return typeof $page.data?.role === 'string' ? [$page.data.role] : [];
 	});
 	const isTalentOnly = $derived(actorRoles.length === 1 && actorRoles[0] === 'talent');
+	const commentTypes = $derived((data.commentTypes ?? []) as TalentCommentType[]);
+	const commentHistory = $derived((data.commentHistory ?? []) as TalentComment[]);
+	const latestComments = $derived((data.latestComments ?? []) as TalentComment[]);
+	const commentCount = $derived(
+		typeof data.commentCount === 'number' ? data.commentCount : commentHistory.length
+	);
+	const canCreateComment = $derived(Boolean(data.canCreateComment));
 	type ResumeListItem = (typeof resumes)[number];
 	type TechCategory = { name?: string; skills?: string[] };
 	const techStack = (profile?.tech_stack as TechCategory[]) ?? [];
 	const viewCategories = $derived(
 		(techStack ?? []).filter((cat) => Array.isArray(cat?.skills) && cat.skills.length > 0)
 	);
+	const profileActionMessage = $derived(
+		form?.type === 'updateProfile' && typeof form?.message === 'string' ? form.message : null
+	);
+	const profileActionFailed = $derived(form?.type === 'updateProfile' && form?.ok === false);
+	type CommentFeedback = {
+		type: 'success' | 'error';
+		message: string;
+	};
 
 	let isEditing = $state(false);
 	let editingBio = $state(profile?.bio ?? '');
@@ -69,7 +102,45 @@
 	let editingAvailabilityFuturePercent = $state('');
 	let editingAvailabilityNoticePeriodDays = $state('');
 	let editingAvailabilityPlannedFromDate = $state('');
+	let commentsDrawerOpen = $state(false);
+	let commentTypeId = $state('');
+	let commentBody = $state('');
+	let commentFormOpen = $state(false);
+	let commentSubmitting = $state(false);
+	let downloadingResumeId = $state<string | null>(null);
+	let downloadMenuResumeId = $state<string | null>(null);
+	let downloadLang = $state<'sv' | 'en'>('sv');
+	let commentFeedback = $state<CommentFeedback | null>(null);
+	let archivingCommentIds = $state<Record<string, boolean>>({});
+	let expandedCommentIds = $state<Record<string, boolean>>({});
+	let flashingCommentId = $state<string | null>(null);
+
+	const commentTypeIcons = {
+		'briefcase-business': BriefcaseBusiness,
+		'calendar-clock': CalendarClock,
+		workflow: Workflow,
+		'message-square': MessageSquare
+	} as const;
+	const commentRoleIcons = {
+		admin: Shield,
+		broker: BriefcaseBusiness,
+		employer: Building2,
+		talent: User
+	} as const;
+	const resolveTypeIcon = (iconName: string) =>
+		commentTypeIcons[iconName as keyof typeof commentTypeIcons] ?? MessageSquare;
+	const resolveRoleIcon = (role: string) =>
+		commentRoleIcons[role as keyof typeof commentRoleIcons] ?? User;
+	const commentRoleLabels: Record<string, string> = {
+		admin: 'Admin',
+		broker: 'Broker',
+		employer: 'Employer',
+		talent: 'Talent'
+	};
+	const resolveRoleLabel = (role: string) => commentRoleLabels[role] ?? 'User';
+
 	const techStackJson = $derived(JSON.stringify(editingTechStack ?? []));
+	const commentCharactersUsed = $derived(commentBody.length);
 
 	const hasFutureAvailabilityTiming = $derived.by(() => {
 		if (!editingHasAssignment) return false;
@@ -284,6 +355,10 @@
 		})
 	);
 
+	const VISIBLE_RESUME_COUNT = 3;
+	const visibleResumes = $derived(sortedResumeList.slice(0, VISIBLE_RESUME_COUNT));
+	const hasMoreResumes = $derived(sortedResumeList.length > VISIBLE_RESUME_COUNT);
+
 	const formatResumeCardDate = (value: string | null | undefined): string => {
 		if (!value) return '—';
 		const parsed = new Date(value);
@@ -298,6 +373,13 @@
 	$effect(() => {
 		resetProfileEditor();
 		resumeList = [...(resumes ?? [])];
+	});
+
+	$effect(() => {
+		const defaultCommentTypeId = commentTypes[0]?.id ?? '';
+		if (!commentTypeId || !commentTypes.some((type) => type.id === commentTypeId)) {
+			commentTypeId = defaultCommentTypeId;
+		}
 	});
 
 	$effect(() => {
@@ -446,6 +528,186 @@
 			}
 		} finally {
 			loading(false);
+		}
+	};
+
+	const downloadResume = async (
+		resumeId: string,
+		type: 'pdf' | 'word',
+		lang: 'sv' | 'en' = 'sv'
+	) => {
+		if (downloadingResumeId) return;
+		const resume = resumeList.find((r) => r.id === resumeId);
+		const baseName = resume?.version_name ?? 'resume';
+		const extension = type === 'pdf' ? 'pdf' : 'doc';
+		const filename = `${baseName}.${extension}`;
+		const label = type === 'pdf' ? 'Generating PDF...' : 'Generating Word file...';
+		const debugParam = type === 'pdf' ? '&debug=1' : '';
+		const url = `/api/resumes/${resumeId}/${type}?lang=${lang}${debugParam}`;
+
+		downloadingResumeId = resumeId;
+		loading(true, label);
+		resumeDownloadStore.start(type, label);
+
+		try {
+			const response = await fetch(url, { credentials: 'include' });
+			if (!response.ok) {
+				const detail = await response.json().catch(() => null);
+				throw new Error(detail?.message ?? 'Failed to download file');
+			}
+			const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+			if (type === 'pdf' && contentType.includes('application/json')) {
+				const payload = await response.json().catch(() => null);
+				const downloadUrl = payload?.downloadUrl ?? '';
+				const downloadFilename =
+					typeof payload?.filename === 'string' ? payload.filename : filename;
+				if (!downloadUrl) throw new Error('Failed to prepare PDF download link');
+				const normalizedFilename = downloadFilename.toLowerCase().endsWith(`.${extension}`)
+					? downloadFilename
+					: `${downloadFilename}.${extension}`;
+				try {
+					const downloadResponse = await fetch(downloadUrl);
+					if (!downloadResponse.ok)
+						throw new Error(`Signed download failed (${downloadResponse.status})`);
+					const blob = await downloadResponse.blob();
+					const objectUrl = URL.createObjectURL(blob);
+					const link = document.createElement('a');
+					link.href = objectUrl;
+					link.download = normalizedFilename;
+					document.body.appendChild(link);
+					link.click();
+					link.remove();
+					URL.revokeObjectURL(objectUrl);
+				} catch {
+					const link = document.createElement('a');
+					link.href = downloadUrl;
+					link.download = normalizedFilename;
+					document.body.appendChild(link);
+					link.click();
+					link.remove();
+				}
+			} else {
+				const blob = await response.blob();
+				const objectUrl = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = objectUrl;
+				link.download = filename;
+				document.body.appendChild(link);
+				link.click();
+				link.remove();
+				URL.revokeObjectURL(objectUrl);
+			}
+		} catch (err) {
+			console.error('Download failed:', err);
+		} finally {
+			downloadingResumeId = null;
+			resumeDownloadStore.stop();
+			loading(false);
+		}
+	};
+
+	const parseActionResultMessage = async (response: Response) => {
+		const result = deserialize(await response.text()) as {
+			type?: string;
+			data?: { message?: unknown };
+		};
+
+		return {
+			type: result.type ?? 'error',
+			message: typeof result.data?.message === 'string' ? result.data.message : 'Request failed.'
+		};
+	};
+
+	const submitComment = async (
+		event: SubmitEvent & { currentTarget: EventTarget & HTMLFormElement }
+	) => {
+		event.preventDefault();
+		if (!profile || !canCreateComment || commentSubmitting) return;
+
+		commentSubmitting = true;
+		commentFeedback = null;
+
+		try {
+			const formData = new FormData(event.currentTarget);
+			formData.set('talent_id', profile.id);
+
+			const response = await fetch('?/createComment', {
+				method: 'POST',
+				body: formData
+			});
+			const result = await parseActionResultMessage(response);
+
+			if (result.type === 'success') {
+				commentBody = '';
+				commentTypeId = commentTypes[0]?.id ?? '';
+				commentFeedback = null;
+				// Refresh data first, then close form so user sees it's working
+				await invalidateAll();
+				await tick();
+				commentFormOpen = false;
+				// Flash the newest comment
+				const newest = latestComments[0];
+				if (newest) {
+					flashingCommentId = newest.id;
+					setTimeout(() => {
+						flashingCommentId = null;
+					}, 1500);
+				}
+				return;
+			}
+
+			commentFeedback = {
+				type: 'error',
+				message: result.message || 'Could not add comment right now.'
+			};
+		} catch (error) {
+			commentFeedback = {
+				type: 'error',
+				message: error instanceof Error ? error.message : 'Could not add comment right now.'
+			};
+		} finally {
+			commentSubmitting = false;
+		}
+	};
+
+	const archiveComment = async (commentId: string) => {
+		if (!profile || archivingCommentIds[commentId]) return;
+
+		archivingCommentIds = {
+			...archivingCommentIds,
+			[commentId]: true
+		};
+		commentFeedback = null;
+
+		try {
+			const formData = new FormData();
+			formData.set('talent_id', profile.id);
+			formData.set('comment_id', commentId);
+
+			const response = await fetch('?/archiveComment', {
+				method: 'POST',
+				body: formData
+			});
+			const result = await parseActionResultMessage(response);
+
+			if (result.type === 'success') {
+				commentFeedback = { type: 'success', message: result.message || 'Comment archived.' };
+				await invalidateAll();
+				return;
+			}
+
+			commentFeedback = {
+				type: 'error',
+				message: result.message || 'Could not archive comment right now.'
+			};
+		} catch (error) {
+			commentFeedback = {
+				type: 'error',
+				message: error instanceof Error ? error.message : 'Could not archive comment right now.'
+			};
+		} finally {
+			const { [commentId]: _removed, ...rest } = archivingCommentIds;
+			archivingCommentIds = rest;
 		}
 	};
 
@@ -923,7 +1185,11 @@
 	<div class="mb-8">
 		<div class="mb-6 flex items-center justify-between">
 			{#if !isTalentOnly}
-				<Button variant="ghost" href="/resumes" class="hover:text-primary pl-0 hover:bg-transparent">
+				<Button
+					variant="ghost"
+					href="/resumes"
+					class="hover:text-primary pl-0 hover:bg-transparent"
+				>
 					<ArrowLeft size={16} class="mr-2" />
 					Back to all talents
 				</Button>
@@ -945,85 +1211,93 @@
 
 		{#if profile}
 			<div class="flex flex-col gap-8 md:flex-row md:items-start">
-				<div class="relative h-32 w-32 flex-shrink-0 md:h-48 md:w-48">
-					<!-- Hidden file input for avatar upload -->
-					<input
-						bind:this={avatarFileInput}
-						type="file"
-						accept="image/*"
-						class="hidden"
-						onchange={handleAvatarUpload}
-						disabled={avatarUploading}
-					/>
-
-					<!-- Avatar container -->
-					<button
-						type="button"
-						class="border-border group relative h-full w-full overflow-hidden border-4 shadow-lg {isEditing &&
-						canEdit
-							? 'cursor-pointer'
-							: 'cursor-default'}"
-						onclick={() => isEditing && canEdit && !avatarUploading && avatarFileInput?.click()}
-						disabled={!isEditing || !canEdit || avatarUploading}
-					>
-						{#if displayedAvatarUrl}
-							<img
-								src={displayedAvatarSrc}
-								srcset={displayedAvatarSrcSet}
-								sizes={supabaseImageSizes.avatarProfile}
-								alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
-								class="h-full w-full object-cover"
-								loading="lazy"
-								decoding="async"
-								onerror={(event) =>
-									applyImageFallbackOnce(event, displayedAvatarFallbackSrc || displayedAvatarUrl)}
+				<div class="w-32 flex-shrink-0 space-y-4 md:w-48">
+					<div class="space-y-2">
+						<div class="relative h-32 w-32 md:h-48 md:w-48">
+							<input
+								bind:this={avatarFileInput}
+								type="file"
+								accept="image/*"
+								class="hidden"
+								onchange={handleAvatarUpload}
+								disabled={avatarUploading}
 							/>
-						{:else}
-							<div class="bg-muted text-muted-fg flex h-full w-full items-center justify-center">
-								<User size={48} />
-							</div>
-						{/if}
 
-						<!-- Hover overlay when editing -->
-						{#if isEditing && canEdit}
-							<div
-								class="absolute inset-0 flex flex-col items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 {avatarUploading
-									? '!opacity-100'
-									: ''}"
+							<button
+								type="button"
+								class="border-border group relative h-full w-full overflow-hidden border-4 shadow-lg {isEditing &&
+								canEdit
+									? 'cursor-pointer'
+									: 'cursor-default'}"
+								onclick={() => isEditing && canEdit && !avatarUploading && avatarFileInput?.click()}
+								disabled={!isEditing || !canEdit || avatarUploading}
 							>
-								{#if avatarUploading}
-									<Loader2 size={32} class="animate-spin text-white" />
-									<span class="mt-2 text-xs font-medium text-white">Uploading...</span>
+								{#if displayedAvatarUrl}
+									<img
+										src={displayedAvatarSrc}
+										srcset={displayedAvatarSrcSet}
+										sizes={supabaseImageSizes.avatarProfile}
+										alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
+										class="h-full w-full object-cover"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(
+												event,
+												displayedAvatarFallbackSrc || displayedAvatarUrl
+											)}
+									/>
 								{:else}
-									<Camera size={32} class="text-white" />
-									<span class="mt-2 text-xs font-medium text-white">
-										{editingAvatarUrl ? 'Change photo' : 'Add photo'}
-									</span>
+									<div
+										class="bg-muted text-muted-fg flex h-full w-full items-center justify-center"
+									>
+										<User size={48} />
+									</div>
 								{/if}
-							</div>
+
+								{#if isEditing && canEdit}
+									<div
+										class="absolute inset-0 flex flex-col items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 {avatarUploading
+											? '!opacity-100'
+											: ''}"
+									>
+										{#if avatarUploading}
+											<Loader2 size={32} class="animate-spin text-white" />
+											<span class="mt-2 text-xs font-medium text-white">Uploading...</span>
+										{:else}
+											<Camera size={32} class="text-white" />
+											<span class="mt-2 text-xs font-medium text-white">
+												{editingAvatarUrl ? 'Change photo' : 'Add photo'}
+											</span>
+										{/if}
+									</div>
+								{/if}
+							</button>
+						</div>
+
+						{#if isEditing && canEdit && editingAvatarUrl && !avatarUploading}
+							<button
+								type="button"
+								class="w-full text-left text-xs text-red-400 transition-colors hover:text-red-500"
+								onclick={() => {
+									editingAvatarUrl = '';
+									avatarUploadError = null;
+								}}
+							>
+								Remove image
+							</button>
 						{/if}
-					</button>
 
-					<!-- Remove avatar link -->
-					{#if isEditing && canEdit && editingAvatarUrl && !avatarUploading}
-						<button
-							type="button"
-							class="mt-2 w-full text-center text-xs text-red-400 transition-colors hover:text-red-500"
-							onclick={() => {
-								editingAvatarUrl = '';
-								avatarUploadError = null;
-							}}
-						>
-							Remove image
-						</button>
-					{/if}
+						{#if avatarUploadError}
+							<p class="text-xs text-red-600">{avatarUploadError}</p>
+						{/if}
 
-					<!-- Avatar upload error -->
-					{#if avatarUploadError}
-						<p class="mt-2 text-center text-xs text-red-600">{avatarUploadError}</p>
-					{/if}
+						{#if !isEditing}
+							<p class="text-sm">Current status</p>
+							<ConsultantAvailabilityPills {availability} compact />
+						{/if}
+					</div>
 				</div>
-
 				<div class="flex-1 space-y-4">
 					<form
 						id="profile-form"
@@ -1058,14 +1332,14 @@
 							value={submittedAvailabilityPlannedFromDate}
 						/>
 
-						{#if form?.message}
+						{#if profileActionMessage}
 							<div
 								class="rounded border px-3 py-2 text-sm
-									{form.ok
+									{!profileActionFailed
 									? 'border-emerald-200 bg-emerald-50 text-emerald-700'
 									: 'border-red-200 bg-red-50 text-red-700'}"
 							>
-								{form.message}
+								{profileActionMessage}
 							</div>
 						{/if}
 
@@ -1110,9 +1384,8 @@
 						</div>
 
 						<div class="pt-2">
-							<h3 class="text-foreground mb-2 text-lg font-semibold">Availability</h3>
-
 							{#if isEditing && canEdit}
+								<h3 class="text-foreground mb-2 text-lg font-semibold">Availability</h3>
 								<div class="space-y-4">
 									<input
 										type="hidden"
@@ -1323,166 +1596,431 @@
 										</div>
 									{/if}
 								</div>
-							{:else}
-								<ConsultantAvailabilityPills {availability} />
-							{/if}
-						</div>
-
-						<div class="pt-2">
-							<h3 class="text-foreground mb-2 text-lg font-semibold">Tech Stack</h3>
-							{#if isEditing && canEdit}
-								<TechStackEditor bind:categories={editingTechStack} isEditing />
-							{:else if viewCategories.length === 0}
-								<p class="text-muted-fg text-sm">No tech stack recorded yet.</p>
-							{:else}
-								<div class="space-y-3">
-									{#each viewCategories as cat (cat.name ?? '')}
-										<div class="space-y-1">
-											<p class="text-foreground text-xs font-semibold uppercase tracking-wide">
-												{cat.name}
-											</p>
-											<div class="flex flex-wrap gap-2">
-												{#each cat.skills as skill, skillIndex (`${cat.name ?? 'cat'}-${skill}-${skillIndex}`)}
-													<span
-														class="border-primary text-primary inline-flex min-h-[28px] min-w-[28px] items-center justify-center border bg-transparent px-2 py-1 text-xs font-semibold"
-													>
-														{skill}
-													</span>
-												{/each}
-											</div>
-										</div>
-									{/each}
-								</div>
 							{/if}
 						</div>
 					</form>
+
+					<!-- Resumes -->
+					<div class="pt-2">
+						<div class="mb-2 flex items-center justify-between">
+							<h3 class="text-foreground text-lg font-semibold">Resumes</h3>
+							{#if canEdit}
+								<div class="flex items-center gap-1">
+									<Button size="sm" variant="outline" onclick={openImportDrawer}>
+										<Upload size={14} />
+										Create resume from PDF
+									</Button>
+									<Button size="sm" variant="outline" onclick={addResume}>
+										<Plus size={14} />
+										Add resume
+									</Button>
+								</div>
+							{/if}
+						</div>
+
+						<div class="space-y-1.5">
+							{#each visibleResumes as resume, index (resume.id)}
+								<div
+									draggable={canEdit}
+									ondragstart={() => handleDragStart(resume)}
+									ondragover={(e) => handleDragOver(e, index)}
+									ondragleave={handleDragLeave}
+									ondrop={(e) => handleDrop(e, index)}
+									ondragend={() => {
+										draggedResume = null;
+										dragOverIndex = null;
+									}}
+									role="button"
+									tabindex="0"
+									onclick={() =>
+										goto(
+											`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resume.id)}`
+										)}
+									onkeydown={(e) => {
+										if (e.key === 'Enter' || e.key === ' ') {
+											e.preventDefault();
+											goto(
+												`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resume.id)}`
+											);
+										}
+									}}
+									class="border-border hover:border-primary/50 hover:bg-muted/50 group flex w-full cursor-pointer items-center gap-3 border px-4 py-3 transition-colors {dragOverIndex ===
+									index
+										? 'border-primary'
+										: ''} {draggedResume?.id === resume.id ? 'opacity-50' : ''}"
+								>
+									<FileText size={16} class="text-muted-fg group-hover:text-primary shrink-0" />
+									<div class="min-w-0 flex-1">
+										<div class="flex items-center gap-2">
+											<span class="text-foreground truncate text-sm font-medium">
+												{resume.version_name ?? 'Main'}
+											</span>
+											{#if resume.is_main}
+												<span
+													class="inline-flex items-center gap-1 rounded-full bg-green-50 px-1.5 py-0.5 text-xs font-medium text-green-700"
+												>
+													<CheckCircle2 size={11} />
+													Main
+												</span>
+											{/if}
+										</div>
+										<span class="text-muted-fg text-xs">
+											{formatResumeCardDate(resume.updated_at ?? resume.created_at)}
+										</span>
+									</div>
+
+									<div class="ml-auto flex shrink-0 items-center gap-1">
+										<div class="relative">
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												class="min-h-[36px] min-w-[36px]"
+												onclick={(e) => {
+													e.stopPropagation();
+													downloadMenuResumeId =
+														downloadMenuResumeId === resume.id ? null : resume.id;
+												}}
+												loading={downloadingResumeId === resume.id}
+												title="Download"
+											>
+												<Download size={14} />
+											</Button>
+											{#if downloadMenuResumeId === resume.id}
+												<!-- svelte-ignore a11y_no_static_element_interactions -->
+												<div
+													class="border-border bg-card absolute right-0 top-full z-50 mt-1 flex flex-col gap-1.5 rounded border p-2 shadow-lg"
+													onclick={(e) => e.stopPropagation()}
+													transition:fly={{ y: -8, duration: 150 }}
+												>
+													<div
+														class="border-border bg-card flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium"
+													>
+														<button
+															type="button"
+															class="cursor-pointer {downloadLang === 'sv'
+																? 'bg-primary rounded-full px-2 py-0.5 text-white'
+																: 'text-muted-fg hover:text-foreground px-2 py-0.5'}"
+															onclick={() => (downloadLang = 'sv')}
+														>
+															SV
+														</button>
+														<button
+															type="button"
+															class="cursor-pointer {downloadLang === 'en'
+																? 'bg-primary rounded-full px-2 py-0.5 text-white'
+																: 'text-muted-fg hover:text-foreground px-2 py-0.5'}"
+															onclick={() => (downloadLang = 'en')}
+														>
+															EN
+														</button>
+													</div>
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														class="w-full cursor-pointer"
+														loading={downloadingResumeId === resume.id}
+														onclick={() => {
+															downloadResume(resume.id, 'word', downloadLang);
+															downloadMenuResumeId = null;
+														}}
+													>
+														Word (Pre-beta)
+													</Button>
+													<Button
+														type="button"
+														variant="primary"
+														size="sm"
+														class="w-full cursor-pointer"
+														loading={downloadingResumeId === resume.id}
+														onclick={() => {
+															downloadResume(resume.id, 'pdf', downloadLang);
+															downloadMenuResumeId = null;
+														}}
+													>
+														<Download size={14} />
+														PDF
+													</Button>
+												</div>
+											{/if}
+										</div>
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											class="min-h-[36px] min-w-[36px]"
+											onclick={(e) => {
+												e.stopPropagation();
+												copyResume(resume.id);
+											}}
+											title="Duplicate resume"
+										>
+											<Copy size={14} />
+										</Button>
+										{#if canEdit && !resume.is_main}
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												class="min-h-[36px] text-xs"
+												onclick={(e) => {
+													e.stopPropagation();
+													setMainResume(resume.id);
+												}}
+												title="Set as main"
+											>
+												Set main
+											</Button>
+											<button
+												type="button"
+												class="text-muted-fg inline-flex min-h-[36px] min-w-[36px] cursor-pointer items-center justify-center rounded-sm px-2 text-sm transition-colors hover:text-red-500"
+												onclick={(e) => e.stopPropagation()}
+												title="Delete resume"
+												use:confirm={{
+													title: 'Delete resume?',
+													description: `Are you sure you want to delete "${resume.version_name}"? This cannot be undone.`,
+													actionLabel: 'Delete',
+													action: () => deleteResume(resume.id)
+												}}
+											>
+												<Trash2 size={14} />
+											</button>
+										{/if}
+									</div>
+								</div>
+							{/each}
+
+							{#if hasMoreResumes}
+								<button
+									type="button"
+									class="text-primary hover:text-primary/80 cursor-pointer pt-1 text-sm font-medium"
+									onclick={() => {
+										const el = document.getElementById('all-resumes-section');
+										if (el) el.scrollIntoView({ behavior: 'smooth' });
+									}}
+								>
+									See all {sortedResumeList.length} resumes
+								</button>
+							{/if}
+
+							{#if sortedResumeList.length === 0}
+								<div class="border-border rounded-none border border-dashed px-4 py-6 text-center">
+									<FileText size={24} class="text-muted-fg mx-auto mb-2" />
+									<p class="text-muted-fg text-sm">No resumes yet.</p>
+								</div>
+							{/if}
+						</div>
+					</div>
+
+					<!-- Internal comments -->
+					<div class="pt-2">
+						<div class="mb-2 flex items-center justify-between">
+							<h3 class="text-foreground text-lg font-semibold">Comments</h3>
+							{#if canCreateComment}
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onclick={() => (commentFormOpen = !commentFormOpen)}
+								>
+									<MessageSquarePlus size={14} />
+									Leave comment
+								</Button>
+							{/if}
+						</div>
+
+						{#if commentFeedback?.type === 'error'}
+							<div
+								class="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+							>
+								{commentFeedback.message}
+							</div>
+						{/if}
+
+						{#if commentFormOpen}
+							<div class="border-border bg-card rounded border p-4">
+								<form class="space-y-3" onsubmit={submitComment}>
+									<input type="hidden" name="comment_type_id" value={commentTypeId} />
+									<Dropdown
+										id="comment-type"
+										bind:value={commentTypeId}
+										options={commentTypes.map((ct) => ({ label: ct.label, value: ct.id }))}
+										placeholder="Comment type"
+										size="sm"
+										disabled={commentTypes.length === 0 || commentSubmitting}
+									/>
+
+									<textarea
+										id="comment-body"
+										name="comment_body"
+										bind:value={commentBody}
+										maxlength={TALENT_COMMENT_BODY_MAX_LENGTH}
+										class="border-border bg-card text-foreground focus:border-primary min-h-20 w-full resize-y rounded-none border p-2.5 text-sm outline-none"
+										placeholder="Internal note..."
+										disabled={commentSubmitting}
+										required
+									></textarea>
+
+									<div class="flex items-center justify-between gap-3">
+										<p class="text-muted-fg text-xs">
+											{commentCharactersUsed}/{TALENT_COMMENT_BODY_MAX_LENGTH}
+										</p>
+										<div class="flex gap-1.5">
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												onclick={() => {
+													commentFormOpen = false;
+													commentBody = '';
+												}}
+											>
+												Cancel
+											</Button>
+											<Button
+												type="submit"
+												size="sm"
+												loading={commentSubmitting}
+												disabled={commentTypes.length === 0 || commentSubmitting}
+											>
+												Add
+											</Button>
+										</div>
+									</div>
+								</form>
+							</div>
+						{/if}
+
+						{#if latestComments.length > 0}
+							<div class="space-y-2">
+								{#each latestComments as comment (comment.id)}
+									{@const isExpanded = expandedCommentIds[comment.id] ?? false}
+									{@const TypeIcon = resolveTypeIcon(comment.comment_type.icon_name)}
+									{@const RoleIcon = resolveRoleIcon(comment.author_role)}
+									<button
+										type="button"
+										class="border-border hover:bg-muted/50 w-full cursor-pointer border px-4 py-3 text-left transition-colors {flashingCommentId ===
+										comment.id
+											? 'animate-flash-highlight'
+											: ''}"
+										onclick={() => {
+											expandedCommentIds = { ...expandedCommentIds, [comment.id]: !isExpanded };
+										}}
+									>
+										<div class="mb-1 flex items-center gap-2">
+											<span
+												class="text-primary bg-primary/5 border-primary/30 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-semibold"
+											>
+												<TypeIcon size={12} />
+												{comment.comment_type.label}
+											</span>
+											{#if comment.author_name}
+												<span class="text-muted-fg inline-flex items-center gap-1 text-[11px]">
+													<span title={resolveRoleLabel(comment.author_role)}>
+														<RoleIcon size={12} />
+													</span>
+													{comment.author_name}
+												</span>
+											{/if}
+											<span class="text-muted-fg ml-auto text-[11px]">
+												{new Date(comment.created_at).toLocaleDateString(undefined, {
+													year: 'numeric',
+													month: 'short',
+													day: 'numeric'
+												})}
+											</span>
+										</div>
+										<div
+											class="relative overflow-hidden transition-[max-height] duration-300 ease-in-out"
+											style="max-height: {isExpanded ? '40rem' : '3rem'};"
+										>
+											<p class="text-foreground whitespace-pre-wrap text-sm leading-6">
+												{comment.body_text}
+											</p>
+											{#if !isExpanded && comment.body_text.length > 120}
+												<div
+													class="from-background pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t"
+												></div>
+											{/if}
+										</div>
+									</button>
+								{/each}
+							</div>
+
+							{#if commentCount > latestComments.length}
+								<div class="flex w-full justify-end">
+									<button
+										type="button"
+										class="text-primary hover:text-primary/80 mt-1 cursor-pointer text-sm font-medium"
+										onclick={() => (commentsDrawerOpen = true)}
+									>
+										See all {commentCount} comments
+									</button>
+								</div>
+							{/if}
+						{/if}
+					</div>
+
+					<div class="pt-2">
+						<h3 class="text-foreground mb-2 text-lg font-semibold">Tech Stack</h3>
+						{#if isEditing && canEdit}
+							<TechStackEditor bind:categories={editingTechStack} isEditing />
+						{:else if viewCategories.length === 0}
+							<p class="text-muted-fg text-sm">No tech stack recorded yet.</p>
+						{:else}
+							<div class="space-y-3">
+								{#each viewCategories as cat (cat.name ?? '')}
+									<div class="space-y-1">
+										<p class="text-foreground text-xs font-semibold uppercase tracking-wide">
+											{cat.name}
+										</p>
+										<div class="flex flex-wrap gap-2">
+											{#each cat.skills as skill, skillIndex (`${cat.name ?? 'cat'}-${skill}-${skillIndex}`)}
+												<span
+													class="border-primary text-primary inline-flex min-h-[28px] min-w-[28px] items-center justify-center border bg-transparent px-2 py-1 text-xs font-semibold"
+												>
+													{skill}
+												</span>
+											{/each}
+										</div>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
 				</div>
 			</div>
 		{:else}
 			<div class="rounded-lg bg-red-50 p-4 text-red-800">Talent not found.</div>
 		{/if}
 	</div>
-
-	{#if profile}
-		<div class="border-border mt-12 border-t pt-12">
-			<div class="mb-6 flex items-center justify-between">
-				<h2 class="text-foreground text-2xl font-bold">Resumes</h2>
-				{#if canEdit}
-					<div class="flex items-center gap-2">
-						<Button size="sm" variant="outline" onclick={openImportDrawer}>
-							<Upload size={14} />
-							Create resume from PDF
-						</Button>
-						<Button size="sm" variant="outline" onclick={addResume}>+ Add resume</Button>
-					</div>
-				{/if}
-			</div>
-
-			<div class="space-y-4">
-				{#each sortedResumeList as resume, index (resume.id)}
-					<div
-						draggable={canEdit}
-						ondragstart={() => handleDragStart(resume)}
-						ondragover={(e) => handleDragOver(e, index)}
-						ondragleave={handleDragLeave}
-						ondrop={(e) => handleDrop(e, index)}
-						ondragend={() => {
-							draggedResume = null;
-							dragOverIndex = null;
-						}}
-						onclick={() =>
-							goto(
-								`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resume.id)}`
-							)}
-						class={`flex cursor-pointer items-center justify-between rounded-none border p-6 shadow-sm transition-all duration-200 hover:scale-105 hover:shadow-md ${
-							dragOverIndex === index ? 'border-primary' : 'border-border'
-						} ${draggedResume?.id === resume.id ? 'opacity-50' : ''}`}
-					>
-						<div class="flex items-start gap-4">
-							<div
-								class="bg-primary/10 text-primary flex h-12 w-12 items-center justify-center rounded-lg"
-							>
-								<FileText size={24} />
-							</div>
-							<div>
-								<div class="flex items-center gap-3">
-									<h3 class="text-foreground text-lg font-semibold">
-										{resume.version_name ?? 'Main'}
-									</h3>
-									{#if resume.is_main}
-										<span
-											class="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20"
-										>
-											<CheckCircle2 size={12} />
-											Main Resume
-										</span>
-									{/if}
-								</div>
-								<div class="text-muted-fg mt-1 flex items-center gap-4 text-sm">
-									<span class="flex items-center gap-1">
-										<Calendar size={14} />
-										Updated {formatResumeCardDate(resume.updated_at ?? resume.created_at)}
-									</span>
-								</div>
-							</div>
-						</div>
-						{#if canEdit}
-							<div class="flex items-center gap-1">
-								{#if !resume.is_main}
-									<button
-										type="button"
-										class="border-border text-muted-fg hover:bg-primary/10 hover:text-primary cursor-pointer rounded-md border px-2 py-1 text-xs font-medium transition-colors"
-										onclick={(e) => {
-											e.stopPropagation();
-											setMainResume(resume.id);
-										}}
-										title="Set as main resume"
-									>
-										Set main
-									</button>
-								{/if}
-								<button
-									type="button"
-									class="text-muted-fg hover:bg-primary/10 hover:text-primary cursor-pointer rounded-md p-2 transition-colors"
-									onclick={(e) => {
-										e.stopPropagation();
-										copyResume(resume.id);
-									}}
-									title="Copy resume"
-								>
-									<Copy size={18} />
-								</button>
-								{#if !resume.is_main}
-									<button
-										type="button"
-										class="text-muted-fg cursor-pointer rounded-md p-2 transition-colors hover:bg-red-50 hover:text-red-600"
-										onclick={(e) => e.stopPropagation()}
-										title="Delete resume"
-										use:confirm={{
-											title: 'Delete resume?',
-											description: `Are you sure you want to delete "${resume.version_name}"? This cannot be undone.`,
-											actionLabel: 'Delete',
-											action: () => deleteResume(resume.id)
-										}}
-									>
-										<Trash2 size={18} />
-									</button>
-								{/if}
-							</div>
-						{/if}
-					</div>
-				{/each}
-				{#if sortedResumeList.length === 0}
-					<div class="border-border rounded-lg border-2 border-dashed p-12 text-center">
-						<FileText size={48} class="text-muted-fg mx-auto mb-4" />
-						<h3 class="text-foreground text-lg font-medium">No resumes found</h3>
-						<p class="text-muted-fg mt-2">Connect this profile to a resume to see it here.</p>
-					</div>
-				{/if}
-			</div>
-		</div>
-	{/if}
 </div>
+
+{#if profile}
+	<Drawer
+		bind:open={commentsDrawerOpen}
+		variant="bottom"
+		title="Comment history"
+		subtitle="Older internal comments for this talent."
+	>
+		{#if commentHistory.length === 0}
+			<div class="border-border rounded-none border border-dashed p-4">
+				<p class="text-muted-fg text-sm">No comments yet.</p>
+			</div>
+		{:else}
+			<div class="space-y-3">
+				{#each commentHistory as comment (comment.id)}
+					<TalentCommentCard
+						{comment}
+						isArchiving={Boolean(archivingCommentIds[comment.id])}
+						onArchive={archiveComment}
+					/>
+				{/each}
+			</div>
+		{/if}
+	</Drawer>
+{/if}
 
 {#if profile && canEdit}
 	<Drawer
@@ -1593,5 +2131,17 @@
 	}
 	:global(.uppy-container .uppy-Dashboard-note) {
 		display: none;
+	}
+
+	@keyframes flash-highlight {
+		0% {
+			background-color: var(--color-primary-light, #dbeafe);
+		}
+		100% {
+			background-color: transparent;
+		}
+	}
+	:global(.animate-flash-highlight) {
+		animation: flash-highlight 1.5s ease-out;
 	}
 </style>
