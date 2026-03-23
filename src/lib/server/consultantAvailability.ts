@@ -1,3 +1,5 @@
+import { getEarliestAvailabilityDate } from '$lib/utils/availability';
+
 export type ConsultantAvailability = {
 	nowPercent: number | null;
 	futurePercent: number | null;
@@ -100,6 +102,27 @@ const computeSwitchFromDate = (noticePeriodDays: number | null): string | null =
 	return toIsoUtcDate(todayUtc);
 };
 
+const getTodayIsoUtcDate = () => {
+	const now = new Date();
+	return toIsoUtcDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())));
+};
+
+const normalizeElapsedFutureAvailability = (
+	availability: Omit<ConsultantAvailability, 'hasData'>
+): Omit<ConsultantAvailability, 'hasData'> => {
+	const effectiveDate = getEarliestAvailabilityDate(availability);
+	if (!effectiveDate) return availability;
+	if (effectiveDate > getTodayIsoUtcDate()) return availability;
+
+	return {
+		nowPercent: availability.futurePercent ?? availability.nowPercent ?? 100,
+		futurePercent: null,
+		noticePeriodDays: null,
+		switchFromDate: null,
+		plannedFromDate: null
+	};
+};
+
 const computeHasData = (availability: Omit<ConsultantAvailability, 'hasData'>) =>
 	availability.nowPercent !== null ||
 	availability.futurePercent !== null ||
@@ -118,13 +141,13 @@ export const normalizeAvailabilityRow = (row: unknown): ConsultantAvailability =
 	const hasFutureDate = noticePeriodDays !== null || plannedFromDate !== null;
 	const rawFuturePercent = normalizePercentValue(data.availability_future_percent);
 
-	const availabilityBase = {
+	const availabilityBase = normalizeElapsedFutureAvailability({
 		nowPercent: normalizePercentValue(data.availability_now_percent),
 		futurePercent: rawFuturePercent ?? (hasFutureDate ? 100 : null),
 		noticePeriodDays,
 		switchFromDate,
 		plannedFromDate
-	};
+	});
 
 	return {
 		...availabilityBase,

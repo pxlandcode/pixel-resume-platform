@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Card } from '@pixelcode_/blocks/components';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
+	import { getEarliestAvailabilityDate } from '$lib/utils/availability';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -325,6 +326,10 @@
 						Available Soon
 					</h2>
 					<a href={resolve('/resumes')} class="text-primary text-sm hover:underline">Search</a>
+								{formatRelativeDate(getEarliestAvailabilityDate(consultant.availability))}
+							</span>
+						</a>
+					{/each}
 				</div>
 				{#if panelsStatus === 'loading'}
 					<p class="text-muted-fg text-sm">Loading upcoming availability...</p>

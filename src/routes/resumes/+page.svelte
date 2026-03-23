@@ -5,6 +5,7 @@
 	import { SuperList, ListHandler, Cell, Row } from '$lib/components/super-list';
 	import type { SuperListHead } from '$lib/components/super-list';
 	import { clickOutside } from '$lib/utils/clickOutside';
+	import { getEarliestAvailabilityDate } from '$lib/utils/availability';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
 	import type { ResumeTechIndexResponse } from '$lib/types/resumes';
@@ -184,17 +185,6 @@
 	const isAvailableNow = (
 		availability: (typeof allTalents)[number]['availability'] | null | undefined
 	) => typeof availability?.nowPercent === 'number' && availability.nowPercent > 0;
-
-	const getEarliestAvailabilityDate = (
-		availability: (typeof allTalents)[number]['availability'] | null | undefined
-	) => {
-		const switchDate =
-			typeof availability?.switchFromDate === 'string' ? availability.switchFromDate : null;
-		const plannedDate =
-			typeof availability?.plannedFromDate === 'string' ? availability.plannedFromDate : null;
-		if (switchDate && plannedDate) return switchDate < plannedDate ? switchDate : plannedDate;
-		return switchDate ?? plannedDate;
-	};
 
 	const availabilityFilteredTalents = $derived.by(() => {
 		if (availabilityMode === 'all') return organisationFilteredTalents;
