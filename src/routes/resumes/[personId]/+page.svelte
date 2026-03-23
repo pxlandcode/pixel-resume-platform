@@ -1,57 +1,34 @@
 <script lang="ts">
-	import { Button, Checkbox, Datepicker, Input, Radio } from '@pixelcode_/blocks/components';
-	import {
-		ArrowLeft,
-		BriefcaseBusiness,
-		Building2,
-		CalendarClock,
-		Camera,
-		CheckCircle2,
-		Copy,
-		Download,
-		FileText,
-		Loader2,
-		MessageSquare,
-		MessageSquarePlus,
-		Plus,
-		Shield,
-		Trash2,
-		Upload,
-		User,
-		Workflow,
-		AlertCircle
-	} from 'lucide-svelte';
 	import { deserialize } from '$app/forms';
 	import { base, resolve } from '$app/paths';
 	import { goto, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/stores';
-	import TechStackEditor from '$lib/components/tech-stack-editor/tech-stack-editor.svelte';
-	import Drawer from '$lib/components/drawer/drawer.svelte';
-	import { Dropdown } from '$lib/components/dropdown';
+	import {
+		TalentProfileAvatar,
+		TalentProfileCommentsDrawer,
+		TalentProfileCommentsSection,
+		TalentProfileHeader,
+		TalentProfileImportCloseConfirm,
+		TalentProfileImportDrawer,
+		TalentProfileProfileForm,
+		TalentProfileResumesSection,
+		TalentProfileTechStackSection
+	} from '$lib/components/resumes/components/TalentProfile';
 	import { resumeDownloadStore } from '$lib/stores/resumeDownloadStore';
-	import TalentCommentCard from '$lib/components/talent-comments/TalentCommentCard.svelte';
-	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
-	import { confirm } from '$lib/utils/confirm';
 	import { loading } from '$lib/stores/loading';
 	import { pdfImportStore } from '$lib/stores/pdfImportStore';
+	import { type TalentComment, type TalentCommentType } from '$lib/types/talentComments';
 	import {
-		TALENT_COMMENT_BODY_MAX_LENGTH,
-		type TalentComment,
-		type TalentCommentType
-	} from '$lib/types/talentComments';
-	import {
-		applyImageFallbackOnce,
 		getOriginalImageUrl,
 		supabaseImagePresets,
-		supabaseImageSizes,
 		supabaseImageSrcsetWidths,
 		transformSupabasePublicUrl,
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
 	import { get } from 'svelte/store';
 	import { onDestroy, onMount, tick } from 'svelte';
-	import { fly } from 'svelte/transition';
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
+	import type { TechCategory as ResumeTechCategory } from '$lib/types/resume';
 
 	const { data, form } = $props();
 
@@ -73,8 +50,8 @@
 	);
 	const canCreateComment = $derived(Boolean(data.canCreateComment));
 	type ResumeListItem = (typeof resumes)[number];
-	type TechCategory = { name?: string; skills?: string[] };
-	const techStack = (profile?.tech_stack as TechCategory[]) ?? [];
+	type ImportFile = UppyFile<Record<string, unknown>, Record<string, unknown>>;
+	const techStack = (profile?.tech_stack as ResumeTechCategory[]) ?? [];
 	const viewCategories = $derived(
 		(techStack ?? []).filter((cat) => Array.isArray(cat?.skills) && cat.skills.length > 0)
 	);
@@ -92,7 +69,6 @@
 	let editingAvatarUrl = $state(profile?.avatar_url ?? '');
 	let avatarUploadError = $state<string | null>(null);
 	let avatarUploading = $state(false);
-	let avatarFileInput = $state<HTMLInputElement | null>(null);
 	let editingTechStack = $state(structuredClone(techStack));
 	let editingHasAssignment = $state(true);
 	let availabilityStatus = $state<'available-now' | 'on-assignment'>('on-assignment');
@@ -115,32 +91,7 @@
 	let expandedCommentIds = $state<Record<string, boolean>>({});
 	let flashingCommentId = $state<string | null>(null);
 
-	const commentTypeIcons = {
-		'briefcase-business': BriefcaseBusiness,
-		'calendar-clock': CalendarClock,
-		workflow: Workflow,
-		'message-square': MessageSquare
-	} as const;
-	const commentRoleIcons = {
-		admin: Shield,
-		broker: BriefcaseBusiness,
-		employer: Building2,
-		talent: User
-	} as const;
-	const resolveTypeIcon = (iconName: string) =>
-		commentTypeIcons[iconName as keyof typeof commentTypeIcons] ?? MessageSquare;
-	const resolveRoleIcon = (role: string) =>
-		commentRoleIcons[role as keyof typeof commentRoleIcons] ?? User;
-	const commentRoleLabels: Record<string, string> = {
-		admin: 'Admin',
-		broker: 'Broker',
-		employer: 'Employer',
-		talent: 'Talent'
-	};
-	const resolveRoleLabel = (role: string) => commentRoleLabels[role] ?? 'User';
-
 	const techStackJson = $derived(JSON.stringify(editingTechStack ?? []));
-	const commentCharactersUsed = $derived(commentBody.length);
 
 	const hasFutureAvailabilityTiming = $derived.by(() => {
 		if (!editingHasAssignment) return false;
@@ -222,6 +173,11 @@
 	);
 	const displayedAvatarFallbackSrc = $derived(getOriginalImageUrl(displayedAvatarUrl));
 
+	const clearAvatarImage = () => {
+		editingAvatarUrl = '';
+		avatarUploadError = null;
+	};
+
 	const handleAvatarUpload = async (
 		event: Event & { currentTarget: EventTarget & HTMLInputElement }
 	) => {
@@ -278,6 +234,10 @@
 		isEditing = false;
 	};
 
+	const startProfileEdit = () => {
+		isEditing = true;
+	};
+
 	let resumeList = $state<ResumeListItem[]>(resumes ?? []);
 	let draggedResume: ResumeListItem | null = $state(null);
 	let dragOverIndex: number | null = $state(null);
@@ -310,10 +270,10 @@
 	type UppyInstance = InstanceType<UppyCtor>;
 
 	let importStatus = $state<PdfImportPhase>('idle');
-	let uppyContainer: HTMLDivElement | null = null;
+	let uppyContainer = $state<HTMLDivElement | null>(null);
 	let uppy: UppyInstance | null = null;
 	let uppyModulesPromise: Promise<{ Uppy: UppyCtor; Dashboard: DashboardPlugin }> | null = null;
-	let selectedImportFile = $state<UppyFile<Record<string, unknown>, Blob> | null>(null);
+	let selectedImportFile = $state<ImportFile | null>(null);
 	let importAbortController: AbortController | null = null;
 	let importPollAbortController: AbortController | null = null;
 	let importJobId = $state<string | null>(null);
@@ -358,17 +318,6 @@
 	const VISIBLE_RESUME_COUNT = 3;
 	const visibleResumes = $derived(sortedResumeList.slice(0, VISIBLE_RESUME_COUNT));
 	const hasMoreResumes = $derived(sortedResumeList.length > VISIBLE_RESUME_COUNT);
-
-	const formatResumeCardDate = (value: string | null | undefined): string => {
-		if (!value) return '—';
-		const parsed = new Date(value);
-		if (Number.isNaN(parsed.getTime())) return value;
-		return new Intl.DateTimeFormat(undefined, {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric'
-		}).format(parsed);
-	};
 
 	$effect(() => {
 		resetProfileEditor();
@@ -432,17 +381,18 @@
 	const reorderResumes = (targetIndex: number) => {
 		if (!canEdit) return;
 		if (!draggedResume) return;
-		const currentIndex = resumeList.findIndex((r) => r.id === draggedResume.id);
+		const dragged = draggedResume;
+		const currentIndex = resumeList.findIndex((r) => r.id === dragged.id);
 		if (currentIndex === -1 || currentIndex === targetIndex) return;
 		const next = [...resumeList];
 		next.splice(currentIndex, 1);
-		next.splice(targetIndex, 0, draggedResume);
+		next.splice(targetIndex, 0, dragged);
 		// mark main
 		resumeList = next.map((r, idx) => ({ ...r, is_main: idx === 0 }));
 	};
 
 	const saveOrder = async () => {
-		if (!canEdit) return;
+		if (!canEdit || !profile) return;
 		loading(true, 'Saving order...');
 		try {
 			const order = resumeList.map((r) => r.id);
@@ -465,7 +415,7 @@
 	};
 
 	const addResume = async () => {
-		if (!canEdit) return;
+		if (!canEdit || !profile) return;
 		loading(true, 'Creating resume...');
 		try {
 			const formData = new FormData();
@@ -968,7 +918,7 @@
 		}
 	};
 
-	const runPdfImport = async (sourceFile: UppyFile<Record<string, unknown>, Blob>) => {
+	const runPdfImport = async (sourceFile: ImportFile) => {
 		if (!profile || !canEdit || isImportBusy) return;
 		const blob = sourceFile.data as Blob | undefined;
 		if (!blob) {
@@ -1059,7 +1009,7 @@
 
 		uppy.on('file-added', (file) => {
 			importError = null;
-			selectedImportFile = file as UppyFile<Record<string, unknown>, Blob>;
+			selectedImportFile = file as ImportFile;
 		});
 
 		uppy.on('file-removed', (file) => {
@@ -1128,6 +1078,34 @@
 		pendingCloseAction = null;
 	};
 
+	const openResume = (resumeId: string) => {
+		if (!profile) return;
+		void goto(`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resumeId)}`);
+	};
+
+	const handleResumeDragEnd = () => {
+		draggedResume = null;
+		dragOverIndex = null;
+	};
+
+	const toggleDownloadMenu = (resumeId: string) => {
+		downloadMenuResumeId = downloadMenuResumeId === resumeId ? null : resumeId;
+	};
+
+	const handleDownloadResume = (resumeId: string, type: 'pdf' | 'word', lang: 'sv' | 'en') => {
+		void downloadResume(resumeId, type, lang);
+		downloadMenuResumeId = null;
+	};
+
+	const toggleExpandedComment = (commentId: string) => {
+		const isExpanded = expandedCommentIds[commentId] ?? false;
+		expandedCommentIds = { ...expandedCommentIds, [commentId]: !isExpanded };
+	};
+
+	const openCommentsDrawer = () => {
+		commentsDrawerOpen = true;
+	};
+
 	$effect(() => {
 		if (importDrawerOpen) {
 			importDrawerWasOpened = true;
@@ -1183,6 +1161,7 @@
 
 <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
 	<div class="mb-8">
+<<<<<<< HEAD
 		<div class="mb-6 flex items-center justify-between">
 			{#if !isTalentOnly}
 				<Button
@@ -1208,787 +1187,111 @@
 				</div>
 			{/if}
 		</div>
+=======
+		<TalentProfileHeader
+			hasProfile={Boolean(profile)}
+			{canEdit}
+			{isEditing}
+			{avatarUploading}
+			onStartEdit={startProfileEdit}
+			onCancelEdit={cancelProfileEdit}
+		/>
+>>>>>>> 15bfdcd (Refactor code structure for improved readability and maintainability)
 
 		{#if profile}
 			<div class="flex flex-col gap-8 md:flex-row md:items-start">
-				<div class="w-32 flex-shrink-0 space-y-4 md:w-48">
-					<div class="space-y-2">
-						<div class="relative h-32 w-32 md:h-48 md:w-48">
-							<input
-								bind:this={avatarFileInput}
-								type="file"
-								accept="image/*"
-								class="hidden"
-								onchange={handleAvatarUpload}
-								disabled={avatarUploading}
-							/>
-
-							<button
-								type="button"
-								class="border-border group relative h-full w-full overflow-hidden border-4 shadow-lg {isEditing &&
-								canEdit
-									? 'cursor-pointer'
-									: 'cursor-default'}"
-								onclick={() => isEditing && canEdit && !avatarUploading && avatarFileInput?.click()}
-								disabled={!isEditing || !canEdit || avatarUploading}
-							>
-								{#if displayedAvatarUrl}
-									<img
-										src={displayedAvatarSrc}
-										srcset={displayedAvatarSrcSet}
-										sizes={supabaseImageSizes.avatarProfile}
-										alt={[profile.first_name, profile.last_name].filter(Boolean).join(' ')}
-										class="h-full w-full object-cover"
-										loading="lazy"
-										decoding="async"
-										onerror={(event) =>
-											applyImageFallbackOnce(
-												event,
-												displayedAvatarFallbackSrc || displayedAvatarUrl
-											)}
-									/>
-								{:else}
-									<div
-										class="bg-muted text-muted-fg flex h-full w-full items-center justify-center"
-									>
-										<User size={48} />
-									</div>
-								{/if}
-
-								{#if isEditing && canEdit}
-									<div
-										class="absolute inset-0 flex flex-col items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 {avatarUploading
-											? '!opacity-100'
-											: ''}"
-									>
-										{#if avatarUploading}
-											<Loader2 size={32} class="animate-spin text-white" />
-											<span class="mt-2 text-xs font-medium text-white">Uploading...</span>
-										{:else}
-											<Camera size={32} class="text-white" />
-											<span class="mt-2 text-xs font-medium text-white">
-												{editingAvatarUrl ? 'Change photo' : 'Add photo'}
-											</span>
-										{/if}
-									</div>
-								{/if}
-							</button>
-						</div>
-
-						{#if isEditing && canEdit && editingAvatarUrl && !avatarUploading}
-							<button
-								type="button"
-								class="w-full text-left text-xs text-red-400 transition-colors hover:text-red-500"
-								onclick={() => {
-									editingAvatarUrl = '';
-									avatarUploadError = null;
-								}}
-							>
-								Remove image
-							</button>
-						{/if}
-
-						{#if avatarUploadError}
-							<p class="text-xs text-red-600">{avatarUploadError}</p>
-						{/if}
-
-						{#if !isEditing}
-							<p class="text-sm">Current status</p>
-							<ConsultantAvailabilityPills {availability} compact />
-						{/if}
-					</div>
-				</div>
+				<TalentProfileAvatar
+					{profile}
+					{availability}
+					{canEdit}
+					{isEditing}
+					{avatarUploading}
+					{editingAvatarUrl}
+					{avatarUploadError}
+					{displayedAvatarUrl}
+					{displayedAvatarSrc}
+					{displayedAvatarSrcSet}
+					{displayedAvatarFallbackSrc}
+					onAvatarUpload={handleAvatarUpload}
+					onRemoveImage={clearAvatarImage}
+				/>
 				<div class="flex-1 space-y-4">
-					<form
-						id="profile-form"
-						method="POST"
-						action="?/updateProfile"
-						class="space-y-4"
-						onsubmit={() => {
-							// keep editing values
-						}}
-					>
-						<input type="hidden" name="talent_id" value={profile.id} />
-						<input type="hidden" name="tech_stack" value={techStackJson} />
-						<input type="hidden" name="avatar_url" value={editingAvatarUrl} />
-						<input
-							type="hidden"
-							name="availability_now_percent"
-							value={submittedAvailabilityNowPercent}
-						/>
-						<input
-							type="hidden"
-							name="availability_future_percent"
-							value={submittedAvailabilityFuturePercent}
-						/>
-						<input
-							type="hidden"
-							name="availability_notice_period_days"
-							value={submittedAvailabilityNoticePeriodDays}
-						/>
-						<input
-							type="hidden"
-							name="availability_planned_from_date"
-							value={submittedAvailabilityPlannedFromDate}
-						/>
+					<TalentProfileProfileForm
+						{profile}
+						organisationName={data.organisation_name}
+						organisationLogoUrl={data.organisation_logo_url}
+						{isEditing}
+						{canEdit}
+						bind:editingBio
+						{editingAvatarUrl}
+						{techStackJson}
+						{submittedAvailabilityNowPercent}
+						{submittedAvailabilityFuturePercent}
+						{submittedAvailabilityNoticePeriodDays}
+						{submittedAvailabilityPlannedFromDate}
+						{profileActionMessage}
+						{profileActionFailed}
+						bind:availabilityStatus
+						{editingHasAssignment}
+						bind:editingUseCustomAvailabilityPercentages
+						bind:editingOpenToSwitchEarly
+						bind:editingAvailabilityNowPercent
+						bind:editingAvailabilityFuturePercent
+						bind:editingAvailabilityNoticePeriodDays
+						bind:editingAvailabilityPlannedFromDate
+						{hasFutureAvailabilityTiming}
+						{availabilityDatepickerOptions}
+					/>
 
-						{#if profileActionMessage}
-							<div
-								class="rounded border px-3 py-2 text-sm
-									{!profileActionFailed
-									? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-									: 'border-red-200 bg-red-50 text-red-700'}"
-							>
-								{profileActionMessage}
-							</div>
-						{/if}
+					<TalentProfileResumesSection
+						{visibleResumes}
+						totalResumeCount={sortedResumeList.length}
+						{hasMoreResumes}
+						{canEdit}
+						{dragOverIndex}
+						draggedResumeId={draggedResume?.id ?? null}
+						{downloadMenuResumeId}
+						{downloadingResumeId}
+						{downloadLang}
+						onOpenImportDrawer={openImportDrawer}
+						onAddResume={addResume}
+						onOpenResume={openResume}
+						onDragStartResume={handleDragStart}
+						onDragOverResume={handleDragOver}
+						onDragLeaveResume={handleDragLeave}
+						onDropResume={handleDrop}
+						onDragEndResume={handleResumeDragEnd}
+						onToggleDownloadMenu={toggleDownloadMenu}
+						onSelectDownloadLang={(lang) => (downloadLang = lang)}
+						onDownloadResume={handleDownloadResume}
+						onCopyResume={copyResume}
+						onSetMainResume={setMainResume}
+						onDeleteResume={deleteResume}
+					/>
 
-						<div>
-							<h1 class="text-foreground text-3xl font-bold sm:text-4xl">
-								{[profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Unnamed'}
-							</h1>
-							{#if profile.title}
-								<p class="text-primary mt-1 text-xl font-medium">{profile.title}</p>
-							{/if}
-							{#if data.organisation_logo_url || data.organisation_name}
-								<div class="mt-3">
-									{#if data.organisation_logo_url}
-										<img
-											src={data.organisation_logo_url}
-											alt={data.organisation_name ?? 'Organisation'}
-											class="h-5 w-auto object-contain"
-										/>
-									{:else}
-										<span class="text-muted-fg text-xs font-medium">{data.organisation_name}</span>
-									{/if}
-								</div>
-							{/if}
-						</div>
+					<TalentProfileCommentsSection
+						{canCreateComment}
+						{commentTypes}
+						{latestComments}
+						{commentCount}
+						bind:commentTypeId
+						bind:commentBody
+						bind:commentFormOpen
+						{commentSubmitting}
+						{commentFeedback}
+						{expandedCommentIds}
+						{flashingCommentId}
+						onSubmitComment={submitComment}
+						onToggleCommentExpanded={toggleExpandedComment}
+						onOpenCommentHistory={openCommentsDrawer}
+					/>
 
-						<div>
-							{#if isEditing && canEdit}
-								<textarea
-									name="bio"
-									bind:value={editingBio}
-									class="border-border text-foreground w-full rounded border p-3 text-sm"
-									rows="4"
-									placeholder="Tell us about this talent"
-								/>
-							{:else if profile.bio}
-								<p class="text-muted-fg max-w-2xl whitespace-pre-wrap text-sm leading-6">
-									{profile.bio}
-								</p>
-							{:else}
-								<p class="text-muted-fg text-sm">No bio yet.</p>
-							{/if}
-						</div>
-
-						<div class="pt-2">
-							{#if isEditing && canEdit}
-								<h3 class="text-foreground mb-2 text-lg font-semibold">Availability</h3>
-								<div class="space-y-4">
-									<input
-										type="hidden"
-										name="availability_now_percent"
-										value={submittedAvailabilityNowPercent}
-									/>
-									<input
-										type="hidden"
-										name="availability_future_percent"
-										value={submittedAvailabilityFuturePercent}
-									/>
-									<input
-										type="hidden"
-										name="availability_notice_period_days"
-										value={submittedAvailabilityNoticePeriodDays}
-									/>
-									<input
-										type="hidden"
-										name="availability_planned_from_date"
-										value={submittedAvailabilityPlannedFromDate}
-									/>
-
-									<!-- Current status -->
-									<div class="border-border bg-card rounded-lg border p-5">
-										<p class="text-foreground mb-3 text-sm font-medium">Current status</p>
-										<div class="flex flex-col gap-2" role="radiogroup" aria-label="Current status">
-											<div
-												class="hover:bg-muted flex cursor-pointer items-center gap-3 rounded-md p-2"
-												role="radio"
-												tabindex="0"
-												aria-checked={availabilityStatus === 'available-now'}
-												onclick={() => (availabilityStatus = 'available-now')}
-												onkeydown={(event) => {
-													if (event.key === 'Enter' || event.key === ' ') {
-														event.preventDefault();
-														availabilityStatus = 'available-now';
-													}
-												}}
-											>
-												<Radio
-													name="availability-status"
-													value="available-now"
-													bind:group={availabilityStatus}
-												/>
-												<div>
-													<span class="text-foreground text-sm font-medium">Available now</span>
-													<span class="text-muted-fg ml-2 text-xs">100% available immediately</span>
-												</div>
-											</div>
-											<div
-												class="hover:bg-muted flex cursor-pointer items-center gap-3 rounded-md p-2"
-												role="radio"
-												tabindex="0"
-												aria-checked={availabilityStatus === 'on-assignment'}
-												onclick={() => (availabilityStatus = 'on-assignment')}
-												onkeydown={(event) => {
-													if (event.key === 'Enter' || event.key === ' ') {
-														event.preventDefault();
-														availabilityStatus = 'on-assignment';
-													}
-												}}
-											>
-												<Radio
-													name="availability-status"
-													value="on-assignment"
-													bind:group={availabilityStatus}
-												/>
-												<div>
-													<span class="text-foreground text-sm font-medium">On assignment</span>
-													<span class="text-muted-fg ml-2 text-xs">Currently busy</span>
-												</div>
-											</div>
-										</div>
-									</div>
-
-									<!-- Assignment details (only when on assignment) -->
-									{#if editingHasAssignment}
-										<div class="border-border bg-card rounded-lg border p-5">
-											<p class="text-foreground mb-4 text-sm font-medium">Assignment details</p>
-											<div class="space-y-4">
-												<div>
-													<label
-														for="availability-planned-date"
-														class="text-muted-fg mb-1.5 block text-sm font-medium"
-													>
-														Assignment end date
-													</label>
-													<Datepicker
-														id="availability-planned-date"
-														bind:value={editingAvailabilityPlannedFromDate}
-														options={availabilityDatepickerOptions}
-														class="bg-card text-foreground w-full max-w-xs !pl-11"
-														placeholder="YYYY-MM-DD"
-													/>
-													<p class="text-muted-fg mt-1 text-xs">
-														When will the current assignment end?
-													</p>
-												</div>
-
-												<div class="border-border/70 border-t pt-4">
-													<Checkbox bind:checked={editingOpenToSwitchEarly}>
-														<span class="text-foreground text-sm font-medium">
-															Open to switching early
-														</span>
-													</Checkbox>
-
-													{#if editingOpenToSwitchEarly}
-														<div class="ml-7 mt-3">
-															<label
-																for="availability-notice-period-days"
-																class="text-muted-fg mb-1.5 block text-sm font-medium"
-															>
-																Notice period (days)
-															</label>
-															<Input
-																id="availability-notice-period-days"
-																type="text"
-																inputmode="numeric"
-																bind:value={editingAvailabilityNoticePeriodDays}
-																class="bg-card text-foreground w-full max-w-[120px] text-sm"
-																placeholder="e.g. 30"
-															/>
-														</div>
-													{/if}
-												</div>
-											</div>
-										</div>
-									{/if}
-
-									<!-- Advanced options toggle -->
-									{#if !editingUseCustomAvailabilityPercentages}
-										<button
-											type="button"
-											class="text-muted-fg hover:text-foreground text-sm font-medium"
-											onclick={() => (editingUseCustomAvailabilityPercentages = true)}
-										>
-											+ Advanced options
-										</button>
-									{:else}
-										<div class="border-border bg-muted rounded-lg border p-5">
-											<div class="mb-4 flex items-center justify-between">
-												<p class="text-foreground text-sm font-medium">
-													Custom availability percentages
-												</p>
-												<button
-													type="button"
-													class="text-muted-fg hover:text-foreground text-xs font-medium"
-													onclick={() => {
-														editingUseCustomAvailabilityPercentages = false;
-														editingAvailabilityNowPercent = '';
-														editingAvailabilityFuturePercent = '';
-													}}
-												>
-													Reset to defaults
-												</button>
-											</div>
-											<div class="grid gap-4 sm:grid-cols-2">
-												<div>
-													<label
-														for="availability-now-percent"
-														class="text-muted-fg mb-1.5 block text-sm font-medium"
-													>
-														Available now
-													</label>
-													<div class="relative max-w-[120px]">
-														<Input
-															id="availability-now-percent"
-															type="text"
-															inputmode="numeric"
-															bind:value={editingAvailabilityNowPercent}
-															class="bg-card text-foreground w-full py-2 pr-8 text-sm"
-															placeholder={editingHasAssignment ? '0' : '100'}
-														/>
-														<span
-															class="text-muted-fg pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm"
-															>%</span
-														>
-													</div>
-												</div>
-												{#if editingHasAssignment && hasFutureAvailabilityTiming}
-													<div>
-														<label
-															for="availability-future-percent"
-															class="text-muted-fg mb-1.5 block text-sm font-medium"
-														>
-															Future availability
-														</label>
-														<div class="relative max-w-[120px]">
-															<Input
-																id="availability-future-percent"
-																type="text"
-																inputmode="numeric"
-																bind:value={editingAvailabilityFuturePercent}
-																class="bg-card text-foreground w-full py-2 pr-8 text-sm"
-																placeholder="100"
-															/>
-															<span
-																class="text-muted-fg pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm"
-																>%</span
-															>
-														</div>
-													</div>
-												{/if}
-											</div>
-											<p class="text-muted-fg mt-3 text-xs">
-												Override default percentages for part-time or partial availability.
-											</p>
-										</div>
-									{/if}
-								</div>
-							{/if}
-						</div>
-					</form>
-
-					<!-- Resumes -->
-					<div class="pt-2">
-						<div class="mb-2 flex items-center justify-between">
-							<h3 class="text-foreground text-lg font-semibold">Resumes</h3>
-							{#if canEdit}
-								<div class="flex items-center gap-1">
-									<Button size="sm" variant="outline" onclick={openImportDrawer}>
-										<Upload size={14} />
-										Create resume from PDF
-									</Button>
-									<Button size="sm" variant="outline" onclick={addResume}>
-										<Plus size={14} />
-										Add resume
-									</Button>
-								</div>
-							{/if}
-						</div>
-
-						<div class="space-y-1.5">
-							{#each visibleResumes as resume, index (resume.id)}
-								<div
-									draggable={canEdit}
-									ondragstart={() => handleDragStart(resume)}
-									ondragover={(e) => handleDragOver(e, index)}
-									ondragleave={handleDragLeave}
-									ondrop={(e) => handleDrop(e, index)}
-									ondragend={() => {
-										draggedResume = null;
-										dragOverIndex = null;
-									}}
-									role="button"
-									tabindex="0"
-									onclick={() =>
-										goto(
-											`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resume.id)}`
-										)}
-									onkeydown={(e) => {
-										if (e.key === 'Enter' || e.key === ' ') {
-											e.preventDefault();
-											goto(
-												`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resume.id)}`
-											);
-										}
-									}}
-									class="border-border hover:border-primary/50 hover:bg-muted/50 group flex w-full cursor-pointer items-center gap-3 border px-4 py-3 transition-colors {dragOverIndex ===
-									index
-										? 'border-primary'
-										: ''} {draggedResume?.id === resume.id ? 'opacity-50' : ''}"
-								>
-									<FileText size={16} class="text-muted-fg group-hover:text-primary shrink-0" />
-									<div class="min-w-0 flex-1">
-										<div class="flex items-center gap-2">
-											<span class="text-foreground truncate text-sm font-medium">
-												{resume.version_name ?? 'Main'}
-											</span>
-											{#if resume.is_main}
-												<span
-													class="inline-flex items-center gap-1 rounded-full bg-green-50 px-1.5 py-0.5 text-xs font-medium text-green-700"
-												>
-													<CheckCircle2 size={11} />
-													Main
-												</span>
-											{/if}
-										</div>
-										<span class="text-muted-fg text-xs">
-											{formatResumeCardDate(resume.updated_at ?? resume.created_at)}
-										</span>
-									</div>
-
-									<div class="ml-auto flex shrink-0 items-center gap-1">
-										<div class="relative">
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												class="min-h-[36px] min-w-[36px]"
-												onclick={(e) => {
-													e.stopPropagation();
-													downloadMenuResumeId =
-														downloadMenuResumeId === resume.id ? null : resume.id;
-												}}
-												loading={downloadingResumeId === resume.id}
-												title="Download"
-											>
-												<Download size={14} />
-											</Button>
-											{#if downloadMenuResumeId === resume.id}
-												<!-- svelte-ignore a11y_no_static_element_interactions -->
-												<div
-													class="border-border bg-card absolute right-0 top-full z-50 mt-1 flex flex-col gap-1.5 rounded border p-2 shadow-lg"
-													onclick={(e) => e.stopPropagation()}
-													transition:fly={{ y: -8, duration: 150 }}
-												>
-													<div
-														class="border-border bg-card flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium"
-													>
-														<button
-															type="button"
-															class="cursor-pointer {downloadLang === 'sv'
-																? 'bg-primary rounded-full px-2 py-0.5 text-white'
-																: 'text-muted-fg hover:text-foreground px-2 py-0.5'}"
-															onclick={() => (downloadLang = 'sv')}
-														>
-															SV
-														</button>
-														<button
-															type="button"
-															class="cursor-pointer {downloadLang === 'en'
-																? 'bg-primary rounded-full px-2 py-0.5 text-white'
-																: 'text-muted-fg hover:text-foreground px-2 py-0.5'}"
-															onclick={() => (downloadLang = 'en')}
-														>
-															EN
-														</button>
-													</div>
-													<Button
-														type="button"
-														variant="outline"
-														size="sm"
-														class="w-full cursor-pointer"
-														loading={downloadingResumeId === resume.id}
-														onclick={() => {
-															downloadResume(resume.id, 'word', downloadLang);
-															downloadMenuResumeId = null;
-														}}
-													>
-														Word (Pre-beta)
-													</Button>
-													<Button
-														type="button"
-														variant="primary"
-														size="sm"
-														class="w-full cursor-pointer"
-														loading={downloadingResumeId === resume.id}
-														onclick={() => {
-															downloadResume(resume.id, 'pdf', downloadLang);
-															downloadMenuResumeId = null;
-														}}
-													>
-														<Download size={14} />
-														PDF
-													</Button>
-												</div>
-											{/if}
-										</div>
-										<Button
-											type="button"
-											variant="ghost"
-											size="sm"
-											class="min-h-[36px] min-w-[36px]"
-											onclick={(e) => {
-												e.stopPropagation();
-												copyResume(resume.id);
-											}}
-											title="Duplicate resume"
-										>
-											<Copy size={14} />
-										</Button>
-										{#if canEdit && !resume.is_main}
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												class="min-h-[36px] text-xs"
-												onclick={(e) => {
-													e.stopPropagation();
-													setMainResume(resume.id);
-												}}
-												title="Set as main"
-											>
-												Set main
-											</Button>
-											<button
-												type="button"
-												class="text-muted-fg inline-flex min-h-[36px] min-w-[36px] cursor-pointer items-center justify-center rounded-sm px-2 text-sm transition-colors hover:text-red-500"
-												onclick={(e) => e.stopPropagation()}
-												title="Delete resume"
-												use:confirm={{
-													title: 'Delete resume?',
-													description: `Are you sure you want to delete "${resume.version_name}"? This cannot be undone.`,
-													actionLabel: 'Delete',
-													action: () => deleteResume(resume.id)
-												}}
-											>
-												<Trash2 size={14} />
-											</button>
-										{/if}
-									</div>
-								</div>
-							{/each}
-
-							{#if hasMoreResumes}
-								<button
-									type="button"
-									class="text-primary hover:text-primary/80 cursor-pointer pt-1 text-sm font-medium"
-									onclick={() => {
-										const el = document.getElementById('all-resumes-section');
-										if (el) el.scrollIntoView({ behavior: 'smooth' });
-									}}
-								>
-									See all {sortedResumeList.length} resumes
-								</button>
-							{/if}
-
-							{#if sortedResumeList.length === 0}
-								<div class="border-border rounded-none border border-dashed px-4 py-6 text-center">
-									<FileText size={24} class="text-muted-fg mx-auto mb-2" />
-									<p class="text-muted-fg text-sm">No resumes yet.</p>
-								</div>
-							{/if}
-						</div>
-					</div>
-
-					<!-- Internal comments -->
-					<div class="pt-2">
-						<div class="mb-2 flex items-center justify-between">
-							<h3 class="text-foreground text-lg font-semibold">Comments</h3>
-							{#if canCreateComment}
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onclick={() => (commentFormOpen = !commentFormOpen)}
-								>
-									<MessageSquarePlus size={14} />
-									Leave comment
-								</Button>
-							{/if}
-						</div>
-
-						{#if commentFeedback?.type === 'error'}
-							<div
-								class="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
-							>
-								{commentFeedback.message}
-							</div>
-						{/if}
-
-						{#if commentFormOpen}
-							<div class="border-border bg-card rounded border p-4">
-								<form class="space-y-3" onsubmit={submitComment}>
-									<input type="hidden" name="comment_type_id" value={commentTypeId} />
-									<Dropdown
-										id="comment-type"
-										bind:value={commentTypeId}
-										options={commentTypes.map((ct) => ({ label: ct.label, value: ct.id }))}
-										placeholder="Comment type"
-										size="sm"
-										disabled={commentTypes.length === 0 || commentSubmitting}
-									/>
-
-									<textarea
-										id="comment-body"
-										name="comment_body"
-										bind:value={commentBody}
-										maxlength={TALENT_COMMENT_BODY_MAX_LENGTH}
-										class="border-border bg-card text-foreground focus:border-primary min-h-20 w-full resize-y rounded-none border p-2.5 text-sm outline-none"
-										placeholder="Internal note..."
-										disabled={commentSubmitting}
-										required
-									></textarea>
-
-									<div class="flex items-center justify-between gap-3">
-										<p class="text-muted-fg text-xs">
-											{commentCharactersUsed}/{TALENT_COMMENT_BODY_MAX_LENGTH}
-										</p>
-										<div class="flex gap-1.5">
-											<Button
-												type="button"
-												variant="ghost"
-												size="sm"
-												onclick={() => {
-													commentFormOpen = false;
-													commentBody = '';
-												}}
-											>
-												Cancel
-											</Button>
-											<Button
-												type="submit"
-												size="sm"
-												loading={commentSubmitting}
-												disabled={commentTypes.length === 0 || commentSubmitting}
-											>
-												Add
-											</Button>
-										</div>
-									</div>
-								</form>
-							</div>
-						{/if}
-
-						{#if latestComments.length > 0}
-							<div class="space-y-2">
-								{#each latestComments as comment (comment.id)}
-									{@const isExpanded = expandedCommentIds[comment.id] ?? false}
-									{@const TypeIcon = resolveTypeIcon(comment.comment_type.icon_name)}
-									{@const RoleIcon = resolveRoleIcon(comment.author_role)}
-									<button
-										type="button"
-										class="border-border hover:bg-muted/50 w-full cursor-pointer border px-4 py-3 text-left transition-colors {flashingCommentId ===
-										comment.id
-											? 'animate-flash-highlight'
-											: ''}"
-										onclick={() => {
-											expandedCommentIds = { ...expandedCommentIds, [comment.id]: !isExpanded };
-										}}
-									>
-										<div class="mb-1 flex items-center gap-2">
-											<span
-												class="text-primary bg-primary/5 border-primary/30 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] font-semibold"
-											>
-												<TypeIcon size={12} />
-												{comment.comment_type.label}
-											</span>
-											{#if comment.author_name}
-												<span class="text-muted-fg inline-flex items-center gap-1 text-[11px]">
-													<span title={resolveRoleLabel(comment.author_role)}>
-														<RoleIcon size={12} />
-													</span>
-													{comment.author_name}
-												</span>
-											{/if}
-											<span class="text-muted-fg ml-auto text-[11px]">
-												{new Date(comment.created_at).toLocaleDateString(undefined, {
-													year: 'numeric',
-													month: 'short',
-													day: 'numeric'
-												})}
-											</span>
-										</div>
-										<div
-											class="relative overflow-hidden transition-[max-height] duration-300 ease-in-out"
-											style="max-height: {isExpanded ? '40rem' : '3rem'};"
-										>
-											<p class="text-foreground whitespace-pre-wrap text-sm leading-6">
-												{comment.body_text}
-											</p>
-											{#if !isExpanded && comment.body_text.length > 120}
-												<div
-													class="from-background pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t"
-												></div>
-											{/if}
-										</div>
-									</button>
-								{/each}
-							</div>
-
-							{#if commentCount > latestComments.length}
-								<div class="flex w-full justify-end">
-									<button
-										type="button"
-										class="text-primary hover:text-primary/80 mt-1 cursor-pointer text-sm font-medium"
-										onclick={() => (commentsDrawerOpen = true)}
-									>
-										See all {commentCount} comments
-									</button>
-								</div>
-							{/if}
-						{/if}
-					</div>
-
-					<div class="pt-2">
-						<h3 class="text-foreground mb-2 text-lg font-semibold">Tech Stack</h3>
-						{#if isEditing && canEdit}
-							<TechStackEditor bind:categories={editingTechStack} isEditing />
-						{:else if viewCategories.length === 0}
-							<p class="text-muted-fg text-sm">No tech stack recorded yet.</p>
-						{:else}
-							<div class="space-y-3">
-								{#each viewCategories as cat (cat.name ?? '')}
-									<div class="space-y-1">
-										<p class="text-foreground text-xs font-semibold uppercase tracking-wide">
-											{cat.name}
-										</p>
-										<div class="flex flex-wrap gap-2">
-											{#each cat.skills as skill, skillIndex (`${cat.name ?? 'cat'}-${skill}-${skillIndex}`)}
-												<span
-													class="border-primary text-primary inline-flex min-h-[28px] min-w-[28px] items-center justify-center border bg-transparent px-2 py-1 text-xs font-semibold"
-												>
-													{skill}
-												</span>
-											{/each}
-										</div>
-									</div>
-								{/each}
-							</div>
-						{/if}
-					</div>
+					<TalentProfileTechStackSection
+						{isEditing}
+						{canEdit}
+						bind:editingTechStack
+						{viewCategories}
+					/>
 				</div>
 			</div>
 		{:else}
@@ -1998,141 +1301,38 @@
 </div>
 
 {#if profile}
-	<Drawer
+	<TalentProfileCommentsDrawer
 		bind:open={commentsDrawerOpen}
-		variant="bottom"
-		title="Comment history"
-		subtitle="Older internal comments for this talent."
-	>
-		{#if commentHistory.length === 0}
-			<div class="border-border rounded-none border border-dashed p-4">
-				<p class="text-muted-fg text-sm">No comments yet.</p>
-			</div>
-		{:else}
-			<div class="space-y-3">
-				{#each commentHistory as comment (comment.id)}
-					<TalentCommentCard
-						{comment}
-						isArchiving={Boolean(archivingCommentIds[comment.id])}
-						onArchive={archiveComment}
-					/>
-				{/each}
-			</div>
-		{/if}
-	</Drawer>
+		{commentHistory}
+		{archivingCommentIds}
+		onArchive={archiveComment}
+	/>
 {/if}
 
 {#if profile && canEdit}
-	<Drawer
+	<TalentProfileImportDrawer
 		bind:open={importDrawerOpen}
-		variant="bottom"
-		title="Import from PDF"
-		subtitle="Upload a resume PDF to create an editable draft."
+		bind:uppyContainer
 		beforeClose={requestImportDrawerClose}
-	>
-		<div class="flex min-h-0 flex-1 flex-col">
-			{#if isBackgroundImporting}
-				<!-- Importing state -->
-				<div class="flex flex-1 flex-col items-center justify-center py-8">
-					<div class="bg-primary/10 mb-4 flex h-16 w-16 items-center justify-center rounded-full">
-						<Loader2 size={32} class="text-primary animate-spin" />
-					</div>
-					<p class="text-foreground mb-1 text-lg font-medium">{importStatusLabel}</p>
-					{#if importSourceFilename}
-						<p class="text-muted-fg text-sm">{importSourceFilename}</p>
-					{/if}
-					<p class="text-muted-fg mt-4 text-xs">
-						You can close this drawer. The import will continue in the background.
-					</p>
-				</div>
-			{:else}
-				<!-- Upload state -->
-				<div bind:this={uppyContainer} class="uppy-container rounded-xs w-full flex-1" />
+		{isBackgroundImporting}
+		{importStatusLabel}
+		{importSourceFilename}
+		{importError}
+		canImport={Boolean(selectedImportFile)}
+		{isImportBusy}
+		{isKickoffImporting}
+		onCancel={closeImportDrawer}
+		onImport={importSelectedPdf}
+	/>
 
-				{#if importError}
-					<div class="mt-4 flex items-start gap-2 rounded-lg bg-red-50 p-3">
-						<AlertCircle size={16} class="mt-0.5 shrink-0 text-red-500" />
-						<p class="text-sm text-red-700">{importError}</p>
-					</div>
-				{/if}
-
-				<div class="border-border mt-4 flex items-center justify-between gap-4 border-t pt-4">
-					<p class="text-muted-fg text-xs">PDF only, max 10MB</p>
-					<div class="flex gap-2">
-						<Button type="button" variant="ghost" size="sm" onclick={closeImportDrawer}>
-							Cancel
-						</Button>
-						<Button
-							type="button"
-							variant="primary"
-							size="sm"
-							onclick={importSelectedPdf}
-							disabled={!selectedImportFile || isImportBusy}
-							loading={isKickoffImporting}
-						>
-							Import
-						</Button>
-					</div>
-				</div>
-			{/if}
-		</div>
-	</Drawer>
-
-	<!-- Close confirmation dialog -->
-	{#if showCloseConfirm}
-		<div
-			class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
-			onclick={cancelClose}
-			onkeydown={(e) => e.key === 'Escape' && cancelClose()}
-			role="dialog"
-			aria-modal="true"
-			tabindex="-1"
-		>
-			<div
-				class="bg-card w-full max-w-sm rounded-lg p-6 shadow-xl"
-				onclick={(e) => e.stopPropagation()}
-				role="document"
-			>
-				<h3 class="text-foreground mb-2 text-lg font-semibold">Cancel import?</h3>
-				<p class="text-muted-fg mb-4 text-sm">
-					The import is still starting. If you close now, it will be cancelled.
-				</p>
-				<div class="flex justify-end gap-2">
-					<Button type="button" variant="ghost" size="sm" onclick={cancelClose}>
-						Keep importing
-					</Button>
-					<Button type="button" variant="destructive" size="sm" onclick={confirmClose}>
-						Cancel import
-					</Button>
-				</div>
-			</div>
-		</div>
-	{/if}
+	<TalentProfileImportCloseConfirm
+		open={showCloseConfirm}
+		onCancel={cancelClose}
+		onConfirm={confirmClose}
+	/>
 {/if}
 
 <style>
-	:global(.uppy-container .uppy-Dashboard) {
-		border: 1px dashed var(--color-border, #e2e8f0);
-		border-radius: 0.5rem;
-		background: var(--color-muted, #edf2f7);
-		min-height: 160px;
-	}
-	:global(.uppy-container .uppy-Dashboard-inner) {
-		background: transparent;
-		border: none;
-	}
-	:global(.uppy-container .uppy-Dashboard-AddFiles) {
-		border: none;
-		border-radius: 0.5rem;
-	}
-	:global(.uppy-container .uppy-Dashboard-AddFiles-title) {
-		font-size: 0.875rem;
-		color: var(--color-muted-fg, #2e333a);
-	}
-	:global(.uppy-container .uppy-Dashboard-note) {
-		display: none;
-	}
-
 	@keyframes flash-highlight {
 		0% {
 			background-color: var(--color-primary-light, #dbeafe);
