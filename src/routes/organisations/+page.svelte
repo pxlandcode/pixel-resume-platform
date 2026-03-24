@@ -7,7 +7,6 @@
 	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
 	import OrganisationMembershipDrawer from '$lib/components/admin/OrganisationMembershipDrawer.svelte';
 	import { Globe, Settings, Palette, Users } from 'lucide-svelte';
-	import { SvelteMap } from 'svelte/reactivity';
 
 	let { data, form } = $props();
 
@@ -40,21 +39,6 @@
 		} | null;
 		membershipsUsers: Array<{ user_id: string }>;
 		membershipsTalents: Array<{ talent_id: string }>;
-		accessGrants: Array<{
-			id: string;
-			grantee_user_id: string;
-			created_at: string | null;
-			created_by_user_id: string | null;
-		}>;
-		dataSharingPermissions: Array<{
-			id: string;
-			source_organisation_id: string;
-			target_organisation_id: string;
-			sharing_scope: 'view' | 'export_org_template' | 'export_broker_template';
-			approved_by_admin_id: string;
-			approved_at: string | null;
-		}>;
-		organisations: Array<{ id: string; name: string }>;
 		users: Array<{
 			user_id: string;
 			first_name: string;
@@ -70,7 +54,6 @@
 		}>;
 		usersWithHomeOrgIds: string[];
 		talentsWithHomeOrgIds: string[];
-		userHomeOrgNames: Record<string, string>;
 		generatedAt: string;
 	};
 
@@ -187,38 +170,16 @@
 		void loadOrganisationContext(organisation.id);
 	};
 
-	const membershipOrganisations = $derived(
-		selectedOrganisationContext?.organisations ??
-			organisations.map((org) => ({ id: org.id, name: org.name }))
-	);
 	const membershipUsers = $derived(selectedOrganisationContext?.users ?? []);
 	const membershipTalents = $derived(selectedOrganisationContext?.talents ?? []);
 	const membershipUserRows = $derived(selectedOrganisationContext?.membershipsUsers ?? []);
 	const membershipTalentRows = $derived(selectedOrganisationContext?.membershipsTalents ?? []);
-	const membershipAccessGrants = $derived(selectedOrganisationContext?.accessGrants ?? []);
-	const membershipSharingPermissions = $derived(
-		selectedOrganisationContext?.dataSharingPermissions ?? []
-	);
-	const eligibleGrantUsers = $derived(
-		membershipUsers.filter(
-			(user) => user.roles.includes('broker') || user.roles.includes('employer')
-		)
-	);
 	const usersWithHomeOrg = $derived(
 		new Set(selectedOrganisationContext?.usersWithHomeOrgIds ?? [])
 	);
 	const talentsWithHomeOrg = $derived(
 		new Set(selectedOrganisationContext?.talentsWithHomeOrgIds ?? [])
 	);
-	const userHomeOrgNames = $derived.by(() => {
-		const map = new SvelteMap<string, string>();
-		for (const [userId, orgName] of Object.entries(
-			selectedOrganisationContext?.userHomeOrgNames ?? {}
-		)) {
-			map.set(userId, orgName);
-		}
-		return map;
-	});
 	const brandingOrganisation = $derived.by(() => {
 		if (!selectedOrganisation) return undefined;
 		return {
@@ -270,7 +231,7 @@
 	<header>
 		<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Organisations</h1>
 		<p class="text-muted-fg mt-3 text-lg">
-			Manage organisation templates, home memberships, and cross-organisation access grants.
+			Manage organisation templates, branding, and home memberships.
 		</p>
 	</header>
 
@@ -347,12 +308,12 @@
 								variant="outline"
 								size="sm"
 								type="button"
-								aria-label={`Open access for ${row.displayName}`}
+								aria-label={`Open membership for ${row.displayName}`}
 								onclick={() => openMembershipDrawer(row.source)}
 								class="gap-0 sm:gap-1.5"
 							>
 								<Users size={14} />
-								<span class="sr-only sm:not-sr-only">Access</span>
+								<span class="sr-only sm:not-sr-only">Membership</span>
 							</Button>
 						</div>
 					</Cell.Value>
@@ -375,17 +336,12 @@
 <OrganisationMembershipDrawer
 	bind:open={isMembershipDrawerOpen}
 	organisation={selectedOrganisation}
-	organisations={membershipOrganisations}
 	users={membershipUsers}
 	talents={membershipTalents}
 	userMemberships={membershipUserRows}
 	talentMemberships={membershipTalentRows}
-	accessGrants={membershipAccessGrants}
-	dataSharingPermissions={membershipSharingPermissions}
-	{eligibleGrantUsers}
 	{usersWithHomeOrg}
 	{talentsWithHomeOrg}
-	{userHomeOrgNames}
 />
 
 <style>

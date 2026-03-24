@@ -34,3 +34,36 @@ export type ResumeTechIndexResponse = {
 	items: ResumeTechIndexItem[];
 	generatedAt: string;
 };
+
+export type ResumeSearchReason = {
+	label: string;
+	text: string;
+	resumeId: string | null;
+	resumeTitle: string | null;
+};
+
+export type ResumeSearchItem = {
+	talentId: string;
+	score: number;
+	matchPercent: number;
+	matchedTerms: string[];
+	missingTerms: string[];
+	matchedQueryTechs: string[];
+	missingQueryTechs: string[];
+	matchedTechs: string[];
+	reasons: ResumeSearchReason[];
+	bestResumeId: string | null;
+	bestResumeTitle: string | null;
+};
+
+export type ResumeSearchScope = {
+	orgIds: string[];
+	signature: string;
+};
+
+export type ResumeSearchResponse = {
+	query: string;
+	scope: ResumeSearchScope;
+	items: ResumeSearchItem[];
+	generatedAt: string;
+};

@@ -132,24 +132,14 @@ export const canCreateTalentComment = (
 };
 
 export const canArchiveTalentComment = (payload: {
-	actor: Pick<
-		ActorAccessContext,
-		'userId' | 'homeOrganisationId' | 'isAdmin' | 'isBroker' | 'isEmployer'
-	>;
-	talentOrganisationId: string | null;
+	actor: Pick<ActorAccessContext, 'userId' | 'isAdmin'>;
+	canEdit: boolean;
 	commentAuthorUserId: string;
 }) => {
 	if (!payload.actor.userId) return false;
 	if (payload.actor.isAdmin) return true;
 	if (payload.commentAuthorUserId === payload.actor.userId) return true;
-
-	const sameHomeOrganisation = Boolean(
-		payload.actor.homeOrganisationId &&
-			payload.talentOrganisationId &&
-			payload.actor.homeOrganisationId === payload.talentOrganisationId
-	);
-
-	return sameHomeOrganisation && (payload.actor.isBroker || payload.actor.isEmployer);
+	return payload.canEdit;
 };
 
 export const loadActiveTalentCommentTypes = async (
@@ -180,11 +170,8 @@ export const loadActiveTalentCommentTypes = async (
 export const listVisibleTalentComments = async (payload: {
 	adminClient: SupabaseClient | null;
 	talentId: string;
-	actor: Pick<
-		ActorAccessContext,
-		'userId' | 'homeOrganisationId' | 'isAdmin' | 'isBroker' | 'isEmployer'
-	>;
-	permissions: Pick<ResumeEditPermissions, 'canView' | 'talentOrganisationId'>;
+	actor: Pick<ActorAccessContext, 'userId' | 'isAdmin'>;
+	permissions: Pick<ResumeEditPermissions, 'canView' | 'canEdit'>;
 }): Promise<TalentComment[]> => {
 	if (!payload.adminClient || !payload.permissions.canView) return [];
 
@@ -276,7 +263,7 @@ export const listVisibleTalentComments = async (payload: {
 				comment_type: commentType,
 				canArchive: canArchiveTalentComment({
 					actor: payload.actor,
-					talentOrganisationId: payload.permissions.talentOrganisationId,
+					canEdit: payload.permissions.canEdit,
 					commentAuthorUserId: authorUserId
 				})
 			} satisfies TalentComment;
@@ -394,7 +381,7 @@ export const archiveTalentComment = async (payload: {
 	commentId: string;
 	talentId: string;
 	actor: ActorAccessContext;
-	permissions: Pick<ResumeEditPermissions, 'canView' | 'talentOrganisationId'>;
+	permissions: Pick<ResumeEditPermissions, 'canView' | 'canEdit' | 'talentOrganisationId'>;
 }) => {
 	if (!payload.adminClient) {
 		throw new TalentCommentServiceError(500, 'Comment service is unavailable.');
@@ -442,7 +429,7 @@ export const archiveTalentComment = async (payload: {
 	if (
 		!canArchiveTalentComment({
 			actor: payload.actor,
-			talentOrganisationId: payload.permissions.talentOrganisationId,
+			canEdit: payload.permissions.canEdit,
 			commentAuthorUserId: authorUserId
 		})
 	) {

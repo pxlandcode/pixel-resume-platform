@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { clickOutside } from '$lib/utils/clickOutside';
 	import { Checkbox } from '@pixelcode_/blocks/components';
+	import { ripple } from '$lib/utils/ripple';
 	import ChevronDown from 'lucide-svelte/icons/chevron-down';
 	import type { Icon as IconType } from 'lucide-svelte';
 	import type { ClassNameValue } from 'tailwind-merge';
@@ -93,6 +94,10 @@
 	// Get option label
 	function getOptionLabel<T>(option: DropdownCheckboxOption<T>): string {
 		return isObjectOption(option) ? option.label : option;
+	}
+
+	function getOptionKey<T>(option: DropdownCheckboxOption<T>, index: number) {
+		return `${String(getOptionValue(option))}:${index}`;
 	}
 
 	// Check if a value is selected
@@ -199,10 +204,17 @@
 		</label>
 	{/if}
 
+	{#if name}
+		{#each selectedValues as selectedValue, selectedIndex (`${String(selectedValue)}:${selectedIndex}`)}
+			<input type="hidden" {name} value={selectedValue} />
+		{/each}
+	{/if}
+
 	<!-- Dropdown Button -->
 	<button
 		type="button"
 		{id}
+		use:ripple={{ opacity: 0.14 }}
 		class={cn(
 			dropdownButtonVariants({
 				variant,
@@ -218,10 +230,10 @@
 		{disabled}
 		aria-disabled={disabled}
 	>
-		<span class="truncate">{displayText}</span>
+		<span class="relative z-10 truncate">{displayText}</span>
 		<ChevronDown
 			class={cn(
-				'text-muted-fg size-4 shrink-0 transition-transform duration-200',
+				'text-muted-fg relative z-10 size-4 shrink-0 transition-transform duration-200',
 				open && 'rotate-180'
 			)}
 		/>
@@ -256,7 +268,7 @@
 				</li>
 			{/if}
 
-			{#each filteredOptions as option, i}
+			{#each filteredOptions as option, i (getOptionKey(option, i))}
 				{@const optionValue = getOptionValue(option)}
 				{@const optionLabel = getOptionLabel(option)}
 				{@const checked = isSelected(optionValue)}
@@ -265,8 +277,9 @@
 					role="option"
 					aria-selected={checked}
 					tabindex="0"
+					use:ripple={{ opacity: 0.14 }}
 					class={cn(
-						'hover:bg-muted flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-sm transition-colors',
+						'hover:bg-muted relative isolate flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-sm transition-colors',
 						i === activeIndex && 'bg-muted',
 						checked && 'bg-muted/50'
 					)}
@@ -278,15 +291,17 @@
 						}
 					}}
 				>
-					<Checkbox
-						{checked}
-						size="sm"
-						onclick={(e: Event) => {
-							e.stopPropagation();
-							toggleValue(optionValue);
-						}}
-					/>
-					<span class="pointer-events-none select-none">{optionLabel}</span>
+					<span class="relative z-10">
+						<Checkbox
+							{checked}
+							size="sm"
+							onclick={(e: Event) => {
+								e.stopPropagation();
+								toggleValue(optionValue);
+							}}
+						/>
+					</span>
+					<span class="pointer-events-none relative z-10 select-none">{optionLabel}</span>
 				</li>
 			{/each}
 

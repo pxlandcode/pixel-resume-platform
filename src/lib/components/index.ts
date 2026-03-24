@@ -6,4 +6,5 @@ export * from './tech-stack-editor';
 export * from './drawer';
 export * from './dropdown';
 export * from './dropdown-checkbox';
+export * from './option-button';
 export * from './super-list';

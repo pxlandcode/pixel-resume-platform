@@ -60,7 +60,7 @@ export const menuNavSections: MenuNavSection[] = [
 export const menuSettingsItem: MenuNavItem = {
 	label: 'Settings',
 	href: '/settings',
-	allowed: ['admin'],
+	allowed: ['admin', 'broker', 'talent', 'employer'],
 	match: 'prefix',
 	icon: Settings
 };

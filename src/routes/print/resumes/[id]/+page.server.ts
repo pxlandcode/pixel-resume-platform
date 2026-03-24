@@ -113,7 +113,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 	const language = langParam === 'en' ? 'en' : 'sv';
 	const templateParam = url.searchParams.get('template');
 	const templateMode: PrintTemplateMode =
-		templateParam === 'org' || templateParam === 'broker' ? templateParam : 'auto';
+		templateParam === 'source' || templateParam === 'target' ? templateParam : 'auto';
 
 	const resumeId = params.id;
 

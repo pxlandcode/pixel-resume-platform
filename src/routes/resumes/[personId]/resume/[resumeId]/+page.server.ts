@@ -64,7 +64,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 
 	const actor = actorContextFromPermissions(permissions);
 	const templateContext = await resolvePrintTemplateContext(adminClient, actor, resume.personId, {
-		templateMode: 'org'
+		templateMode: 'source'
 	});
 	const auditOrganisationId = permissions.talentOrganisationId ?? actor.homeOrganisationId ?? null;
 	if (actor.userId && auditOrganisationId) {
@@ -79,7 +79,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 				talent_id: resume.personId,
 				source_org_id: permissions.talentOrganisationId,
 				target_org_id: actor.homeOrganisationId,
-				template_used: templateContext.source === 'broker_home_org' ? 'broker' : 'org'
+				template_used: templateContext.source === 'target_org' ? 'target' : 'source'
 			}
 		}).then((auditResult) => {
 			if (!auditResult.ok) {
