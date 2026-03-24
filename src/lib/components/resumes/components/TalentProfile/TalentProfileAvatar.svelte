@@ -39,8 +39,8 @@
 	const profileName = $derived([profile.first_name, profile.last_name].filter(Boolean).join(' '));
 </script>
 
-<div class="w-32 flex-shrink-0 space-y-4 md:w-48">
-	<div class="space-y-2">
+<div class="flex-shrink-0 space-y-4 md:w-48">
+	<div class="flex flex-col items-center space-y-2 md:items-start">
 		<div class="relative h-32 w-32 md:h-48 md:w-48">
 			<input
 				bind:this={avatarFileInput}

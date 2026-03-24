@@ -3,8 +3,8 @@
 	import favicon from '$lib/assets/and.svg';
 	import { page, navigating } from '$app/stores';
 	import { siteMeta, withMetaDefaults } from '$lib/seo';
-	import ResumeLayout from '$lib/components/resume-layout/resume-layout.svelte';
-	import type { AdminRole } from '$lib/components/resume-layout/resume-layout.svelte';
+	import MenuLayout from '$lib/components/menu-layout/menu-layout.svelte';
+	import type { AdminRole } from '$lib/components/menu-layout/types';
 	import { Mode } from '@pixelcode_/blocks/components';
 	import { loadingStore } from '$lib/stores/loading';
 	import { userSettingsStore } from '$lib/stores/userSettings';
@@ -479,7 +479,7 @@
 	{@render children?.()}
 {:else}
 	<div class="internal-root" style={brandingInlineStyle}>
-		<ResumeLayout
+		<MenuLayout
 			profile={data.profile}
 			role={layoutRole}
 			roles={layoutRoles}
@@ -488,7 +488,7 @@
 			{unauthorizedMessage}
 		>
 			{@render children?.()}
-		</ResumeLayout>
+		</MenuLayout>
 	</div>
 {/if}
 

@@ -11,17 +11,24 @@ export type UserSettingsOrganisationFilters = {
 	resumes: string[];
 };
 
+export type UserSettingsNavigation = {
+	sidebarCollapsed: boolean;
+};
+
 export type UserSettings = {
 	views: UserSettingsViews;
 	organisationFilters: UserSettingsOrganisationFilters;
+	navigation: UserSettingsNavigation;
 };
 
 export type UserSettingsViewsPatch = Partial<UserSettingsViews>;
 export type UserSettingsOrganisationFiltersPatch = Partial<UserSettingsOrganisationFilters>;
+export type UserSettingsNavigationPatch = Partial<UserSettingsNavigation>;
 
 export type UserSettingsPatch = {
 	views?: UserSettingsViewsPatch;
 	organisationFilters?: UserSettingsOrganisationFiltersPatch;
+	navigation?: UserSettingsNavigationPatch;
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -33,6 +40,9 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 	organisationFilters: {
 		talents: [],
 		resumes: []
+	},
+	navigation: {
+		sidebarCollapsed: false
 	}
 };
 
@@ -51,6 +61,9 @@ export const cloneUserSettings = (settings: UserSettings): UserSettings => ({
 	organisationFilters: {
 		talents: [...settings.organisationFilters.talents],
 		resumes: [...settings.organisationFilters.resumes]
+	},
+	navigation: {
+		sidebarCollapsed: settings.navigation.sidebarCollapsed
 	}
 });
 
@@ -74,6 +87,7 @@ export const normalizeUserSettings = (value: unknown): UserSettings => {
 
 	const views = isRecord(value.views) ? value.views : {};
 	const organisationFilters = isRecord(value.organisationFilters) ? value.organisationFilters : {};
+	const navigation = isRecord(value.navigation) ? value.navigation : {};
 
 	return {
 		views: {
@@ -84,6 +98,12 @@ export const normalizeUserSettings = (value: unknown): UserSettings => {
 		organisationFilters: {
 			talents: normalizeOrganisationFilterIds(organisationFilters.talents),
 			resumes: normalizeOrganisationFilterIds(organisationFilters.resumes)
+		},
+		navigation: {
+			sidebarCollapsed:
+				typeof navigation.sidebarCollapsed === 'boolean'
+					? navigation.sidebarCollapsed
+					: defaults.navigation.sidebarCollapsed
 		}
 	};
 };
@@ -100,6 +120,9 @@ export const applyUserSettingsViewsPatch = (
 	organisationFilters: {
 		talents: settings.organisationFilters.talents,
 		resumes: settings.organisationFilters.resumes
+	},
+	navigation: {
+		sidebarCollapsed: settings.navigation.sidebarCollapsed
 	}
 });
 
@@ -121,5 +144,8 @@ export const applyUserSettingsPatch = (
 			patch.organisationFilters?.resumes !== undefined
 				? normalizeOrganisationFilterIds(patch.organisationFilters.resumes)
 				: settings.organisationFilters.resumes
+	},
+	navigation: {
+		sidebarCollapsed: patch.navigation?.sidebarCollapsed ?? settings.navigation.sidebarCollapsed
 	}
 });

@@ -15,6 +15,7 @@ type Role = 'admin' | 'broker' | 'talent' | 'employer';
 type Profile = {
 	first_name: string | null;
 	last_name: string | null;
+	avatar_url: string | null;
 };
 
 type LoadResult = {
@@ -105,19 +106,41 @@ const setCachedBranding = (
 	});
 };
 
-const resolveProfile = async (payload: { supabase: SupabaseClient; userId: string }) => {
+const resolveProfile = async (payload: {
+	supabase: SupabaseClient;
+	adminClient: SupabaseClient | null;
+	userId: string;
+}) => {
 	const now = Date.now();
 	const cached = getCachedProfile(payload.userId, now);
 	if (cached) return cached.value;
 
 	const profileResult = await payload.supabase
 		.from('user_profiles')
-		.select('first_name, last_name')
+		.select('first_name, last_name, avatar_url')
 		.eq('user_id', payload.userId)
 		.maybeSingle();
 	const profileData = (profileResult.data as Profile | null) ?? null;
-	setCachedProfile(payload.userId, profileData, now);
-	return profileData;
+
+	let avatar_url = profileData?.avatar_url ?? null;
+	if (!avatar_url && payload.adminClient) {
+		const { data: linkedTalent } = await payload.adminClient
+			.from('talents')
+			.select('avatar_url')
+			.eq('user_id', payload.userId)
+			.limit(1)
+			.maybeSingle();
+		avatar_url = (linkedTalent as { avatar_url?: string | null } | null)?.avatar_url ?? null;
+	}
+
+	const resolvedProfile = profileData
+		? {
+				...profileData,
+				avatar_url
+			}
+		: null;
+	setCachedProfile(payload.userId, resolvedProfile, now);
+	return resolvedProfile;
 };
 
 const resolveBranding = async (payload: {
@@ -228,7 +251,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals, setHeaders }) =>
 			talentId: actorContext.talentId
 		});
 		const [profile, branding] = await Promise.all([
-			resolveProfile({ supabase, userId }),
+			resolveProfile({ supabase, adminClient, userId }),
 			resolveBranding({
 				adminClient,
 				organisationId: homeOrganisationId

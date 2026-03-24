@@ -1200,7 +1200,7 @@
 
 		{#if profile}
 			<div class="flex flex-col gap-8 md:flex-row md:items-start">
-				<div class="w-32 flex-shrink-0 space-y-4 md:w-48">
+				<div class="flex-shrink-0 md:w-48">
 					<TalentProfileAvatar
 						{profile}
 						{availability}
@@ -1218,12 +1218,14 @@
 					/>
 
 					{#if !isEditing && viewCategories.length > 0}
-						<TalentProfileTechStackSection
-							{isEditing}
-							{canEdit}
-							bind:editingTechStack
-							{viewCategories}
-						/>
+						<div class="hidden md:block">
+							<TalentProfileTechStackSection
+								{isEditing}
+								{canEdit}
+								bind:editingTechStack
+								{viewCategories}
+							/>
+						</div>
 					{/if}
 				</div>
 				<div class="flex-1 space-y-4">
@@ -1304,6 +1306,17 @@
 							bind:editingTechStack
 							{viewCategories}
 						/>
+					{/if}
+
+					{#if !isEditing && viewCategories.length > 0}
+						<div class="md:hidden">
+							<TalentProfileTechStackSection
+								{isEditing}
+								{canEdit}
+								bind:editingTechStack
+								{viewCategories}
+							/>
+						</div>
 					{/if}
 				</div>
 			</div>
