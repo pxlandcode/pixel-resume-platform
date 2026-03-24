@@ -18,7 +18,7 @@
 
 	let { data } = $props();
 
-	const canEdit = data.canEdit ?? false;
+	const canEdit = $derived(data.canEdit ?? false);
 	let showDownloadOptions = $state(false);
 	let viewLanguage: 'sv' | 'en' = $state((data.language as 'sv' | 'en') ?? 'sv');
 	let downloadLanguageOverride: 'sv' | 'en' | null = $state(null);
@@ -31,6 +31,24 @@
 	let experienceLibrary = $state<ExperienceLibraryItem[]>(data.experienceLibrary ?? []);
 	let experienceLibraryLoaded = $state(Boolean(data.experienceLibraryLoaded));
 	let loadingExperienceLibrary = $state(false);
+	let previousResumeId = $state<string | null>(null);
+
+	$effect(() => {
+		const nextResumeId = data.resume.id;
+		if (nextResumeId === previousResumeId) return;
+		previousResumeId = nextResumeId;
+		showDownloadOptions = false;
+		viewLanguage = (data.language as 'sv' | 'en') ?? 'sv';
+		downloadLanguageOverride = null;
+		isEditing = false;
+		saving = false;
+		downloading = null;
+		errorMessage = null;
+		resumeViewRef = null;
+		experienceLibrary = data.experienceLibrary ?? [];
+		experienceLibraryLoaded = Boolean(data.experienceLibraryLoaded);
+		loadingExperienceLibrary = false;
+	});
 
 	$effect(() => {
 		if (!canEdit) {
@@ -171,7 +189,9 @@
 			}
 
 			const items =
-				payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown }).items)
+				payload &&
+				typeof payload === 'object' &&
+				Array.isArray((payload as { items?: unknown }).items)
 					? (((payload as { items?: unknown }).items as ExperienceLibraryItem[] | undefined) ?? [])
 					: [];
 			experienceLibrary = items;
@@ -456,7 +476,7 @@
 				templateHomepageUrl={data.templateContext?.homepageUrl}
 				templateMainFontCssStack={data.templateContext?.mainFontCssStack}
 				templateIsPixelCode={data.templateContext?.isPixelCode}
-				experienceLibrary={experienceLibrary}
+				{experienceLibrary}
 				onGenerateDescription={generateDescription}
 				{isEditing}
 			/>

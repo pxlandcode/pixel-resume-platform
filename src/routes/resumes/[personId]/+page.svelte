@@ -30,12 +30,12 @@
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
 	import type { TechCategory as ResumeTechCategory } from '$lib/types/resume';
 
-	const { data, form } = $props();
+	let { data, form } = $props();
 
-	const profile = data.profile;
-	const resumes = data.resumes ?? [];
-	const availability = data.availability ?? null;
-	const canEdit = data.canEdit ?? false;
+	const profile = $derived(data.profile ?? null);
+	const resumes = $derived(data.resumes ?? []);
+	const availability = $derived(data.availability ?? null);
+	const canEdit = $derived(data.canEdit ?? false);
 	const actorRoles = $derived.by(() => {
 		const fromRoles = Array.isArray($page.data?.roles) ? $page.data.roles : [];
 		if (fromRoles.length > 0) return fromRoles;
@@ -49,9 +49,9 @@
 		typeof data.commentCount === 'number' ? data.commentCount : commentHistory.length
 	);
 	const canCreateComment = $derived(Boolean(data.canCreateComment));
-	type ResumeListItem = (typeof resumes)[number];
+	type ResumeListItem = NonNullable<typeof data.resumes>[number];
 	type ImportFile = UppyFile<Record<string, unknown>, Record<string, unknown>>;
-	const techStack = (profile?.tech_stack as ResumeTechCategory[]) ?? [];
+	const techStack = $derived((profile?.tech_stack as ResumeTechCategory[]) ?? []);
 	const viewCategories = $derived(
 		(techStack ?? []).filter((cat) => Array.isArray(cat?.skills) && cat.skills.length > 0)
 	);
