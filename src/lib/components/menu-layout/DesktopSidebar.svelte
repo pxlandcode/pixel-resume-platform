@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { Input } from '@pixelcode_/blocks/components';
 	import { ChevronLeft, ChevronRight, LogOut, Moon, Search, Settings, Sun } from 'lucide-svelte';
 	import { mode, toggleMode } from 'mode-watcher';
+	import { ripple } from '$lib/utils/ripple';
 	import type { QuickSearchSection } from '$lib/types/quickSearch';
 	import MenuQuickSearchResults from './MenuQuickSearchResults.svelte';
 	import type { MenuNavItem, MenuNavSection, QuickSearchStatus } from './types';
@@ -77,6 +79,7 @@
 >
 	<button
 		type="button"
+		use:ripple={{ centered: true, opacity: 0.14 }}
 		class="border-border bg-card text-muted-fg hover:text-foreground absolute -right-3 top-8 z-[100] flex h-6 w-6 items-center justify-center rounded-full border shadow-sm transition-all hover:shadow-md"
 		aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
 		onclick={() => ontogglesidebar?.()}
@@ -131,15 +134,18 @@
 					class="rounded-sm pl-9"
 				/>
 			{:else}
-				<button
-					type="button"
-					class="sidebar-tooltip-anchor hover:bg-muted/60 flex h-9 w-full cursor-pointer items-center justify-center rounded-sm transition-colors"
-					aria-label="Expand sidebar and search"
-					onclick={() => onexpandsearch?.()}
-				>
-					<Search size={16} class="text-muted-fg" />
+				<div class="sidebar-tooltip-anchor relative">
+					<button
+						type="button"
+						use:ripple={{ centered: true, opacity: 0.14 }}
+						class="hover:bg-muted/60 relative isolate flex h-9 w-full cursor-pointer items-center justify-center rounded-sm transition-colors"
+						aria-label="Expand sidebar and search"
+						onclick={() => onexpandsearch?.()}
+					>
+						<Search size={16} class="text-muted-fg relative z-10" />
+					</button>
 					<span class="sidebar-tooltip">Quick search</span>
-				</button>
+				</div>
 			{/if}
 		</div>
 	</div>
@@ -184,22 +190,25 @@
 
 					<div class="space-y-1.5">
 						{#each section.items as item (item.href)}
-							<a
-								href={item.href}
-								onclick={() => onnavigate?.()}
-								class={`sidebar-tooltip-anchor sidebar-item sidebar-item--nav relative flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''} ${
-									isMenuItemActive(item, activePath)
-										? 'bg-primary/10 text-primary'
-										: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
-								}`}
-								aria-label={sidebarCollapsed ? item.label : undefined}
-							>
-								<span class="sidebar-item__icon">
-									<item.icon size={18} class="shrink-0" />
-								</span>
-								<span class="sidebar-item__label">{item.label}</span>
+							<div class="sidebar-tooltip-anchor relative">
+								<a
+									href={resolve(item.href)}
+									onclick={() => onnavigate?.()}
+									use:ripple={{ opacity: 0.14 }}
+									class={`sidebar-item sidebar-item--nav relative isolate flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''} ${
+										isMenuItemActive(item, activePath)
+											? 'bg-primary/10 text-primary'
+											: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
+									}`}
+									aria-label={sidebarCollapsed ? item.label : undefined}
+								>
+									<span class="sidebar-item__icon">
+										<item.icon size={18} class="shrink-0" />
+									</span>
+									<span class="sidebar-item__label">{item.label}</span>
+								</a>
 								{#if sidebarCollapsed}<span class="sidebar-tooltip">{item.label}</span>{/if}
-							</a>
+							</div>
 						{/each}
 					</div>
 				</section>
@@ -210,28 +219,32 @@
 	<div class="border-border border-t px-3 py-4">
 		<div class="space-y-1.5">
 			{#if showSettingsLink}
-				<a
-					href={settingsItem.href}
-					onclick={() => onnavigate?.()}
-					class={`sidebar-tooltip-anchor sidebar-item sidebar-item--footer relative flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''} ${
-						isMenuItemActive(settingsItem, activePath)
-							? 'bg-primary/10 text-primary'
-							: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
-					}`}
-					aria-label={sidebarCollapsed ? settingsItem.label : undefined}
-				>
-					<span class="sidebar-item__icon">
-						<Settings size={18} class="shrink-0" />
-					</span>
-					<span class="sidebar-item__label">{settingsItem.label}</span>
+				<div class="sidebar-tooltip-anchor relative">
+					<a
+						href={resolve(settingsItem.href)}
+						onclick={() => onnavigate?.()}
+						use:ripple={{ opacity: 0.14 }}
+						class={`sidebar-item sidebar-item--footer relative isolate flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''} ${
+							isMenuItemActive(settingsItem, activePath)
+								? 'bg-primary/10 text-primary'
+								: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
+						}`}
+						aria-label={sidebarCollapsed ? settingsItem.label : undefined}
+					>
+						<span class="sidebar-item__icon">
+							<Settings size={18} class="shrink-0" />
+						</span>
+						<span class="sidebar-item__label">{settingsItem.label}</span>
+					</a>
 					{#if sidebarCollapsed}<span class="sidebar-tooltip">{settingsItem.label}</span>{/if}
-				</a>
+				</div>
 			{/if}
 
 			<div class="sidebar-tooltip-anchor relative">
 				<button
 					type="button"
-					class={`sidebar-item sidebar-item--footer text-secondary-text hover:bg-muted/60 hover:text-foreground relative flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''}`}
+					use:ripple={{ opacity: 0.14 }}
+					class={`sidebar-item sidebar-item--footer text-secondary-text hover:bg-muted/60 hover:text-foreground relative isolate flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''}`}
 					aria-label={sidebarCollapsed ? themeActionLabel : undefined}
 					onclick={toggleMode}
 				>
@@ -243,15 +256,16 @@
 						{/if}
 					</span>
 					<span class="sidebar-item__label">{themeActionLabel}</span>
-					{#if sidebarCollapsed}<span class="sidebar-tooltip">{themeActionLabel}</span>{/if}
 				</button>
+				{#if sidebarCollapsed}<span class="sidebar-tooltip">{themeActionLabel}</span>{/if}
 			</div>
 
 			<form method="POST" action="/logout">
 				<div class="sidebar-tooltip-anchor relative">
 					<button
 						type="submit"
-						class={`sidebar-item sidebar-item--footer text-secondary-text hover:bg-muted/60 hover:text-foreground relative flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''}`}
+						use:ripple={{ opacity: 0.14 }}
+						class={`sidebar-item sidebar-item--footer text-secondary-text hover:bg-muted/60 hover:text-foreground relative isolate flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''}`}
 						aria-label={sidebarCollapsed ? 'Log out' : undefined}
 						onclick={() => onlogout?.()}
 					>
@@ -259,8 +273,8 @@
 							<LogOut size={18} class="shrink-0" />
 						</span>
 						<span class="sidebar-item__label">Log out</span>
-						{#if sidebarCollapsed}<span class="sidebar-tooltip">Log out</span>{/if}
 					</button>
+					{#if sidebarCollapsed}<span class="sidebar-tooltip">Log out</span>{/if}
 				</div>
 			</form>
 		</div>
@@ -305,6 +319,7 @@
 		position: absolute;
 		left: var(--sidebar-item-icon-left, 19px);
 		top: 50%;
+		z-index: 1;
 		display: flex;
 		height: 18px;
 		width: 18px;
@@ -320,6 +335,8 @@
 		white-space: nowrap;
 		font-size: 0.875rem;
 		font-weight: 500;
+		position: relative;
+		z-index: 1;
 		opacity: 1;
 		transition:
 			margin-left 300ms ease,

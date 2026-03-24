@@ -3,7 +3,7 @@ import type { Icon as IconType } from 'lucide-svelte';
 import Root from './Dropdown.svelte';
 
 export const dropdownButtonVariants = tv({
-	base: 'group flex w-full items-center justify-between rounded-sm border px-3 py-2 text-left transition-colors focus-visible:outline-1 outline-offset-4 outline-border',
+	base: 'group relative isolate flex w-full items-center justify-between rounded-sm border px-3 py-2 text-left transition-colors focus-visible:outline-1 outline-offset-4 outline-border',
 	variants: {
 		variant: {
 			default:
@@ -50,7 +50,7 @@ export const dropdownListVariants = tv({
 });
 
 export const dropdownItemVariants = tv({
-	base: 'flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm transition-colors hover:bg-muted focus:bg-muted focus:outline-none',
+	base: 'relative isolate flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-sm transition-colors hover:bg-muted focus:bg-muted focus:outline-none',
 	variants: {
 		active: {
 			true: 'bg-muted',

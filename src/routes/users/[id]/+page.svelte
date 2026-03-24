@@ -8,6 +8,7 @@
 	import XHRUpload from '@uppy/xhr-upload';
 	import type { UppyFile } from '@uppy/utils/lib/UppyFile';
 	import type { Body, Meta } from '@uppy/utils/lib/UppyFile';
+	import { ROLE_CONFIG } from '$lib/types/roles';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -38,16 +39,9 @@
 	const canEditUsers = $derived(Boolean(data.canEditUsers));
 	const allowedEditRoles = $derived((data.allowedEditRoles as Role[] | undefined) ?? ['talent']);
 
-	const roleOptions: Array<{ value: Role; label: string; description: string }> = [
-		{ value: 'admin', label: 'Admin', description: 'Full access to internal tools.' },
-		{ value: 'broker', label: 'Broker', description: 'Manage content, resumes, and talent flows.' },
-		{
-			value: 'talent',
-			label: 'Talent',
-			description: 'Can access talent-facing flows when a talent record is linked.'
-		},
-		{ value: 'employer', label: 'Employer', description: 'Client-side access to assigned resumes.' }
-	];
+	const roleOptions: Array<{ value: Role; label: string; description: string }> = (
+		Object.entries(ROLE_CONFIG) as [Role, (typeof ROLE_CONFIG)[Role]][]
+	).map(([value, cfg]) => ({ value, label: cfg.label, description: cfg.description }));
 
 	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 	let selectedRoles = $state<Role[]>([]);

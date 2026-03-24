@@ -13,7 +13,6 @@ export const LEGAL_DOCUMENT_TYPE_ORDER = [
 
 export type LegalDocumentType = (typeof LEGAL_DOCUMENT_TYPE_ORDER)[number];
 export type LegalAcceptanceScope = 'platform_access' | 'none';
-export type SharingScope = 'view' | 'export_org_template' | 'export_broker_template';
 export type LawfulBasisType = 'consent_obtained' | 'contract' | 'legitimate_interest' | 'other';
 
 export const ACCEPTANCE_COLUMN_BY_DOC_TYPE = {
@@ -423,25 +422,6 @@ export const recordEmployerAssertion = async (payload: {
 	}
 
 	return data;
-};
-
-export const hasDataSharingPermission = async (
-	client: SupabaseClient,
-	sourceOrganisationId: string,
-	targetOrganisationId: string,
-	requiredScope: SharingScope
-): Promise<boolean> => {
-	const { data, error } = await client.rpc('has_data_sharing_permission', {
-		source_org_id: sourceOrganisationId,
-		target_org_id: targetOrganisationId,
-		required_scope: requiredScope
-	});
-
-	if (error) {
-		throw new Error(error.message);
-	}
-
-	return Boolean(data);
 };
 
 export const writeAuditLog = async (payload: {

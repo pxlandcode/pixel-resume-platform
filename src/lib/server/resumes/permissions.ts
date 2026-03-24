@@ -1,11 +1,18 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { getActorAccessContext, getTalentAccess, type AppRole } from '$lib/server/access';
+import {
+	getActorAccessContext,
+	getTalentAccess,
+	type AppRole,
+	type ShareAccessLevel
+} from '$lib/server/access';
 
 export type ResumeEditPermissions = {
 	canView: boolean;
 	canEdit: boolean;
 	canEditAll: boolean;
 	isOwnProfile: boolean;
+	effectiveAccessLevel: ShareAccessLevel;
+	allowTargetLogoExport: boolean;
 	userId: string | null;
 	roles: AppRole[];
 	homeOrganisationId: string | null;
@@ -24,6 +31,8 @@ export const getResumeEditPermissions = async (
 			canEdit: false,
 			canEditAll: false,
 			isOwnProfile: false,
+			effectiveAccessLevel: 'none',
+			allowTargetLogoExport: false,
 			userId: null,
 			roles: [],
 			homeOrganisationId: null,
@@ -39,6 +48,8 @@ export const getResumeEditPermissions = async (
 			canEdit: false,
 			canEditAll: false,
 			isOwnProfile: false,
+			effectiveAccessLevel: 'none',
+			allowTargetLogoExport: false,
 			userId: null,
 			roles: [],
 			homeOrganisationId: null,
@@ -54,6 +65,8 @@ export const getResumeEditPermissions = async (
 		canEdit: talentAccess.canEdit,
 		canEditAll: talentAccess.canEditAll,
 		isOwnProfile: talentAccess.isOwnProfile,
+		effectiveAccessLevel: talentAccess.effectiveAccessLevel,
+		allowTargetLogoExport: talentAccess.allowTargetLogoExport,
 		userId: actor.userId,
 		roles: actor.roles,
 		homeOrganisationId: actor.homeOrganisationId,

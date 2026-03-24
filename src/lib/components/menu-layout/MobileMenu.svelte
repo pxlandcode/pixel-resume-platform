@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
 	import { Input } from '@pixelcode_/blocks/components';
 	import { LogOut, Moon, Search, Settings, Sun } from 'lucide-svelte';
 	import { mode, toggleMode } from 'mode-watcher';
+	import { ripple } from '$lib/utils/ripple';
 	import type { QuickSearchSection } from '$lib/types/quickSearch';
 	import MenuQuickSearchResults from './MenuQuickSearchResults.svelte';
 	import type { MenuNavItem, MenuNavSection, QuickSearchStatus } from './types';
@@ -150,16 +152,17 @@
 						<div class="space-y-1.5">
 							{#each section.items as item (item.href)}
 								<a
-									href={item.href}
+									href={resolve(item.href)}
 									onclick={() => onnavigate?.()}
-									class={`flex items-center gap-3 rounded-sm px-3 py-2.5 transition-colors ${
+									use:ripple={{ opacity: 0.14 }}
+									class={`relative isolate flex items-center gap-3 rounded-sm px-3 py-2.5 transition-colors ${
 										isMenuItemActive(item, activePath)
 											? 'bg-primary/10 text-primary'
 											: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
 									}`}
 								>
-									<item.icon size={18} />
-									<span class="truncate text-sm font-medium">{item.label}</span>
+									<item.icon size={18} class="relative z-10" />
+									<span class="relative z-10 truncate text-sm font-medium">{item.label}</span>
 								</a>
 							{/each}
 						</div>
@@ -172,40 +175,43 @@
 			<div class="space-y-1.5">
 				{#if showSettingsLink}
 					<a
-						href={settingsItem.href}
+						href={resolve(settingsItem.href)}
 						onclick={() => onnavigate?.()}
-						class={`flex items-center gap-3 rounded-sm px-3 py-2.5 transition-colors ${
+						use:ripple={{ opacity: 0.14 }}
+						class={`relative isolate flex items-center gap-3 rounded-sm px-3 py-2.5 transition-colors ${
 							isMenuItemActive(settingsItem, activePath)
 								? 'bg-primary/10 text-primary'
 								: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
 						}`}
 					>
-						<Settings size={18} />
-						<span class="truncate text-sm font-medium">{settingsItem.label}</span>
+						<Settings size={18} class="relative z-10" />
+						<span class="relative z-10 truncate text-sm font-medium">{settingsItem.label}</span>
 					</a>
 				{/if}
 
 				<button
 					type="button"
-					class="text-secondary-text hover:bg-muted/60 hover:text-foreground flex w-full items-center gap-3 rounded-sm px-3 py-2.5 transition-colors"
+					use:ripple={{ opacity: 0.14 }}
+					class="text-secondary-text hover:bg-muted/60 hover:text-foreground relative isolate flex w-full items-center gap-3 rounded-sm px-3 py-2.5 transition-colors"
 					onclick={toggleMode}
 				>
 					{#if mode.current === 'dark'}
-						<Sun size={18} />
+						<Sun size={18} class="relative z-10" />
 					{:else}
-						<Moon size={18} />
+						<Moon size={18} class="relative z-10" />
 					{/if}
-					<span class="truncate text-sm font-medium">{themeActionLabel}</span>
+					<span class="relative z-10 truncate text-sm font-medium">{themeActionLabel}</span>
 				</button>
 
 				<form method="POST" action="/logout">
 					<button
 						type="submit"
-						class="text-secondary-text hover:bg-muted/60 hover:text-foreground flex w-full items-center gap-3 rounded-sm px-3 py-2.5 transition-colors"
+						use:ripple={{ opacity: 0.14 }}
+						class="text-secondary-text hover:bg-muted/60 hover:text-foreground relative isolate flex w-full items-center gap-3 rounded-sm px-3 py-2.5 transition-colors"
 						onclick={() => onlogout?.()}
 					>
-						<LogOut size={18} />
-						<span class="truncate text-sm font-medium">Log out</span>
+						<LogOut size={18} class="relative z-10" />
+						<span class="relative z-10 truncate text-sm font-medium">Log out</span>
 					</button>
 				</form>
 			</div>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resolve } from '$app/paths';
+	import { ripple } from '$lib/utils/ripple';
 	import type { QuickSearchSection } from '$lib/types/quickSearch';
 	import type { QuickSearchStatus } from './types';
 	import {
@@ -60,16 +62,17 @@
 					{#each section.results as result (`${result.kind}:${result.id}`)}
 						{@const ResultIcon = getQuickSearchResultIcon(result.kind)}
 						<a
-							href={result.href}
+							href={resolve(result.href)}
 							onclick={() => onselect?.()}
-							class={`flex items-start gap-3 rounded-sm px-3 py-2.5 transition-colors ${
+							use:ripple={{ opacity: 0.14 }}
+							class={`relative isolate flex items-start gap-3 rounded-sm px-3 py-2.5 transition-colors ${
 								isSearchResultActive(result.href, activePath)
 									? 'bg-primary/10 text-primary'
 									: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
 							}`}
 						>
 							<div
-								class={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm ${
+								class={`relative z-10 mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-sm ${
 									isSearchResultActive(result.href, activePath)
 										? 'bg-primary/12 text-primary'
 										: 'bg-muted text-muted-fg'
@@ -78,7 +81,7 @@
 								<ResultIcon size={16} />
 							</div>
 
-							<div class="min-w-0 flex-1">
+							<div class="relative z-10 min-w-0 flex-1">
 								<div class="flex items-center gap-2">
 									<p class="truncate text-sm font-semibold">{result.title}</p>
 									<span

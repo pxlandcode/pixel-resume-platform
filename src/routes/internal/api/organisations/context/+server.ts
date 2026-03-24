@@ -29,21 +29,6 @@ type OrganisationContextResponse = {
 	} | null;
 	membershipsUsers: Array<{ user_id: string }>;
 	membershipsTalents: Array<{ talent_id: string }>;
-	accessGrants: Array<{
-		id: string;
-		grantee_user_id: string;
-		created_at: string | null;
-		created_by_user_id: string | null;
-	}>;
-	dataSharingPermissions: Array<{
-		id: string;
-		source_organisation_id: string;
-		target_organisation_id: string;
-		sharing_scope: 'view' | 'export_org_template' | 'export_broker_template';
-		approved_by_admin_id: string;
-		approved_at: string | null;
-	}>;
-	organisations: Array<{ id: string; name: string }>;
 	users: Array<{
 		user_id: string;
 		first_name: string;
@@ -59,7 +44,6 @@ type OrganisationContextResponse = {
 	}>;
 	usersWithHomeOrgIds: string[];
 	talentsWithHomeOrgIds: string[];
-	userHomeOrgNames: Record<string, string>;
 	generatedAt: string;
 };
 
@@ -127,9 +111,6 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				templateResult,
 				membershipsUsersResult,
 				membershipsTalentsResult,
-				accessGrantsResult,
-				dataSharingPermissionsResult,
-				organisationsResult,
 				usersResult,
 				userRolesResult,
 				talentsResult,
@@ -150,17 +131,6 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 					.maybeSingle(),
 				adminClient.from('organisation_users').select('user_id').eq('organisation_id', orgId),
 				adminClient.from('organisation_talents').select('talent_id').eq('organisation_id', orgId),
-				adminClient
-					.from('organisation_access_grants')
-					.select('id, grantee_user_id, created_at, created_by_user_id')
-					.eq('organisation_id', orgId),
-				adminClient
-					.from('data_sharing_permissions')
-					.select(
-						'id, source_organisation_id, target_organisation_id, sharing_scope, approved_by_admin_id, approved_at'
-					)
-					.eq('source_organisation_id', orgId),
-				adminClient.from('organisations').select('id, name').order('name', { ascending: true }),
 				adminClient
 					.from('user_profiles')
 					.select('user_id, first_name, last_name, email')
@@ -183,10 +153,6 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 			if (templateResult.error) throw new Error(templateResult.error.message);
 			if (membershipsUsersResult.error) throw new Error(membershipsUsersResult.error.message);
 			if (membershipsTalentsResult.error) throw new Error(membershipsTalentsResult.error.message);
-			if (accessGrantsResult.error) throw new Error(accessGrantsResult.error.message);
-			if (dataSharingPermissionsResult.error)
-				throw new Error(dataSharingPermissionsResult.error.message);
-			if (organisationsResult.error) throw new Error(organisationsResult.error.message);
 			if (usersResult.error) throw new Error(usersResult.error.message);
 			if (userRolesResult.error) throw new Error(userRolesResult.error.message);
 			if (talentsResult.error) throw new Error(talentsResult.error.message);
@@ -218,18 +184,6 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 			);
 			const talentsWithHomeOrgIds = Array.from(
 				new Set((allTalentMembershipsResult.data ?? []).map((row) => row.talent_id))
-			);
-			const organisationNameById = new Map(
-				(organisationsResult.data ?? []).map((org) => [org.id, org.name] as const)
-			);
-			const userHomeOrgNames = Object.fromEntries(
-				(allUserMembershipsResult.data ?? [])
-					.map((row) => {
-						const orgName = organisationNameById.get(row.organisation_id);
-						if (!orgName) return null;
-						return [row.user_id, orgName] as const;
-					})
-					.filter((entry): entry is readonly [string, string] => entry !== null)
 			);
 
 			const template = templateResult.data
@@ -276,24 +230,6 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				membershipsTalents: (membershipsTalentsResult.data ?? []).map((row) => ({
 					talent_id: row.talent_id
 				})),
-				accessGrants: (accessGrantsResult.data ?? []).map((row) => ({
-					id: row.id,
-					grantee_user_id: row.grantee_user_id,
-					created_at: row.created_at ?? null,
-					created_by_user_id: row.created_by_user_id ?? null
-				})),
-				dataSharingPermissions: (dataSharingPermissionsResult.data ?? []).map((row) => ({
-					id: row.id,
-					source_organisation_id: row.source_organisation_id,
-					target_organisation_id: row.target_organisation_id,
-					sharing_scope: row.sharing_scope,
-					approved_by_admin_id: row.approved_by_admin_id,
-					approved_at: row.approved_at ?? null
-				})),
-				organisations: (organisationsResult.data ?? []).map((org) => ({
-					id: org.id,
-					name: org.name
-				})),
 				users,
 				talents: (talentsResult.data ?? []).map((talent) => ({
 					id: talent.id,
@@ -303,7 +239,6 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				})),
 				usersWithHomeOrgIds,
 				talentsWithHomeOrgIds,
-				userHomeOrgNames,
 				generatedAt: new Date().toISOString()
 			};
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { clickOutside } from '$lib/utils/clickOutside';
+	import { ripple } from '$lib/utils/ripple';
 	import ChevronDown from 'lucide-svelte/icons/chevron-down';
 	import type { Icon as IconType } from 'lucide-svelte';
 	import type { ClassNameValue } from 'tailwind-merge';
@@ -102,6 +103,10 @@
 	// Get option label
 	function getOptionLabel<T>(option: DropdownOption<T>): string {
 		return isObjectOption(option) ? option.label : option;
+	}
+
+	function getOptionKey<T>(option: DropdownOption<T>, index: number) {
+		return `${String(getOptionValue(option))}:${index}`;
 	}
 
 	// Check if option is unavailable
@@ -251,6 +256,7 @@
 	<button
 		type="button"
 		{id}
+		use:ripple={{ opacity: 0.14 }}
 		class={cn(
 			dropdownButtonVariants({
 				variant,
@@ -266,13 +272,13 @@
 		{disabled}
 		aria-disabled={disabled}
 	>
-		<div class="flex min-w-0 items-center gap-2">
+		<div class="relative z-10 flex min-w-0 items-center gap-2">
 			<span class={cn('truncate', isSelectedUnavailable && 'text-destructive')}>
 				{getLabel(value)}
 			</span>
 			{#if selectedIcons.length > 0}
 				<div class="flex shrink-0 items-center gap-1">
-					{#each selectedIcons as iconDef}
+					{#each selectedIcons as iconDef, iconIndex (iconIndex)}
 						{@const Icon = iconDef.icon}
 						<Icon size={iconDef.size} />
 					{/each}
@@ -281,7 +287,7 @@
 		</div>
 		<ChevronDown
 			class={cn(
-				'text-muted-fg size-4 shrink-0 transition-transform duration-200',
+				'text-muted-fg relative z-10 size-4 shrink-0 transition-transform duration-200',
 				open && 'rotate-180'
 			)}
 		/>
@@ -315,7 +321,7 @@
 				</li>
 			{/if}
 
-			{#each filteredOptions as option, i}
+			{#each filteredOptions as option, i (getOptionKey(option, i))}
 				{@const optionValue = getOptionValue(option)}
 				{@const optionLabel = getOptionLabel(option)}
 				{@const isUnavailable = isOptionUnavailable(option)}
@@ -325,6 +331,7 @@
 				<li role="option" aria-selected={isSelected}>
 					<button
 						type="button"
+						use:ripple={{ opacity: 0.14 }}
 						class={cn(
 							dropdownItemVariants({
 								active: i === activeIndex,
@@ -335,10 +342,10 @@
 						onclick={() => selectOption(option)}
 						aria-label={optionLabel}
 					>
-						<span>{optionLabel}</span>
+						<span class="relative z-10">{optionLabel}</span>
 						{#if optionIcons.length > 0}
-							<div class="flex items-center gap-1">
-								{#each optionIcons as iconDef}
+							<div class="relative z-10 flex items-center gap-1">
+								{#each optionIcons as iconDef, iconIndex (iconIndex)}
 									{@const Icon = iconDef.icon}
 									<Icon size={iconDef.size} />
 								{/each}

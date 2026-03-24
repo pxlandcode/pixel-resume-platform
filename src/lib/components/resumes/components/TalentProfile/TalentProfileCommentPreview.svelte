@@ -1,14 +1,7 @@
 <script lang="ts">
 	import type { TalentComment } from '$lib/types/talentComments';
-	import {
-		BriefcaseBusiness,
-		Building2,
-		CalendarClock,
-		MessageSquare,
-		Shield,
-		User,
-		Workflow
-	} from 'lucide-svelte';
+	import { getRoleLabel, getRoleIcon } from '$lib/types/roles';
+	import { BriefcaseBusiness, CalendarClock, MessageSquare, Workflow } from 'lucide-svelte';
 
 	let {
 		comment,
@@ -29,25 +22,11 @@
 		'message-square': MessageSquare
 	} as const;
 
-	const commentRoleIcons = {
-		admin: Shield,
-		broker: BriefcaseBusiness,
-		employer: Building2,
-		talent: User
-	} as const;
-
-	const commentRoleLabels: Record<string, string> = {
-		admin: 'Admin',
-		broker: 'Broker',
-		employer: 'Employer',
-		talent: 'Talent'
-	};
-
 	const TypeIcon =
 		commentTypeIcons[comment.comment_type.icon_name as keyof typeof commentTypeIcons] ??
 		MessageSquare;
-	const RoleIcon = commentRoleIcons[comment.author_role as keyof typeof commentRoleIcons] ?? User;
-	const roleLabel = commentRoleLabels[comment.author_role] ?? 'User';
+	const RoleIcon = getRoleIcon(comment.author_role);
+	const roleLabel = getRoleLabel(comment.author_role);
 	const formattedDate = new Date(comment.created_at).toLocaleDateString(undefined, {
 		year: 'numeric',
 		month: 'short',

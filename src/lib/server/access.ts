@@ -1,5 +1,4 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { hasDataSharingPermission } from '$lib/server/legalService';
 import { resolveOrganisationMainFont } from '$lib/branding/font';
 import {
 	DEFAULT_ORGANISATION_BRANDING_THEME,
@@ -8,6 +7,14 @@ import {
 } from '$lib/branding/theme';
 
 export type AppRole = 'admin' | 'broker' | 'talent' | 'employer';
+export type ShareAccessLevel = 'none' | 'read' | 'write';
+export type ShareRuleScope =
+	| 'none'
+	| 'admin'
+	| 'own_profile'
+	| 'home_organisation'
+	| 'organisation_rule'
+	| 'talent_rule';
 
 const KNOWN_ROLES = new Set<AppRole>(['admin', 'broker', 'talent', 'employer']);
 const ACTOR_CONTEXT_CACHE_TTL_MS = 30_000;
@@ -30,6 +37,17 @@ type TemplateRow = {
 		| null;
 };
 
+type OrganisationShareRuleRow = {
+	source_organisation_id: string;
+	target_organisation_id: string;
+	access_level: ShareAccessLevel;
+	allow_target_logo_export: boolean | null;
+};
+
+type TalentShareRuleRow = OrganisationShareRuleRow & {
+	talent_id: string;
+};
+
 export type ActorAccessContext = {
 	userId: string | null;
 	roles: AppRole[];
@@ -43,6 +61,14 @@ export type ActorAccessContext = {
 	talentId: string | null;
 };
 
+export type EffectiveTalentShare = {
+	sourceOrganisationId: string | null;
+	targetOrganisationId: string | null;
+	accessLevel: ShareAccessLevel;
+	allowTargetLogoExport: boolean;
+	ruleScope: ShareRuleScope;
+};
+
 export type TalentAccessResult = {
 	exists: boolean;
 	talentId: string;
@@ -52,6 +78,8 @@ export type TalentAccessResult = {
 	canEdit: boolean;
 	canEditAll: boolean;
 	isOwnProfile: boolean;
+	effectiveAccessLevel: ShareAccessLevel;
+	allowTargetLogoExport: boolean;
 };
 
 export type ResumeAccessResult = {
@@ -63,10 +91,12 @@ export type ResumeAccessResult = {
 	canEdit: boolean;
 	canEditAll: boolean;
 	isOwnProfile: boolean;
+	effectiveAccessLevel: ShareAccessLevel;
+	allowTargetLogoExport: boolean;
 };
 
 export type ResolvedTemplateContext = {
-	source: 'broker_home_org' | 'talent_org' | 'default';
+	source: 'target_org' | 'source_org' | 'default';
 	organisationId: string | null;
 	templateKey: string;
 	templateJson: Record<string, unknown>;
@@ -81,7 +111,7 @@ export type ResolvedTemplateContext = {
 	mainFontFaceCss: string | null;
 };
 
-export type PrintTemplateMode = 'auto' | 'org' | 'broker';
+export type PrintTemplateMode = 'auto' | 'source' | 'target';
 
 type ActorContextCacheEntry = {
 	expiresAt: number;
@@ -90,11 +120,29 @@ type ActorContextCacheEntry = {
 
 const actorContextCache = new Map<string, ActorContextCacheEntry>();
 
+const emptyActorContext = (): ActorAccessContext => ({
+	userId: null,
+	roles: [],
+	primaryRole: null,
+	isAdmin: false,
+	isBroker: false,
+	isEmployer: false,
+	isTalent: false,
+	homeOrganisationId: null,
+	accessibleOrganisationIds: [],
+	talentId: null
+});
+
 const normalizeRole = (value: string | null | undefined): AppRole | null => {
 	if (!value) return null;
 	const role = value.toLowerCase().replace(/\s+/g, '_');
 	if (!KNOWN_ROLES.has(role as AppRole)) return null;
 	return role as AppRole;
+};
+
+const normalizeShareAccessLevel = (value: string | null | undefined): ShareAccessLevel => {
+	if (value === 'read' || value === 'write') return value;
+	return 'none';
 };
 
 export const normalizeRolesFromJoinRows = (rows: RoleJoinRow[]): AppRole[] =>
@@ -165,6 +213,128 @@ const resolveOrganisationAssetUrl = (
 	return data.publicUrl ?? null;
 };
 
+const loadSharedSourceOrganisationIds = async (
+	adminClient: SupabaseClient,
+	targetOrganisationId: string
+) => {
+	const [orgRulesResult, talentRulesResult] = await Promise.all([
+		adminClient
+			.from('organisation_share_rules')
+			.select('source_organisation_id')
+			.eq('target_organisation_id', targetOrganisationId),
+		adminClient
+			.from('talent_share_rules')
+			.select('source_organisation_id, access_level')
+			.eq('target_organisation_id', targetOrganisationId)
+			.neq('access_level', 'none')
+	]);
+
+	const sourceOrganisationIds = [
+		...(
+			(orgRulesResult.data as Array<{ source_organisation_id?: string | null }> | null) ?? []
+		).map((row) =>
+			typeof row.source_organisation_id === 'string' ? row.source_organisation_id : null
+		),
+		...(
+			(talentRulesResult.data as Array<{ source_organisation_id?: string | null }> | null) ?? []
+		).map((row) =>
+			typeof row.source_organisation_id === 'string' ? row.source_organisation_id : null
+		)
+	].filter((value): value is string => Boolean(value));
+
+	return unique(sourceOrganisationIds);
+};
+
+const loadTalentOrganisation = async (adminClient: SupabaseClient, talentId: string) => {
+	const { data } = await adminClient
+		.from('organisation_talents')
+		.select('organisation_id')
+		.eq('talent_id', talentId)
+		.order('updated_at', { ascending: false })
+		.order('created_at', { ascending: false })
+		.limit(1)
+		.maybeSingle();
+
+	return data?.organisation_id ?? null;
+};
+
+const resolveEffectiveTalentShare = async (
+	adminClient: SupabaseClient | null,
+	sourceOrganisationId: string | null,
+	targetOrganisationId: string | null,
+	talentId: string
+): Promise<EffectiveTalentShare> => {
+	if (!adminClient || !sourceOrganisationId || !targetOrganisationId) {
+		return {
+			sourceOrganisationId,
+			targetOrganisationId,
+			accessLevel: 'none',
+			allowTargetLogoExport: false,
+			ruleScope: 'none'
+		};
+	}
+
+	if (sourceOrganisationId === targetOrganisationId) {
+		return {
+			sourceOrganisationId,
+			targetOrganisationId,
+			accessLevel: 'write',
+			allowTargetLogoExport: false,
+			ruleScope: 'home_organisation'
+		};
+	}
+
+	const [talentRuleResult, organisationRuleResult] = await Promise.all([
+		adminClient
+			.from('talent_share_rules')
+			.select(
+				'source_organisation_id, target_organisation_id, talent_id, access_level, allow_target_logo_export'
+			)
+			.eq('source_organisation_id', sourceOrganisationId)
+			.eq('target_organisation_id', targetOrganisationId)
+			.eq('talent_id', talentId)
+			.maybeSingle(),
+		adminClient
+			.from('organisation_share_rules')
+			.select(
+				'source_organisation_id, target_organisation_id, access_level, allow_target_logo_export'
+			)
+			.eq('source_organisation_id', sourceOrganisationId)
+			.eq('target_organisation_id', targetOrganisationId)
+			.maybeSingle()
+	]);
+
+	const directRule = talentRuleResult.data as TalentShareRuleRow | null;
+	if (directRule?.talent_id) {
+		return {
+			sourceOrganisationId,
+			targetOrganisationId,
+			accessLevel: normalizeShareAccessLevel(directRule.access_level),
+			allowTargetLogoExport: Boolean(directRule.allow_target_logo_export ?? false),
+			ruleScope: 'talent_rule'
+		};
+	}
+
+	const organisationRule = organisationRuleResult.data as OrganisationShareRuleRow | null;
+	if (organisationRule?.source_organisation_id) {
+		return {
+			sourceOrganisationId,
+			targetOrganisationId,
+			accessLevel: normalizeShareAccessLevel(organisationRule.access_level),
+			allowTargetLogoExport: Boolean(organisationRule.allow_target_logo_export ?? false),
+			ruleScope: 'organisation_rule'
+		};
+	}
+
+	return {
+		sourceOrganisationId,
+		targetOrganisationId,
+		accessLevel: 'none',
+		allowTargetLogoExport: false,
+		ruleScope: 'none'
+	};
+};
+
 export const getActorAccessContext = async (
 	supabase: SupabaseClient | null,
 	adminClient: SupabaseClient | null,
@@ -173,18 +343,7 @@ export const getActorAccessContext = async (
 	}
 ): Promise<ActorAccessContext> => {
 	if (!supabase || !adminClient) {
-		return {
-			userId: null,
-			roles: [],
-			primaryRole: null,
-			isAdmin: false,
-			isBroker: false,
-			isEmployer: false,
-			isTalent: false,
-			homeOrganisationId: null,
-			accessibleOrganisationIds: [],
-			talentId: null
-		};
+		return emptyActorContext();
 	}
 
 	const authUser =
@@ -193,19 +352,9 @@ export const getActorAccessContext = async (
 			: (await supabase.auth.getUser()).data.user;
 
 	if (!authUser?.id) {
-		return {
-			userId: null,
-			roles: [],
-			primaryRole: null,
-			isAdmin: false,
-			isBroker: false,
-			isEmployer: false,
-			isTalent: false,
-			homeOrganisationId: null,
-			accessibleOrganisationIds: [],
-			talentId: null
-		};
+		return emptyActorContext();
 	}
+
 	const userId = authUser.id;
 	const now = Date.now();
 	const cached = actorContextCache.get(userId);
@@ -216,7 +365,7 @@ export const getActorAccessContext = async (
 		actorContextCache.delete(userId);
 	}
 
-	const [roleResult, homeOrgResult, grantsResult, ownTalentResult] = await Promise.all([
+	const [roleResult, homeOrgResult, ownTalentResult] = await Promise.all([
 		adminClient.from('user_roles').select('roles(key)').eq('user_id', userId),
 		adminClient
 			.from('organisation_users')
@@ -226,10 +375,6 @@ export const getActorAccessContext = async (
 			.order('created_at', { ascending: false })
 			.limit(1)
 			.maybeSingle(),
-		adminClient
-			.from('organisation_access_grants')
-			.select('organisation_id')
-			.eq('grantee_user_id', userId),
 		adminClient.from('talents').select('id').eq('user_id', userId).limit(1).maybeSingle()
 	]);
 
@@ -252,13 +397,18 @@ export const getActorAccessContext = async (
 	const isEmployer = roles.includes('employer');
 	const isTalent = roles.includes('talent');
 	const homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
-	const grantOrgIds =
-		(grantsResult.data as Array<{ organisation_id?: string | null }> | null)
-			?.map((row) => (typeof row.organisation_id === 'string' ? row.organisation_id : null))
-			.filter((value): value is string => value !== null) ?? [];
+
+	let sharedSourceOrganisationIds: string[] = [];
+	if (!isAdmin && (isBroker || isEmployer) && homeOrganisationId) {
+		sharedSourceOrganisationIds = await loadSharedSourceOrganisationIds(
+			adminClient,
+			homeOrganisationId
+		);
+	}
+
 	const accessibleOrganisationIds = isAdmin
 		? []
-		: unique([homeOrganisationId ?? '', ...(isBroker || isEmployer ? grantOrgIds : [])]);
+		: unique([homeOrganisationId ?? '', ...sharedSourceOrganisationIds]);
 
 	const value: ActorAccessContext = {
 		userId,
@@ -287,27 +437,106 @@ export const getAccessibleTalentIds = async (
 	if (!adminClient || !context.userId) return [];
 	if (context.isAdmin) return null;
 
-	const orgIds = context.accessibleOrganisationIds;
-	const canUseOrgScope = context.isBroker || context.isEmployer;
-	const fromOrgMemberships =
-		!canUseOrgScope || orgIds.length === 0
-			? []
-			: (((
-					await adminClient
-						.from('organisation_talents')
-						.select('talent_id')
-						.in('organisation_id', orgIds)
-				).data as Array<{ talent_id?: string | null }> | null) ?? []);
+	if (!(context.isBroker || context.isEmployer) || !context.homeOrganisationId) {
+		return unique([context.talentId ?? '']);
+	}
 
-	const talentIds = fromOrgMemberships
+	const [homeTalentRowsResult, organisationRuleRowsResult, talentRuleRowsResult] =
+		await Promise.all([
+			adminClient
+				.from('organisation_talents')
+				.select('talent_id')
+				.eq('organisation_id', context.homeOrganisationId),
+			adminClient
+				.from('organisation_share_rules')
+				.select(
+					'source_organisation_id, target_organisation_id, access_level, allow_target_logo_export'
+				)
+				.eq('target_organisation_id', context.homeOrganisationId),
+			adminClient
+				.from('talent_share_rules')
+				.select(
+					'source_organisation_id, target_organisation_id, talent_id, access_level, allow_target_logo_export'
+				)
+				.eq('target_organisation_id', context.homeOrganisationId)
+		]);
+
+	const homeTalentIds = (
+		(homeTalentRowsResult.data as Array<{ talent_id?: string | null }> | null) ?? []
+	)
 		.map((row) => (typeof row.talent_id === 'string' ? row.talent_id : null))
 		.filter((value): value is string => value !== null);
 
-	if (context.talentId) {
-		talentIds.push(context.talentId);
+	const organisationRuleRows =
+		(organisationRuleRowsResult.data as OrganisationShareRuleRow[] | null) ?? [];
+	const talentRuleRows = (talentRuleRowsResult.data as TalentShareRuleRow[] | null) ?? [];
+
+	const sharedSourceOrganisationIds = unique(
+		organisationRuleRows
+			.map((row) =>
+				typeof row.source_organisation_id === 'string' ? row.source_organisation_id : null
+			)
+			.filter((value): value is string => Boolean(value))
+	);
+
+	const organisationTalentsResult =
+		sharedSourceOrganisationIds.length === 0
+			? {
+					data: [] as Array<{ talent_id: string; organisation_id: string }>,
+					error: null
+				}
+			: await adminClient
+					.from('organisation_talents')
+					.select('talent_id, organisation_id')
+					.in('organisation_id', sharedSourceOrganisationIds);
+
+	const organisationTalents = (
+		(organisationTalentsResult.data as Array<{
+			talent_id?: string | null;
+			organisation_id?: string | null;
+		}> | null) ?? []
+	)
+		.map((row) => ({
+			talentId: typeof row.talent_id === 'string' ? row.talent_id : null,
+			organisationId: typeof row.organisation_id === 'string' ? row.organisation_id : null
+		}))
+		.filter(
+			(row): row is { talentId: string; organisationId: string } =>
+				row.talentId !== null && row.organisationId !== null
+		);
+
+	const orgRuleBySourceOrganisationId = new Map<string, OrganisationShareRuleRow>();
+	for (const row of organisationRuleRows) {
+		if (!row.source_organisation_id) continue;
+		orgRuleBySourceOrganisationId.set(row.source_organisation_id, row);
 	}
 
-	return unique(talentIds);
+	const accessByTalentId = new Map<string, ShareAccessLevel>();
+
+	for (const talentId of homeTalentIds) {
+		accessByTalentId.set(talentId, 'write');
+	}
+
+	for (const membership of organisationTalents) {
+		const rule = orgRuleBySourceOrganisationId.get(membership.organisationId);
+		if (!rule) continue;
+		accessByTalentId.set(membership.talentId, normalizeShareAccessLevel(rule.access_level));
+	}
+
+	for (const row of talentRuleRows) {
+		if (!row.talent_id) continue;
+		accessByTalentId.set(row.talent_id, normalizeShareAccessLevel(row.access_level));
+	}
+
+	if (context.talentId) {
+		accessByTalentId.set(context.talentId, 'write');
+	}
+
+	return unique(
+		Array.from(accessByTalentId.entries())
+			.filter(([, accessLevel]) => accessLevel !== 'none')
+			.map(([talentId]) => talentId)
+	);
 };
 
 export const getTalentAccess = async (
@@ -324,20 +553,15 @@ export const getTalentAccess = async (
 			canView: false,
 			canEdit: false,
 			canEditAll: false,
-			isOwnProfile: false
+			isOwnProfile: false,
+			effectiveAccessLevel: 'none',
+			allowTargetLogoExport: false
 		};
 	}
 
-	const [talentResult, orgMembershipResult] = await Promise.all([
+	const [talentResult, talentOrganisationId] = await Promise.all([
 		adminClient.from('talents').select('id, user_id').eq('id', talentId).maybeSingle(),
-		adminClient
-			.from('organisation_talents')
-			.select('organisation_id')
-			.eq('talent_id', talentId)
-			.order('updated_at', { ascending: false })
-			.order('created_at', { ascending: false })
-			.limit(1)
-			.maybeSingle()
+		loadTalentOrganisation(adminClient, talentId)
 	]);
 
 	if (!talentResult.data?.id) {
@@ -349,56 +573,68 @@ export const getTalentAccess = async (
 			canView: false,
 			canEdit: false,
 			canEditAll: false,
-			isOwnProfile: false
+			isOwnProfile: false,
+			effectiveAccessLevel: 'none',
+			allowTargetLogoExport: false
 		};
 	}
 
 	const talentUserId = talentResult.data.user_id ?? null;
-	const talentOrganisationId = orgMembershipResult.data?.organisation_id ?? null;
 	const isOwnProfile = Boolean(talentUserId && talentUserId === context.userId);
-	const canUseOrgScope = context.isAdmin || context.isBroker || context.isEmployer;
-	const baseOrgAccessible = Boolean(
-		talentOrganisationId &&
-			canUseOrgScope &&
-			(context.isAdmin || context.accessibleOrganisationIds.includes(talentOrganisationId))
-	);
-	const sameAsHomeOrganisation = Boolean(
-		talentOrganisationId &&
-			context.homeOrganisationId &&
-			talentOrganisationId === context.homeOrganisationId
-	);
-	const requiresCrossOrgGate = Boolean(
-		talentOrganisationId &&
-			context.homeOrganisationId &&
-			(context.isBroker || context.isEmployer) &&
-			baseOrgAccessible &&
-			!sameAsHomeOrganisation
-	);
-	let crossOrgViewAllowed = false;
-	if (requiresCrossOrgGate && talentOrganisationId && context.homeOrganisationId) {
-		try {
-			crossOrgViewAllowed = await hasDataSharingPermission(
-				adminClient,
-				talentOrganisationId,
-				context.homeOrganisationId,
-				'view'
-			);
-		} catch (sharingError) {
-			console.warn('[access] data sharing permission lookup failed', sharingError);
-			crossOrgViewAllowed = false;
-		}
+
+	if (context.isAdmin) {
+		return {
+			exists: true,
+			talentId,
+			talentUserId,
+			talentOrganisationId,
+			canView: true,
+			canEdit: true,
+			canEditAll: true,
+			isOwnProfile,
+			effectiveAccessLevel: 'write',
+			allowTargetLogoExport: false
+		};
 	}
 
-	const orgAccessibleForView = Boolean(
-		baseOrgAccessible &&
-			(!(context.isBroker || context.isEmployer) || sameAsHomeOrganisation || crossOrgViewAllowed)
-	);
+	if (isOwnProfile) {
+		return {
+			exists: true,
+			talentId,
+			talentUserId,
+			talentOrganisationId,
+			canView: true,
+			canEdit: true,
+			canEditAll: true,
+			isOwnProfile: true,
+			effectiveAccessLevel: 'write',
+			allowTargetLogoExport: false
+		};
+	}
 
-	const canView = context.isAdmin || isOwnProfile || orgAccessibleForView;
-	const canEdit =
-		context.isAdmin ||
-		isOwnProfile ||
-		((context.isBroker || context.isEmployer) && baseOrgAccessible && sameAsHomeOrganisation);
+	let effectiveShare: EffectiveTalentShare = {
+		sourceOrganisationId: talentOrganisationId,
+		targetOrganisationId: context.homeOrganisationId,
+		accessLevel: 'none',
+		allowTargetLogoExport: false,
+		ruleScope: 'none'
+	};
+
+	if (
+		(context.isBroker || context.isEmployer) &&
+		talentOrganisationId &&
+		context.homeOrganisationId
+	) {
+		effectiveShare = await resolveEffectiveTalentShare(
+			adminClient,
+			talentOrganisationId,
+			context.homeOrganisationId,
+			talentId
+		);
+	}
+
+	const canView = effectiveShare.accessLevel !== 'none';
+	const canEdit = effectiveShare.accessLevel === 'write';
 
 	return {
 		exists: true,
@@ -407,8 +643,10 @@ export const getTalentAccess = async (
 		talentOrganisationId,
 		canView,
 		canEdit,
-		canEditAll: context.isAdmin || context.isBroker || context.isEmployer,
-		isOwnProfile
+		canEditAll: canEdit,
+		isOwnProfile: false,
+		effectiveAccessLevel: effectiveShare.accessLevel,
+		allowTargetLogoExport: effectiveShare.allowTargetLogoExport
 	};
 };
 
@@ -426,7 +664,9 @@ export const getResumeAccess = async (
 			canView: false,
 			canEdit: false,
 			canEditAll: false,
-			isOwnProfile: false
+			isOwnProfile: false,
+			effectiveAccessLevel: 'none',
+			allowTargetLogoExport: false
 		};
 	}
 
@@ -445,7 +685,9 @@ export const getResumeAccess = async (
 			canView: false,
 			canEdit: false,
 			canEditAll: false,
-			isOwnProfile: false
+			isOwnProfile: false,
+			effectiveAccessLevel: 'none',
+			allowTargetLogoExport: false
 		};
 	}
 
@@ -458,7 +700,9 @@ export const getResumeAccess = async (
 		canView: talentAccess.canView,
 		canEdit: talentAccess.canEdit,
 		canEditAll: talentAccess.canEditAll,
-		isOwnProfile: talentAccess.isOwnProfile
+		isOwnProfile: talentAccess.isOwnProfile,
+		effectiveAccessLevel: talentAccess.effectiveAccessLevel,
+		allowTargetLogoExport: talentAccess.allowTargetLogoExport
 	};
 };
 
@@ -537,64 +781,52 @@ export const resolvePrintTemplateContext = async (
 	}
 
 	const templateMode = options?.templateMode ?? 'auto';
+	const talentOrganisationId = await loadTalentOrganisation(adminClient, talentId);
 
-	const { data: talentOrgRow } = await adminClient
-		.from('organisation_talents')
-		.select('organisation_id')
-		.eq('talent_id', talentId)
-		.order('updated_at', { ascending: false })
-		.order('created_at', { ascending: false })
-		.limit(1)
-		.maybeSingle();
+	const loadSourceTemplate = async () => {
+		if (!talentOrganisationId) return buildDefaultTemplateContext();
+		const sourceTemplate = await getTemplateForOrganisation(adminClient, talentOrganisationId);
+		return mapTemplateContext(adminClient, 'source_org', sourceTemplate, talentOrganisationId);
+	};
 
-	const talentOrganisationId = talentOrgRow?.organisation_id ?? null;
-
-	if (templateMode === 'org') {
-		if (talentOrganisationId) {
-			const talentOrgTemplate = await getTemplateForOrganisation(adminClient, talentOrganisationId);
-			return mapTemplateContext(adminClient, 'talent_org', talentOrgTemplate, talentOrganisationId);
-		}
-
-		return buildDefaultTemplateContext();
-	}
-
-	if (templateMode === 'broker') {
-		if (context.homeOrganisationId) {
-			const brokerTemplate = await getTemplateForOrganisation(
-				adminClient,
-				context.homeOrganisationId
-			);
-			return mapTemplateContext(
-				adminClient,
-				'broker_home_org',
-				brokerTemplate,
-				context.homeOrganisationId
-			);
-		}
-
-		return buildDefaultTemplateContext();
-	}
-
-	if (context.isBroker) {
-		if (!context.homeOrganisationId) {
-			return buildDefaultTemplateContext();
-		}
-		const brokerTemplate = await getTemplateForOrganisation(
+	const loadTargetTemplate = async () => {
+		if (!context.homeOrganisationId) return loadSourceTemplate();
+		const targetTemplate = await getTemplateForOrganisation(
 			adminClient,
 			context.homeOrganisationId
 		);
 		return mapTemplateContext(
 			adminClient,
-			'broker_home_org',
-			brokerTemplate,
+			'target_org',
+			targetTemplate,
 			context.homeOrganisationId
 		);
+	};
+
+	if (templateMode === 'source') {
+		return loadSourceTemplate();
 	}
 
-	if (talentOrganisationId) {
-		const talentOrgTemplate = await getTemplateForOrganisation(adminClient, talentOrganisationId);
-		return mapTemplateContext(adminClient, 'talent_org', talentOrgTemplate, talentOrganisationId);
+	if (templateMode === 'target') {
+		return loadTargetTemplate();
 	}
 
-	return buildDefaultTemplateContext();
+	if (
+		(context.isBroker || context.isEmployer) &&
+		talentOrganisationId &&
+		context.homeOrganisationId &&
+		talentOrganisationId !== context.homeOrganisationId
+	) {
+		const effectiveShare = await resolveEffectiveTalentShare(
+			adminClient,
+			talentOrganisationId,
+			context.homeOrganisationId,
+			talentId
+		);
+		if (effectiveShare.accessLevel !== 'none' && effectiveShare.allowTargetLogoExport) {
+			return loadTargetTemplate();
+		}
+	}
+
+	return loadSourceTemplate();
 };

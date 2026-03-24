@@ -9,6 +9,7 @@ export type UserSettingsViews = {
 export type UserSettingsOrganisationFilters = {
 	talents: string[];
 	resumes: string[];
+	users: string[];
 };
 
 export type UserSettingsNavigation = {
@@ -39,7 +40,8 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 	},
 	organisationFilters: {
 		talents: [],
-		resumes: []
+		resumes: [],
+		users: []
 	},
 	navigation: {
 		sidebarCollapsed: false
@@ -60,7 +62,8 @@ export const cloneUserSettings = (settings: UserSettings): UserSettings => ({
 	},
 	organisationFilters: {
 		talents: [...settings.organisationFilters.talents],
-		resumes: [...settings.organisationFilters.resumes]
+		resumes: [...settings.organisationFilters.resumes],
+		users: [...settings.organisationFilters.users]
 	},
 	navigation: {
 		sidebarCollapsed: settings.navigation.sidebarCollapsed
@@ -97,7 +100,8 @@ export const normalizeUserSettings = (value: unknown): UserSettings => {
 		},
 		organisationFilters: {
 			talents: normalizeOrganisationFilterIds(organisationFilters.talents),
-			resumes: normalizeOrganisationFilterIds(organisationFilters.resumes)
+			resumes: normalizeOrganisationFilterIds(organisationFilters.resumes),
+			users: normalizeOrganisationFilterIds(organisationFilters.users)
 		},
 		navigation: {
 			sidebarCollapsed:
@@ -119,7 +123,8 @@ export const applyUserSettingsViewsPatch = (
 	},
 	organisationFilters: {
 		talents: settings.organisationFilters.talents,
-		resumes: settings.organisationFilters.resumes
+		resumes: settings.organisationFilters.resumes,
+		users: settings.organisationFilters.users
 	},
 	navigation: {
 		sidebarCollapsed: settings.navigation.sidebarCollapsed
@@ -143,7 +148,11 @@ export const applyUserSettingsPatch = (
 		resumes:
 			patch.organisationFilters?.resumes !== undefined
 				? normalizeOrganisationFilterIds(patch.organisationFilters.resumes)
-				: settings.organisationFilters.resumes
+				: settings.organisationFilters.resumes,
+		users:
+			patch.organisationFilters?.users !== undefined
+				? normalizeOrganisationFilterIds(patch.organisationFilters.users)
+				: settings.organisationFilters.users
 	},
 	navigation: {
 		sidebarCollapsed: patch.navigation?.sidebarCollapsed ?? settings.navigation.sidebarCollapsed

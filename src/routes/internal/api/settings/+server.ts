@@ -86,7 +86,7 @@ const parseOrganisationFiltersPatch = (
 		return { ok: false, message: '"organisationFilters" must be an object.' };
 	}
 
-	const allowedKeys = new Set(['talents', 'resumes']);
+	const allowedKeys = new Set(['talents', 'resumes', 'users']);
 	const keys = Object.keys(value);
 	if (keys.length === 0) {
 		return { ok: false, message: '"organisationFilters" requires at least one key.' };
@@ -105,6 +105,7 @@ const parseOrganisationFiltersPatch = (
 		const ids = normalizeOrganisationFilterIds(value[key]);
 		if (key === 'talents') patch.talents = ids;
 		if (key === 'resumes') patch.resumes = ids;
+		if (key === 'users') patch.users = ids;
 	}
 
 	return { ok: true, patch };

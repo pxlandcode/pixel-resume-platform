@@ -94,6 +94,12 @@
 
 	// Custom font dropdown state
 	let fontDropdownOpen = $state(false);
+	let useUploadedFont = $state(false);
+	let selectedBuiltInFont = $state('inter');
+	let fontUploadMode = $state<FontUploadMode>('variable');
+
+	// pixel&code_ branding flag
+	let isPixelCode = $state(false);
 
 	const selectedFontLabel = $derived(
 		ORGANISATION_MAIN_FONT_OPTIONS.find((opt) => opt.key === selectedBuiltInFont)?.label ??
@@ -141,14 +147,6 @@
 			? form.message
 			: null
 	);
-
-	// Font selection state
-	let useUploadedFont = $state(false);
-	let selectedBuiltInFont = $state('inter');
-	let fontUploadMode = $state<FontUploadMode>('variable');
-
-	// pixel&code_ branding flag
-	let isPixelCode = $state(false);
 
 	// Derive the actual main_font_key to submit
 	// When isPixelCode is true, use montserrat; otherwise use uploaded or selected built-in

@@ -100,6 +100,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			canEditUsers: false,
 			allowedCreateRoles: ['talent'] as Role[],
 			organisationOptions: [] as Array<{ id: string; name: string }>,
+			filterOrganisationOptions: [] as Array<{ id: string; name: string }>,
+			homeOrganisationId: null as string | null,
 			currentUserId: null as string | null
 		};
 	}
@@ -113,6 +115,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			canEditUsers: false,
 			allowedCreateRoles: ['talent'] as Role[],
 			organisationOptions: [] as Array<{ id: string; name: string }>,
+			filterOrganisationOptions: [] as Array<{ id: string; name: string }>,
+			homeOrganisationId: null as string | null,
 			currentUserId: null as string | null
 		};
 	}
@@ -121,9 +125,27 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const canDeleteUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
 	const canEditUsers = actor.isAdmin;
 	const allowedCreateRoles = getAllowedCreateRoles(actor);
-	const organisationsResult = actor.isAdmin
-		? await adminClient.from('organisations').select('id, name').order('name', { ascending: true })
-		: { data: [], error: null };
+	const allOrganisationsPromise = actor.isAdmin
+		? adminClient.from('organisations').select('id, name').order('name', { ascending: true })
+		: null;
+	const filterOrganisationsPromise =
+		allOrganisationsPromise ??
+		(actor.accessibleOrganisationIds.length === 0
+			? Promise.resolve({
+					data: [] as Array<{ id: string; name: string }>,
+					error: null
+				})
+			: adminClient
+					.from('organisations')
+					.select('id, name')
+					.in('id', actor.accessibleOrganisationIds)
+					.order('name', { ascending: true }));
+	const editableOrganisationsPromise =
+		allOrganisationsPromise ??
+		Promise.resolve({
+			data: [] as Array<{ id: string; name: string }>,
+			error: null
+		});
 
 	const visibleUserIdsForNonAdmin = new Set<string>([actor.userId]);
 	if (!actor.isAdmin && actor.accessibleOrganisationIds.length > 0) {
@@ -138,19 +160,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 		}
 	}
 
-	const [profilesResult, rolesResult, authUsersResult, talentsResult] = await Promise.all([
+	const [
+		profilesResult,
+		rolesResult,
+		authUsersResult,
+		talentsResult,
+		organisationMembershipsResult,
+		filterOrganisationsResult,
+		editableOrganisationsResult
+	] = await Promise.all([
 		adminClient
 			.from('user_profiles')
 			.select('user_id, first_name, last_name, avatar_url, email')
 			.order('last_name', { ascending: true }),
 		adminClient.from('user_roles').select('user_id, roles(key)'),
 		adminClient.auth.admin.listUsers(),
-		adminClient.from('talents').select('id, user_id, avatar_url').not('user_id', 'is', null)
+		adminClient.from('talents').select('id, user_id, avatar_url').not('user_id', 'is', null),
+		adminClient.from('organisation_users').select('user_id, organisations(id, name)'),
+		filterOrganisationsPromise,
+		editableOrganisationsPromise
 	]);
-
-	const organisationMembershipsResult = await adminClient
-		.from('organisation_users')
-		.select('user_id, organisations(id, name)');
 
 	const [profiles, roleRows, authUsers, talentRows, organisationMembershipRows] = [
 		profilesResult.data ?? [],
@@ -183,6 +212,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 		console.error(
 			'[users load] organisation membership fetch error',
 			organisationMembershipsResult.error
+		);
+	}
+	if (filterOrganisationsResult.error) {
+		console.error('[users load] filter organisations fetch error', filterOrganisationsResult.error);
+	}
+	if (editableOrganisationsResult.error) {
+		console.error(
+			'[users load] editable organisations fetch error',
+			editableOrganisationsResult.error
 		);
 	}
 
@@ -231,11 +269,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		) {
 			organisationNameByUserId.set(membership.user_id, orgName);
 		}
-		if (
-			typeof membership.user_id === 'string' &&
-			typeof orgId === 'string' &&
-			orgId.length > 0
-		) {
+		if (typeof membership.user_id === 'string' && typeof orgId === 'string' && orgId.length > 0) {
 			organisationIdByUserId.set(membership.user_id, orgId);
 		}
 	}
@@ -272,16 +306,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return nameA.localeCompare(nameB);
 		});
 
-	const organisationOptions =
-		(
-			(organisationsResult.data as Array<{ id: string; name: string }> | null) ?? []
-		).filter(
+	const toOrganisationOptions = (
+		rows: Array<{ id: string; name: string }> | null | undefined
+	): Array<{ id: string; name: string }> =>
+		(rows ?? []).filter(
 			(organisation): organisation is { id: string; name: string } =>
 				typeof organisation.id === 'string' &&
 				organisation.id.length > 0 &&
 				typeof organisation.name === 'string' &&
 				organisation.name.length > 0
 		);
+
+	const organisationOptions = toOrganisationOptions(
+		editableOrganisationsResult.data as Array<{ id: string; name: string }> | null
+	);
+	const filterOrganisationOptions = toOrganisationOptions(
+		filterOrganisationsResult.data as Array<{ id: string; name: string }> | null
+	);
 
 	return {
 		users,
@@ -290,6 +331,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		canEditUsers,
 		allowedCreateRoles,
 		organisationOptions,
+		filterOrganisationOptions,
+		homeOrganisationId: actor.homeOrganisationId ?? null,
 		currentUserId: actor.userId
 	};
 };
@@ -755,9 +798,8 @@ export const actions: Actions = {
 			});
 		}
 
-		const { data: targetUserResult, error: targetUserError } = await adminClient.auth.admin.getUserById(
-			userId
-		);
+		const { data: targetUserResult, error: targetUserError } =
+			await adminClient.auth.admin.getUserById(userId);
 		if (targetUserError || !targetUserResult.user) {
 			return fail(404, { type: 'deleteUser', ok: false, message: 'User not found.' });
 		}
@@ -767,9 +809,11 @@ export const actions: Actions = {
 			.select('roles(key)')
 			.eq('user_id', userId);
 		const targetRolesFromDb = normalizeRolesFromJoinRows(
-			((targetRoleRowsResult.data as Array<{
-				roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
-			}> | null) ?? []).map((row) => ({ roles: row.roles }))
+			(
+				(targetRoleRowsResult.data as Array<{
+					roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
+				}> | null) ?? []
+			).map((row) => ({ roles: row.roles }))
 		);
 		const targetRolesFromMetadata = normalizeRoles(
 			Array.isArray(targetUserResult.user.app_metadata?.roles)

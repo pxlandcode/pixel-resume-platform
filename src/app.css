@@ -384,6 +384,53 @@
 	input::placeholder {
 		color: rgba(148, 163, 184, 0.6);
 	}
+
+	/* ── Universal tooltip (use:tooltip action) ── */
+
+	.app-tooltip {
+		position: fixed;
+		z-index: 9999;
+		min-width: max-content;
+		max-width: min(220px, calc(100vw - 16px));
+		border-radius: 0.25rem;
+		padding: 0.4rem 0.6rem;
+		font-size: 0.7rem;
+		font-weight: 600;
+		line-height: 1.3;
+		white-space: nowrap;
+		pointer-events: none;
+		background: var(--color-primary);
+		color: var(--color-background);
+	}
+
+	.app-tooltip__arrow {
+		position: absolute;
+		height: 8px;
+		width: 8px;
+		background: inherit;
+	}
+
+	/* Arrow positions */
+	.app-tooltip--top .app-tooltip__arrow {
+		bottom: -4px;
+		left: var(--app-tooltip-arrow-x, 50%);
+		transform: translateX(-50%) rotate(45deg);
+	}
+	.app-tooltip--bottom .app-tooltip__arrow {
+		top: -4px;
+		left: var(--app-tooltip-arrow-x, 50%);
+		transform: translateX(-50%) rotate(45deg);
+	}
+	.app-tooltip--left .app-tooltip__arrow {
+		right: -4px;
+		top: var(--app-tooltip-arrow-y, 50%);
+		transform: translateY(-50%) rotate(45deg);
+	}
+	.app-tooltip--right .app-tooltip__arrow {
+		left: -4px;
+		top: var(--app-tooltip-arrow-y, 50%);
+		transform: translateY(-50%) rotate(45deg);
+	}
 }
 
 @keyframes marquee {

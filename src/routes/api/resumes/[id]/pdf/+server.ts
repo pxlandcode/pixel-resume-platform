@@ -549,7 +549,10 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		// Use the print route
 		const target = new URL(`/print/resumes/${resumeId}`, url.origin);
 		target.searchParams.set('lang', lang);
-		target.searchParams.set('template', exportPolicy.templateUsed === 'broker' ? 'broker' : 'org');
+		target.searchParams.set(
+			'template',
+			exportPolicy.templateUsed === 'target' ? 'target' : 'source'
+		);
 		if (debugEnabled) {
 			target.searchParams.set('debug', '1');
 		}

@@ -1,19 +1,39 @@
 <script lang="ts">
 	import UserFormModal from '$lib/components/admin/UserFormModal.svelte';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import { DropdownCheckbox } from '$lib/components/dropdown-checkbox';
 	import { SuperList, ListHandler, Cell, Row } from '$lib/components/super-list';
 	import type { SuperListHead } from '$lib/components/super-list';
+	import { userSettingsStore } from '$lib/stores/userSettings';
+	import type { ViewMode } from '$lib/types/userSettings';
+	import { invalidateAll } from '$app/navigation';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
 		supabaseImagePresets,
+		supabaseImageSizes,
+		supabaseImageSrcsetWidths,
 		transformSupabasePublicUrl,
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
-	import { Alert, Badge, Button } from '@pixelcode_/blocks/components';
-	import { Pencil, User } from 'lucide-svelte';
+	import { Alert, Badge, Button, Card, Input } from '@pixelcode_/blocks/components';
+	import {
+		Pencil,
+		User,
+		LayoutGrid,
+		List,
+		SlidersHorizontal,
+		Search,
+		CircleCheck,
+		CircleX
+	} from 'lucide-svelte';
+	import { slide } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
+	import { ROLE_CONFIG, getRoleLabel, getRoleIcon } from '$lib/types/roles';
+	import { tooltip } from '$lib/utils/tooltip';
 
 	type Role = 'admin' | 'broker' | 'talent' | 'employer';
+	type UserStatusFilter = 'active' | 'inactive';
 	type EditableUser = {
 		id: string;
 		first_name: string;
@@ -35,7 +55,6 @@
 		id: string;
 		name: string;
 	};
-
 	type LoadUser = {
 		id: string;
 		first_name: string | null;
@@ -48,8 +67,41 @@
 		organisation_id?: string | null;
 		organisation_name?: string | null;
 	};
+	type UsersListRow = {
+		id: string;
+		fullName: string;
+		email: string;
+		avatar_url: string | null;
+		roles: Role[];
+		roleLabel: string;
+		active: boolean;
+		statusLabel: string;
+		organisation_id: string | null;
+		organisation_name: string | null;
+		organisation_label: string;
+		source: LoadUser;
+	};
+
+	const UNASSIGNED_ORGANISATION_FILTER = '__unassigned__';
+	const roleLabelByValue: Record<Role, string> = {
+		admin: ROLE_CONFIG.admin.label,
+		broker: ROLE_CONFIG.broker.label,
+		talent: ROLE_CONFIG.talent.label,
+		employer: ROLE_CONFIG.employer.label
+	};
+	const roleFilterOptions = [
+		{ label: 'Admin', value: 'admin' },
+		{ label: 'Broker', value: 'broker' },
+		{ label: 'Talent', value: 'talent' },
+		{ label: 'Employer', value: 'employer' }
+	];
+	const statusFilterOptions = [
+		{ label: 'Active', value: 'active' },
+		{ label: 'Inactive', value: 'inactive' }
+	];
 
 	let { data, form } = $props();
+
 	const canCreateUsers = $derived(Boolean(data.canCreateUsers));
 	const canDeleteUsers = $derived(Boolean(data.canDeleteUsers));
 	const canEditUsers = $derived(Boolean(data.canEditUsers));
@@ -64,12 +116,34 @@
 	const organisationOptions = $derived(
 		(data.organisationOptions as OrganisationOption[] | undefined) ?? []
 	);
+	const filterOrganisationOptions = $derived(
+		((
+			data as typeof data & {
+				filterOrganisationOptions?: OrganisationOption[];
+			}
+		).filterOrganisationOptions ?? []) as OrganisationOption[]
+	);
+	const usersViewMode = $derived($userSettingsStore.settings.views.users);
+	const homeOrganisationId = $derived.by(() => {
+		const value = (
+			data as typeof data & {
+				homeOrganisationId?: unknown;
+			}
+		).homeOrganisationId;
+		return typeof value === 'string' ? value : null;
+	});
+
 	const normalizeRoles = (roles: string[] | null | undefined): Role[] => {
 		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
 		const normalized =
 			roles?.filter((role): role is Role => allowed.has(role as Role))?.filter(Boolean) ?? [];
 		return normalized.length > 0 ? normalized : ['talent'];
 	};
+
+	const formatRoleLabel = (role: Role) => roleLabelByValue[role] ?? role;
+
+	const getUserName = (user: LoadUser) =>
+		[user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'Unknown User';
 
 	const toEditableUser = (user: LoadUser): EditableUser => ({
 		id: user.id,
@@ -115,6 +189,24 @@
 	let talentOptionsEtag = $state<string | null>(null);
 	let editUser = $state<EditableUser | null>(null);
 	let editMode: 'create' | 'edit' = $state('create');
+	let filtersOpen = $state(false);
+	let searchQuery = $state('');
+	let selectedRoleFilters = $state<Role[]>([]);
+	let selectedStatusFilters = $state<UserStatusFilter[]>([]);
+
+	const sanitizeRoleFilters = (values: string[]): Role[] => {
+		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
+		return Array.from(new Set(values.filter((value): value is Role => allowed.has(value as Role))));
+	};
+
+	const sanitizeStatusFilters = (values: string[]): UserStatusFilter[] => {
+		const allowed = new Set<UserStatusFilter>(['active', 'inactive']);
+		return Array.from(
+			new Set(
+				values.filter((value): value is UserStatusFilter => allowed.has(value as UserStatusFilter))
+			)
+		);
+	};
 
 	const loadTalentOptions = async () => {
 		if (!canEditUsers) return;
@@ -178,13 +270,16 @@
 		}
 	};
 
-	const handleUserCreated = (event: CustomEvent<{ message?: string }>) => {
-		feedback = { type: 'success', message: event.detail?.message ?? 'User created successfully.' };
+	const handleUserSaved = async (event: CustomEvent<{ message?: string }>) => {
+		feedback = { type: 'success', message: event.detail?.message ?? 'User saved.' };
 		isModalOpen = false;
+		selectedUserForDetail = null;
+		isMobileDetailOpen = false;
+		await invalidateAll();
 	};
 
 	const handleCreateError = (event: CustomEvent<{ message?: string }>) => {
-		feedback = { type: 'error', message: event.detail?.message ?? 'Failed to create user.' };
+		feedback = { type: 'error', message: event.detail?.message ?? 'Failed to save user.' };
 	};
 
 	const canDeleteRow = (user: { id: string } | null | undefined) =>
@@ -236,6 +331,32 @@
 		}
 	};
 
+	const openCreateUserModal = () => {
+		feedback = null;
+		editMode = 'create';
+		editUser = {
+			id: '',
+			first_name: '',
+			last_name: '',
+			email: '',
+			roles: ['talent'],
+			avatar_url: null,
+			active: true,
+			linked_talent_id: null,
+			organisation_id: null
+		};
+		isModalOpen = true;
+		void loadTalentOptions();
+	};
+
+	const openEditUserModal = (user: LoadUser) => {
+		feedback = null;
+		editMode = 'edit';
+		editUser = toEditableUser(user);
+		isModalOpen = true;
+		void loadTalentOptions();
+	};
+
 	$effect(() => {
 		if (form?.type !== 'updateRole') return;
 
@@ -250,48 +371,155 @@
 		void loadTalentOptions();
 	});
 
-	type UsersListRow = {
-		id: string;
-		fullName: string;
-		email: string;
-		avatar_url: string | null;
-		roles: Role[];
-		roleLabel: string;
-		active: boolean;
-		organisation_name: string | null;
-		source: LoadUser;
+	const hasUnassignedUsers = $derived(
+		users.some(
+			(user) => typeof user.organisation_id !== 'string' || user.organisation_id.trim().length === 0
+		)
+	);
+
+	const organisationFilterOptions = $derived([
+		...filterOrganisationOptions.map((organisation) => ({
+			label: organisation.name,
+			value: organisation.id
+		})),
+		...(hasUnassignedUsers ? [{ label: 'Unassigned', value: UNASSIGNED_ORGANISATION_FILTER }] : [])
+	]);
+	const availableOrganisationIds = $derived(organisationFilterOptions.map((org) => org.value));
+
+	const sanitizeOrganisationIds = (ids: string[]) => {
+		const allowed = new Set(availableOrganisationIds);
+		return Array.from(
+			new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0 && allowed.has(id)))
+		);
 	};
 
+	const selectedOrganisationIds = $derived.by(() => {
+		if (availableOrganisationIds.length === 0) return [];
+
+		const configured = sanitizeOrganisationIds(
+			$userSettingsStore.settings.organisationFilters.users
+		);
+		if (configured.length > 0) return configured;
+
+		if (homeOrganisationId && availableOrganisationIds.includes(homeOrganisationId)) {
+			return [homeOrganisationId];
+		}
+
+		const firstNamedOrganisation = availableOrganisationIds.find(
+			(id) => id !== UNASSIGNED_ORGANISATION_FILTER
+		);
+		return firstNamedOrganisation ? [firstNamedOrganisation] : [availableOrganisationIds[0]];
+	});
+
+	const filteredUsers = $derived.by(() => {
+		let items = [...users];
+
+		if (selectedOrganisationIds.length > 0) {
+			const selectedOrgIds = new Set(selectedOrganisationIds);
+			items = items.filter((user) => {
+				const organisationId =
+					typeof user.organisation_id === 'string' && user.organisation_id.trim().length > 0
+						? user.organisation_id
+						: null;
+				if (organisationId && selectedOrgIds.has(organisationId)) return true;
+				return !organisationId && selectedOrgIds.has(UNASSIGNED_ORGANISATION_FILTER);
+			});
+		}
+
+		if (selectedRoleFilters.length > 0) {
+			const selectedRoles = new Set(selectedRoleFilters);
+			items = items.filter((user) =>
+				normalizeRoles(user.roles).some((role) => selectedRoles.has(role))
+			);
+		}
+
+		if (selectedStatusFilters.length > 0) {
+			const selectedStatuses = new Set(selectedStatusFilters);
+			items = items.filter((user) => selectedStatuses.has(user.active ? 'active' : 'inactive'));
+		}
+
+		return items;
+	});
+
 	const usersListHeadings: SuperListHead<UsersListRow>[] = [
-		{ heading: null, width: 5 },
-		{ heading: 'Name', sortable: 'fullName', filterable: 'fullName', width: 20 },
-		{ heading: 'Email', sortable: 'email', filterable: 'email', width: 25 },
-		{ heading: 'Organisation', sortable: 'organisation_name', width: 18 },
-		{ heading: 'Roles', sortable: 'roleLabel', width: 17 },
-		{ heading: 'Status', width: 5 },
-		{ heading: null, width: 10 }
+		{ heading: null, width: 6 },
+		{ heading: 'Name', sortable: 'fullName', filterable: 'fullName', width: 24 },
+		{ heading: 'Email', sortable: 'email', filterable: 'email', width: 20 },
+		{
+			heading: 'Organisation',
+			sortable: 'organisation_label',
+			filterable: 'organisation_label',
+			width: 18
+		},
+		{ heading: 'Roles', sortable: 'roleLabel', filterable: 'roleLabel', width: 18 },
+		{ heading: 'Status', sortable: 'statusLabel', filterable: 'statusLabel', width: 8 },
+		{ heading: null, width: 6 }
 	];
 
-	const toListRows = (users: LoadUser[]): UsersListRow[] =>
-		users.map((user) => {
+	const toListRows = (items: LoadUser[]): UsersListRow[] =>
+		items.map((user) => {
 			const roles = normalizeRoles(user.roles);
 			return {
 				id: user.id,
-				fullName:
-					[user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'Unknown',
+				fullName: getUserName(user),
 				email: user.email ?? '',
 				avatar_url: user.avatar_url ?? null,
 				roles,
-				roleLabel: roles.join(', '),
+				roleLabel: roles.map(formatRoleLabel).join(', '),
 				active: user.active,
+				statusLabel: user.active ? 'Active' : 'Inactive',
+				organisation_id: user.organisation_id?.trim() || null,
 				organisation_name: user.organisation_name?.trim() || null,
+				organisation_label: user.organisation_name?.trim() || 'Unassigned',
 				source: user
 			};
 		});
 
-	const userListHandler = $derived(
-		new ListHandler<UsersListRow>(usersListHeadings, toListRows(users))
+	const filteredUserRows = $derived.by(() => toListRows(filteredUsers));
+
+	const userListHandler = $derived.by(
+		() => new ListHandler<UsersListRow>(usersListHeadings, filteredUserRows)
 	);
+
+	const searchFilteredUserRows = $derived.by(() => {
+		if (!searchQuery.trim()) return filteredUserRows;
+		const query = searchQuery.trim().toLowerCase();
+		return filteredUserRows.filter((row) => {
+			return (
+				row.fullName.toLowerCase().includes(query) ||
+				row.email.toLowerCase().includes(query) ||
+				row.organisation_label.toLowerCase().includes(query) ||
+				row.roleLabel.toLowerCase().includes(query) ||
+				row.statusLabel.toLowerCase().includes(query)
+			);
+		});
+	});
+
+	$effect(() => {
+		const nextUsers = (data.users as LoadUser[] | undefined) ?? [];
+		users = nextUsers;
+
+		const selectedUserId = selectedUserForDetail?.id ?? null;
+		if (!selectedUserId) return;
+		const nextRow = toListRows(nextUsers).find((candidate) => candidate.id === selectedUserId);
+		if (nextRow) {
+			selectedUserForDetail = nextRow;
+			return;
+		}
+
+		selectedUserForDetail = null;
+		isMobileDetailOpen = false;
+	});
+
+	const getCardAvatarSrc = (url: string | null | undefined) =>
+		transformSupabasePublicUrl(url, supabaseImagePresets.avatarCard);
+	const getCardAvatarSrcSet = (url: string | null | undefined) =>
+		transformSupabasePublicUrlSrcSet(url, supabaseImageSrcsetWidths.avatarCard, {
+			height: supabaseImagePresets.avatarCard.height,
+			quality: supabaseImagePresets.avatarCard.quality,
+			resize: supabaseImagePresets.avatarCard.resize
+		});
+	const getCardAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 	const detailAvatarSrc = (url: string | null | undefined) =>
 		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
 	const detailAvatarSrcSet = (url: string | null | undefined) =>
@@ -302,50 +530,180 @@
 		});
 	const detailAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 
-	const handleRowClick = (row: UsersListRow) => {
-		// Only open drawer on mobile (sm breakpoint is 640px)
-		if (window.innerWidth < 640) {
-			selectedUserForDetail = row;
-			isMobileDetailOpen = true;
+	const setUsersViewMode = (mode: ViewMode) => {
+		void userSettingsStore.setViewMode('users', mode);
+	};
+
+	const toggleFilters = () => {
+		filtersOpen = !filtersOpen;
+	};
+
+	const handleOrganisationFilterChange = (selected: string[]) => {
+		let next = sanitizeOrganisationIds(selected);
+		if (next.length === 0) {
+			if (homeOrganisationId && availableOrganisationIds.includes(homeOrganisationId)) {
+				next = [homeOrganisationId];
+			} else {
+				const firstNamedOrganisation = availableOrganisationIds.find(
+					(id) => id !== UNASSIGNED_ORGANISATION_FILTER
+				);
+				if (firstNamedOrganisation) {
+					next = [firstNamedOrganisation];
+				} else if (availableOrganisationIds[0]) {
+					next = [availableOrganisationIds[0]];
+				}
+			}
 		}
+		void userSettingsStore.setOrganisationFilters('users', next);
+	};
+
+	const handleRoleFilterChange = (selected: string[]) => {
+		selectedRoleFilters = sanitizeRoleFilters(selected);
+	};
+
+	const handleStatusFilterChange = (selected: string[]) => {
+		selectedStatusFilters = sanitizeStatusFilters(selected);
+	};
+
+	const handlePreviewUser = (row: UsersListRow) => {
+		if (typeof window === 'undefined' || window.innerWidth >= 640) return;
+		selectedUserForDetail = row;
+		isMobileDetailOpen = true;
+	};
+
+	const handlePreviewUserKeydown = (event: KeyboardEvent, row: UsersListRow) => {
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault();
+		handlePreviewUser(row);
 	};
 </script>
 
-<div class="space-y-6">
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-foreground text-2xl font-semibold">Users</h1>
-			<p class="text-muted-fg text-sm">Invite teammates and adjust their permissions.</p>
-		</div>
-		<div class="ml-auto flex flex-wrap items-center gap-2">
-			{#if canCreateUsers}
+<div class="relative space-y-6">
+	<div class="absolute right-0 top-0 z-10 flex items-center gap-2">
+		{#if canCreateUsers}
+			<div class="bg-primary inline-flex items-center rounded-sm p-1">
 				<Button
-					variant="primary"
-					size="md"
 					type="button"
-					onclick={() => {
-						feedback = null;
-						editMode = 'create';
-						editUser = {
-							id: '',
-							first_name: '',
-							last_name: '',
-							email: '',
-							roles: ['talent'],
-							avatar_url: null,
-							active: true,
-							linked_talent_id: null,
-							organisation_id: null
-						};
-						isModalOpen = true;
-						void loadTalentOptions();
-					}}
+					variant="primary"
+					size="sm"
+					class="px-3"
+					onclick={openCreateUserModal}
 				>
 					Create user
 				</Button>
-			{/if}
+			</div>
+		{/if}
+		<div class="border-border bg-card inline-flex rounded-sm border p-1">
+			<button
+				type="button"
+				onclick={toggleFilters}
+				class="rounded-xs relative inline-flex cursor-pointer items-center justify-center p-1.5 transition-colors {filtersOpen
+					? 'border-primary bg-primary hover:bg-primary/90 text-white'
+					: 'text-primary hover:bg-primary/20 border-transparent bg-transparent'}"
+				aria-label="Toggle filters"
+			>
+				<SlidersHorizontal size={16} />
+			</button>
+		</div>
+		<div class="border-border bg-card inline-flex rounded-sm border p-1">
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				onclick={() => setUsersViewMode('grid')}
+				class={`px-2 ${
+					usersViewMode === 'grid'
+						? 'border-primary bg-primary hover:bg-primary/90 text-white hover:text-white'
+						: 'border-transparent bg-transparent'
+				}`}
+			>
+				<LayoutGrid size={16} />
+			</Button>
+			<Button
+				type="button"
+				variant="outline"
+				size="sm"
+				onclick={() => setUsersViewMode('list')}
+				class={`px-2 ${
+					usersViewMode === 'list'
+						? 'border-primary bg-primary hover:bg-primary/90 text-white hover:text-white'
+						: 'border-transparent bg-transparent'
+				}`}
+			>
+				<List size={16} />
+			</Button>
 		</div>
 	</div>
+
+	<header>
+		<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Users</h1>
+		<p class="text-muted-fg mt-3 text-lg">
+			Invite teammates, manage access, and review active accounts across your organisations.
+		</p>
+	</header>
+
+	{#if filtersOpen}
+		<div
+			transition:slide={{ duration: 300, easing: cubicOut }}
+			class="border-border bg-card rounded-none border p-6"
+		>
+			<div class="grid gap-6 md:grid-cols-3">
+				{#if organisationFilterOptions.length > 0}
+					<div>
+						<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">
+							Organisation
+						</h2>
+						<div class="w-64 max-w-full">
+							<DropdownCheckbox
+								label="Organisations"
+								hideLabel
+								placeholder="Organisations"
+								options={organisationFilterOptions}
+								selectedValues={selectedOrganisationIds}
+								onchange={handleOrganisationFilterChange}
+								variant="outline"
+								size="sm"
+								search
+								searchPlaceholder="Search organisations"
+							/>
+						</div>
+					</div>
+				{/if}
+
+				<div>
+					<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">Roles</h2>
+					<div class="w-64 max-w-full">
+						<DropdownCheckbox
+							label="Roles"
+							hideLabel
+							placeholder="Roles"
+							options={roleFilterOptions}
+							selectedValues={selectedRoleFilters}
+							onchange={handleRoleFilterChange}
+							variant="outline"
+							size="sm"
+						/>
+					</div>
+				</div>
+
+				<div>
+					<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">Status</h2>
+					<div class="w-64 max-w-full">
+						<DropdownCheckbox
+							label="Statuses"
+							hideLabel
+							placeholder="Statuses"
+							options={statusFilterOptions}
+							selectedValues={selectedStatusFilters}
+							onchange={handleStatusFilterChange}
+							variant="outline"
+							size="sm"
+						/>
+					</div>
+				</div>
+			</div>
+		</div>
+	{/if}
 
 	{#if feedback}
 		<Alert variant={feedback.type === 'success' ? 'success' : 'destructive'} size="sm">
@@ -359,46 +717,157 @@
 	{/if}
 
 	{#if users.length === 0}
-		<p class="text-muted-fg text-sm font-medium">
-			No users yet. Invite your first teammate with Create user.
-		</p>
+		<div class="border-border bg-card rounded-sm border p-6">
+			<h2 class="text-foreground text-lg font-semibold">No users yet</h2>
+			<p class="text-muted-fg mt-2 text-sm">
+				Invite your first teammate to start managing access here.
+			</p>
+		</div>
+	{:else if filteredUsers.length === 0}
+		<div class="border-border bg-card rounded-sm border p-6">
+			<h2 class="text-foreground text-lg font-semibold">No users match the current filters</h2>
+			<p class="text-muted-fg mt-2 text-sm">
+				Try another organisation, role, or status combination.
+			</p>
+		</div>
+	{:else if usersViewMode === 'grid'}
+		<div class="mb-2">
+			<Input icon={Search} bind:value={searchQuery} placeholder="Search..." class="pl-9" />
+		</div>
+		<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+			{#each searchFilteredUserRows as row (row.id)}
+				<div
+					class="block h-full cursor-pointer sm:cursor-default"
+					role="button"
+					tabindex="0"
+					onclick={() => handlePreviewUser(row)}
+					onkeydown={(event) => handlePreviewUserKeydown(event, row)}
+				>
+					<Card
+						class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
+					>
+						<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
+							{#if row.avatar_url}
+								<img
+									src={getCardAvatarSrc(row.avatar_url)}
+									srcset={getCardAvatarSrcSet(row.avatar_url)}
+									sizes={supabaseImageSizes.avatarCard}
+									alt={row.fullName}
+									class="h-full w-full object-cover object-center transition-transform duration-500 hover:scale-105"
+									loading="lazy"
+									decoding="async"
+									onerror={(event) =>
+										applyImageFallbackOnce(event, getCardAvatarFallbackSrc(row.avatar_url))}
+								/>
+							{:else}
+								<div class="text-muted-fg flex h-full w-full items-center justify-center">
+									<User size={48} />
+								</div>
+							{/if}
+						</div>
+						<div class="flex flex-1 flex-col p-5">
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<h3 class="text-foreground truncate text-lg font-semibold">{row.fullName}</h3>
+									<p class="text-muted-fg mt-1 truncate text-sm">{row.email || 'No email'}</p>
+								</div>
+								{#if row.active}
+									<Badge variant="success" size="xs">Active</Badge>
+								{:else}
+									<Badge variant="destructive" size="xs">Inactive</Badge>
+								{/if}
+							</div>
+
+							<div class="mt-3 flex flex-wrap gap-1">
+								{#each row.roles as role (role)}
+									<Badge variant="default" size="xs" class="uppercase tracking-wide">
+										{formatRoleLabel(role)}
+									</Badge>
+								{/each}
+							</div>
+
+							<div class="mt-auto flex items-end justify-between gap-3 pt-4">
+								<div class="min-w-0">
+									<p class="text-muted-fg text-xs font-medium uppercase tracking-wide">
+										Organisation
+									</p>
+									<p class="text-foreground truncate text-sm font-medium">
+										{row.organisation_label}
+									</p>
+								</div>
+
+								{#if canEditUsers}
+									<Button
+										variant="outline"
+										size="sm"
+										type="button"
+										aria-label={`Edit ${row.fullName}`}
+										onclick={(event) => {
+											event.stopPropagation();
+											openEditUserModal(row.source);
+										}}
+										class="gap-0 sm:gap-1.5"
+									>
+										<Pencil size={14} />
+										<span class="sr-only sm:not-sr-only">Edit</span>
+									</Button>
+								{/if}
+							</div>
+						</div>
+					</Card>
+				</div>
+			{/each}
+		</div>
+		{#if searchQuery && searchFilteredUserRows.length === 0}
+			<div class="text-muted-fg flex justify-center p-6 text-sm font-medium">
+				No results for: {searchQuery}
+			</div>
+		{/if}
 	{:else}
-		<SuperList instance={userListHandler} emptyMessage="No users found">
+		<SuperList instance={userListHandler} emptyMessage="No users match the current filters">
 			{#each userListHandler.data as row (row.id)}
-				<Row.Root onclick={() => handleRowClick(row)} class="cursor-pointer sm:cursor-default">
-					<Cell.Value width={5} class="hidden sm:block">
+				<Row.Root onclick={() => handlePreviewUser(row)} class="cursor-pointer sm:cursor-default">
+					<Cell.Value width={6} class="hidden sm:block">
 						<Cell.Avatar src={row.avatar_url} alt={row.fullName} size={36} />
 					</Cell.Value>
-					<Cell.Value width={20} class="mobile-fill-cell">
+					<Cell.Value width={24} class="mobile-fill-cell">
 						<span class="text-foreground truncate text-sm font-semibold">{row.fullName}</span>
 					</Cell.Value>
-					<Cell.Value width={25} class="hidden sm:block">
+					<Cell.Value width={20} class="hidden sm:block">
 						<span class="text-muted-fg truncate text-xs">{row.email}</span>
 					</Cell.Value>
 					<Cell.Value width={18} class="mobile-fill-cell">
-						<span class="text-foreground text-sm font-medium">
-							{row.organisation_name ?? 'Unassigned'}
+						<span class="text-foreground truncate text-sm font-medium">
+							{row.organisation_label}
 						</span>
 					</Cell.Value>
-					<Cell.Value width={17} class="hidden sm:block">
+					<Cell.Value width={18} class="hidden sm:block">
 						<div class="flex flex-wrap gap-1">
 							{#each row.roles as role (role)}
-								<Badge variant="default" size="xs" class="uppercase tracking-wide">
-									{role.replace('_', ' ')}
-								</Badge>
+								{@const RoleIcon = getRoleIcon(role)}
+								<span
+									class="text-muted-fg hover:text-foreground inline-flex cursor-default transition-colors"
+									use:tooltip={getRoleLabel(role)}
+								>
+									<RoleIcon size={16} />
+								</span>
 							{/each}
 						</div>
 					</Cell.Value>
-					<Cell.Value width={5} class="hidden sm:block">
+					<Cell.Value width={8} class="hidden sm:block">
 						{#if row.active}
-							<Badge variant="success" size="xs">Active</Badge>
+							<span class="inline-flex cursor-default text-emerald-500" use:tooltip={'Active'}>
+								<CircleCheck size={16} />
+							</span>
 						{:else}
-							<Badge variant="destructive" size="xs">Inactive</Badge>
+							<span class="inline-flex cursor-default text-red-500" use:tooltip={'Inactive'}>
+								<CircleX size={16} />
+							</span>
 						{/if}
 					</Cell.Value>
-					<Cell.Value width={10} class="mobile-action-cell">
+					<Cell.Value width={6} class="mobile-action-cell">
 						{#if canEditUsers}
-							<div class="flex justify-end gap-2">
+							<div class="flex justify-end gap-2 pl-2">
 								<Button
 									variant="outline"
 									size="sm"
@@ -406,10 +875,7 @@
 									aria-label={`Edit ${row.fullName}`}
 									onclick={(event) => {
 										event.stopPropagation();
-										editMode = 'edit';
-										editUser = toEditableUser(row.source);
-										isModalOpen = true;
-										void loadTalentOptions();
+										openEditUserModal(row.source);
 									}}
 									class="gap-0 sm:gap-1.5"
 								>
@@ -434,7 +900,7 @@
 	{canEditUsers}
 	initial={editUser ?? undefined}
 	canDelete={Boolean(editUser && canDeleteRow(editUser))}
-	on:success={handleUserCreated}
+	on:success={handleUserSaved}
 	on:error={handleCreateError}
 	on:requestDelete={(event) => {
 		void handleDeleteUserById(event.detail.userId);
@@ -442,7 +908,6 @@
 	on:close={() => (isModalOpen = false)}
 />
 
-<!-- Mobile user detail drawer -->
 <Drawer variant="bottom" bind:open={isMobileDetailOpen} title="User Details" dismissable>
 	{#if selectedUserForDetail}
 		<div class="space-y-4 pb-6">
@@ -479,7 +944,7 @@
 				<div>
 					<p class="text-muted-fg text-xs font-medium uppercase tracking-wide">Organisation</p>
 					<p class="text-foreground text-sm font-medium">
-						{selectedUserForDetail.organisation_name ?? 'Unassigned'}
+						{selectedUserForDetail.organisation_label}
 					</p>
 				</div>
 
@@ -488,7 +953,7 @@
 					<div class="mt-1 flex flex-wrap gap-1">
 						{#each selectedUserForDetail.roles as role (role)}
 							<Badge variant="default" size="xs" class="uppercase tracking-wide">
-								{role.replace('_', ' ')}
+								{formatRoleLabel(role)}
 							</Badge>
 						{/each}
 					</div>
@@ -517,10 +982,7 @@
 							onclick={() => {
 								if (!selectedUserForDetail) return;
 								isMobileDetailOpen = false;
-								editMode = 'edit';
-								editUser = toEditableUser(selectedUserForDetail.source);
-								isModalOpen = true;
-								void loadTalentOptions();
+								openEditUserModal(selectedUserForDetail.source);
 							}}
 						>
 							<Pencil size={16} />
