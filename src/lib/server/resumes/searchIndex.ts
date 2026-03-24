@@ -16,7 +16,6 @@ const MAX_FIELD_WEIGHT = 10;
 const MAX_MATCHED_TECHS = 5;
 const MAX_REASONS = 3;
 const MAX_SNIPPET_LENGTH = 160;
-const MAX_VISIBLE_QUERY_TERMS = 8;
 const MIN_VISIBLE_TERM_COVERAGE = 0.55;
 
 const TECH_FIELD_KINDS = new Set<SearchFieldKind>([
@@ -875,12 +874,10 @@ export const searchResumeIndex = (
 				(left, right) =>
 					(coverageByToken.get(right.normalized) ?? 0) - (coverageByToken.get(left.normalized) ?? 0)
 			)
-			.map((term) => term.display)
-			.slice(0, MAX_VISIBLE_QUERY_TERMS);
+			.map((term) => term.display);
 		const missingTerms = parsedQuery.terms
 			.filter((term) => (coverageByToken.get(term.normalized) ?? 0) < MIN_VISIBLE_TERM_COVERAGE)
-			.map((term) => term.display)
-			.slice(0, MAX_VISIBLE_QUERY_TERMS);
+			.map((term) => term.display);
 		const queryTechTerms = getQueryTechTerms(parsedQuery);
 		const matchedQueryTechs = queryTechTerms
 			.filter((term) => (coverageByToken.get(term.normalized) ?? 0) >= MIN_VISIBLE_TERM_COVERAGE)
