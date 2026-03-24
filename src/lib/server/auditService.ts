@@ -7,7 +7,9 @@ export type AuditActionType =
 	| 'SHARING_APPROVED'
 	| 'LEGAL_ACCEPTED'
 	| 'TALENT_CREATED'
-	| 'ASSERTION_CONFIRMED';
+	| 'ASSERTION_CONFIRMED'
+	| 'TALENT_COMMENT_CREATED'
+	| 'TALENT_COMMENT_ARCHIVED';
 
 export type AuditLogPayload = {
 	actorUserId?: string | null;

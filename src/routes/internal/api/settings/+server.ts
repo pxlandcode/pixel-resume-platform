@@ -5,6 +5,7 @@ import {
 	isViewMode,
 	normalizeOrganisationFilterIds,
 	normalizeUserSettings,
+	type UserSettingsNavigationPatch,
 	type UserSettingsPatch,
 	type UserSettingsOrganisationFiltersPatch,
 	type UserSettingsViewsPatch
@@ -109,6 +110,41 @@ const parseOrganisationFiltersPatch = (
 	return { ok: true, patch };
 };
 
+const parseNavigationPatch = (
+	value: unknown
+):
+	| { ok: true; patch: UserSettingsNavigationPatch }
+	| {
+			ok: false;
+			message: string;
+	  } => {
+	if (!isRecord(value)) {
+		return { ok: false, message: '"navigation" must be an object.' };
+	}
+
+	const allowedKeys = new Set(['sidebarCollapsed']);
+	const keys = Object.keys(value);
+	if (keys.length === 0) {
+		return { ok: false, message: '"navigation" requires at least one key.' };
+	}
+
+	const patch: UserSettingsNavigationPatch = {};
+	for (const key of keys) {
+		if (!allowedKeys.has(key)) {
+			return { ok: false, message: `Unsupported navigation key "${key}".` };
+		}
+
+		if (key === 'sidebarCollapsed') {
+			if (typeof value.sidebarCollapsed !== 'boolean') {
+				return { ok: false, message: '"navigation.sidebarCollapsed" must be a boolean.' };
+			}
+			patch.sidebarCollapsed = value.sidebarCollapsed;
+		}
+	}
+
+	return { ok: true, patch };
+};
+
 const parseSettingsPatch = (
 	value: unknown
 ):
@@ -122,7 +158,7 @@ const parseSettingsPatch = (
 	}
 
 	const topLevelKeys = Object.keys(value);
-	const allowedTopLevelKeys = new Set(['views', 'organisationFilters']);
+	const allowedTopLevelKeys = new Set(['views', 'organisationFilters', 'navigation']);
 	if (topLevelKeys.length === 0) {
 		return { ok: false, message: 'At least one settings field is required.' };
 	}
@@ -143,6 +179,12 @@ const parseSettingsPatch = (
 			const parsed = parseOrganisationFiltersPatch(value.organisationFilters);
 			if (!parsed.ok) return parsed;
 			patch.organisationFilters = parsed.patch;
+		}
+
+		if (key === 'navigation') {
+			const parsed = parseNavigationPatch(value.navigation);
+			if (!parsed.ok) return parsed;
+			patch.navigation = parsed.patch;
 		}
 	}
 

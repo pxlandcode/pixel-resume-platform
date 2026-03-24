@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Card } from '@pixelcode_/blocks/components';
+	import { onMount } from 'svelte';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
 	import {
 		applyImageFallbackOnce,
@@ -135,7 +136,7 @@
 		}
 	};
 
-	$effect(() => {
+	onMount(() => {
 		if (isTalentOnly) return;
 		if (panelsStatus !== 'idle') return;
 		void loadDashboardPanels();
@@ -260,14 +261,12 @@
 				</Card>
 			</a>
 		</div>
-	{/if}
 
-	{#if !isTalentOnly}
 		<!-- Recent Resumes & Available Soon -->
 		<div class="grid gap-6 lg:grid-cols-2">
 			<!-- Recent Resumes -->
-			<Card class="rounded-sm p-5">
-				<div class="mb-4 flex items-center justify-between">
+			<Card class="min-w-0 rounded-sm p-5">
+				<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
 					<h2 class="text-foreground flex items-center gap-2 font-semibold">
 						<Clock size={18} class="text-muted-fg" />
 						Recently Updated
@@ -285,7 +284,7 @@
 						{#each recentResumes as resume (resume.id)}
 							<a
 								href={resolve('/resumes/[personId]', { personId: resume.talentId })}
-								class="hover:bg-muted -mx-2 flex items-center gap-3 rounded-sm px-2 py-2 transition-colors"
+								class="hover:bg-muted -mx-2 grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-sm px-2 py-2 transition-colors sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center"
 							>
 								<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
 									{#if resume.talentAvatarUrl}
@@ -298,7 +297,10 @@
 											loading="lazy"
 											decoding="async"
 											onerror={(event) =>
-												applyImageFallbackOnce(event, listAvatarFallbackSrc(resume.talentAvatarUrl))}
+												applyImageFallbackOnce(
+													event,
+													listAvatarFallbackSrc(resume.talentAvatarUrl)
+												)}
 										/>
 									{:else}
 										<User size={18} class="text-muted-fg" />
@@ -310,7 +312,9 @@
 										{resume.versionName || 'Main resume'}
 									</p>
 								</div>
-								<span class="text-muted-fg shrink-0 text-xs">{formatDate(resume.updatedAt)}</span>
+								<span class="text-muted-fg col-start-2 text-xs sm:col-auto sm:justify-self-end">
+									{formatDate(resume.updatedAt)}
+								</span>
 							</a>
 						{/each}
 					</div>
@@ -318,8 +322,8 @@
 			</Card>
 
 			<!-- Available Soon -->
-			<Card class="rounded-sm p-5">
-				<div class="mb-4 flex items-center justify-between">
+			<Card class="min-w-0 rounded-sm p-5">
+				<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
 					<h2 class="text-foreground flex items-center gap-2 font-semibold">
 						<CalendarCheck size={18} class="text-muted-fg" />
 						Available Soon
@@ -337,7 +341,7 @@
 						{#each availableSoon as consultant (consultant.id)}
 							<a
 								href={resolve('/resumes/[personId]', { personId: consultant.id })}
-								class="hover:bg-muted -mx-2 flex items-center gap-3 rounded-sm px-2 py-2 transition-colors"
+								class="hover:bg-muted -mx-2 grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-sm px-2 py-2 transition-colors sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center"
 							>
 								<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
 									{#if consultant.avatarUrl}
@@ -361,10 +365,11 @@
 									<ConsultantAvailabilityPills compact availability={consultant.availability} />
 								</div>
 								<span
-									class="shrink-0 rounded-sm bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700"
+									class="col-start-2 w-fit rounded-sm bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 sm:col-auto sm:justify-self-end"
 								>
 									{formatRelativeDate(
-										consultant.availability.switchFromDate ?? consultant.availability.plannedFromDate
+										consultant.availability.switchFromDate ??
+											consultant.availability.plannedFromDate
 									)}
 								</span>
 							</a>

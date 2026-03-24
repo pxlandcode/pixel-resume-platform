@@ -3,8 +3,8 @@
 	import favicon from '$lib/assets/and.svg';
 	import { page, navigating } from '$app/stores';
 	import { siteMeta, withMetaDefaults } from '$lib/seo';
-	import ResumeLayout from '$lib/components/resume-layout/resume-layout.svelte';
-	import type { AdminRole } from '$lib/components/resume-layout/resume-layout.svelte';
+	import MenuLayout from '$lib/components/menu-layout/menu-layout.svelte';
+	import type { AdminRole } from '$lib/components/menu-layout/types';
 	import { Mode } from '@pixelcode_/blocks/components';
 	import { loadingStore } from '$lib/stores/loading';
 	import { userSettingsStore } from '$lib/stores/userSettings';
@@ -387,7 +387,7 @@
 {/if}
 
 {#if showActivityIndicator}
-	<div class="fixed bottom-6 left-6 z-40">
+	<div class="fixed bottom-6 left-6 z-[60] sm:left-auto sm:right-6">
 		<div class="group relative">
 			{#if indicatorCanOpenImport}
 				<a
@@ -420,7 +420,7 @@
 			{/if}
 
 			<div
-				class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-64 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+				class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-64 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100 sm:left-auto sm:right-0"
 			>
 				<div class="flex flex-col gap-2">
 					{#if hasDownloadActivityCard}
@@ -479,7 +479,7 @@
 	{@render children?.()}
 {:else}
 	<div class="internal-root" style={brandingInlineStyle}>
-		<ResumeLayout
+		<MenuLayout
 			profile={data.profile}
 			role={layoutRole}
 			roles={layoutRoles}
@@ -488,7 +488,7 @@
 			{unauthorizedMessage}
 		>
 			{@render children?.()}
-		</ResumeLayout>
+		</MenuLayout>
 	</div>
 {/if}
 

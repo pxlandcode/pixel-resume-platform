@@ -15,6 +15,15 @@ import {
 	parseAvailabilityForm,
 	validateAvailability
 } from '$lib/server/consultantAvailability';
+import { resolveHomeOrganisationId } from '$lib/server/homeOrganisation';
+import {
+	TalentCommentServiceError,
+	archiveTalentComment,
+	canCreateTalentComment,
+	createTalentComment,
+	listVisibleTalentComments,
+	loadActiveTalentCommentTypes
+} from '$lib/server/talentComments';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 
@@ -59,11 +68,17 @@ const ensureLegalAcceptanceForAction = async (
 		return { ok: false as const, status: 401, message: 'Unauthorized' };
 	}
 
+	const resolvedHomeOrganisationId = await resolveHomeOrganisationId({
+		adminClient,
+		homeOrganisationId: actor.homeOrganisationId,
+		talentId: actor.talentId
+	});
+
 	try {
 		await assertAcceptedForSensitiveAction({
 			adminClient,
 			userId: actor.userId,
-			homeOrganisationId: actor.homeOrganisationId
+			homeOrganisationId: resolvedHomeOrganisationId
 		});
 	} catch (acceptanceError) {
 		return {
@@ -97,11 +112,11 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 	}
 
 	const talentId = params.personId;
-	const { canView, canEdit, canEditAll, isOwnProfile } = await getResumeEditPermissions(
-		supabase,
-		adminClient,
-		talentId
-	);
+	const [actor, permissions] = await Promise.all([
+		getActorAccessContext(supabase, adminClient),
+		getResumeEditPermissions(supabase, adminClient, talentId)
+	]);
+	const { canView, canEdit, canEditAll, isOwnProfile } = permissions;
 	if (!canView) {
 		throw error(403, 'Not authorized to view this talent.');
 	}
@@ -110,7 +125,9 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 		{ data: profile, error: profileError },
 		resumesResult,
 		availabilityResult,
-		orgMembershipResult
+		orgMembershipResult,
+		commentTypes,
+		commentHistory
 	] = await Promise.all([
 		adminClient
 			.from('talents')
@@ -133,7 +150,14 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 			.from('organisation_talents')
 			.select('organisation_id')
 			.eq('talent_id', talentId)
-			.maybeSingle()
+			.maybeSingle(),
+		loadActiveTalentCommentTypes(adminClient),
+		listVisibleTalentComments({
+			adminClient,
+			talentId,
+			actor,
+			permissions
+		})
 	]);
 
 	if (profileError) {
@@ -230,6 +254,16 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 		profile: profile ?? null,
 		availability: normalizeAvailabilityRow(availabilityResult.data),
 		resumes,
+		commentTypes,
+		commentHistory,
+		latestComments: commentHistory.slice(0, 3),
+		commentCount: commentHistory.length,
+		canCreateComment:
+			commentTypes.length > 0 &&
+			canCreateTalentComment(actor, {
+				canView: permissions.canView,
+				isOwnProfile: permissions.isOwnProfile
+			}),
 		fromDb: Boolean(profile),
 		canView,
 		canEdit,
@@ -348,6 +382,161 @@ export const actions: Actions = {
 		}
 
 		return { ok: true, type: 'updateProfile', message: 'Profile updated.' };
+	},
+	createComment: async ({ request, cookies, params }) => {
+		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+		const adminClient = getSupabaseAdminClient();
+
+		if (!supabase || !adminClient) {
+			return fail(401, {
+				ok: false,
+				type: 'createComment',
+				message: 'Unauthorized'
+			});
+		}
+
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, {
+				ok: false,
+				type: 'createComment',
+				message: legalCheck.message
+			});
+		}
+
+		const formData = await request.formData();
+		const commentTypeId = formData.get('comment_type_id');
+		const commentBody = formData.get('comment_body');
+		const talentId = getTargetTalentId(formData, params.personId);
+
+		if (typeof talentId !== 'string') {
+			return fail(400, {
+				ok: false,
+				type: 'createComment',
+				message: 'Invalid talent id.'
+			});
+		}
+		if (typeof commentTypeId !== 'string') {
+			return fail(400, {
+				ok: false,
+				type: 'createComment',
+				message: 'Choose a comment type.',
+				comment_body: typeof commentBody === 'string' ? commentBody : '',
+				comment_type_id: ''
+			});
+		}
+		if (typeof commentBody !== 'string') {
+			return fail(400, {
+				ok: false,
+				type: 'createComment',
+				message: 'Enter a comment.',
+				comment_body: '',
+				comment_type_id: commentTypeId
+			});
+		}
+
+		const [actor, permissions] = await Promise.all([
+			getActorAccessContext(supabase, adminClient),
+			getResumeEditPermissions(supabase, adminClient, talentId)
+		]);
+
+		try {
+			await createTalentComment({
+				adminClient,
+				talentId,
+				commentTypeId,
+				bodyText: commentBody,
+				actor,
+				permissions
+			});
+		} catch (serviceError) {
+			const status = serviceError instanceof TalentCommentServiceError ? serviceError.status : 500;
+			return fail(status, {
+				ok: false,
+				type: 'createComment',
+				message:
+					serviceError instanceof Error ? serviceError.message : 'Could not add comment right now.',
+				comment_body: commentBody,
+				comment_type_id: commentTypeId
+			});
+		}
+
+		return {
+			ok: true,
+			type: 'createComment',
+			message: 'Comment added.'
+		};
+	},
+	archiveComment: async ({ request, cookies, params }) => {
+		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+		const adminClient = getSupabaseAdminClient();
+
+		if (!supabase || !adminClient) {
+			return fail(401, {
+				ok: false,
+				type: 'archiveComment',
+				message: 'Unauthorized'
+			});
+		}
+
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, {
+				ok: false,
+				type: 'archiveComment',
+				message: legalCheck.message
+			});
+		}
+
+		const formData = await request.formData();
+		const commentId = formData.get('comment_id');
+		const talentId = getTargetTalentId(formData, params.personId);
+
+		if (typeof talentId !== 'string') {
+			return fail(400, {
+				ok: false,
+				type: 'archiveComment',
+				message: 'Invalid talent id.'
+			});
+		}
+		if (typeof commentId !== 'string') {
+			return fail(400, {
+				ok: false,
+				type: 'archiveComment',
+				message: 'Invalid comment id.'
+			});
+		}
+
+		const [actor, permissions] = await Promise.all([
+			getActorAccessContext(supabase, adminClient),
+			getResumeEditPermissions(supabase, adminClient, talentId)
+		]);
+
+		try {
+			await archiveTalentComment({
+				adminClient,
+				commentId,
+				talentId,
+				actor,
+				permissions
+			});
+		} catch (serviceError) {
+			const status = serviceError instanceof TalentCommentServiceError ? serviceError.status : 500;
+			return fail(status, {
+				ok: false,
+				type: 'archiveComment',
+				message:
+					serviceError instanceof Error
+						? serviceError.message
+						: 'Could not archive comment right now.'
+			});
+		}
+
+		return {
+			ok: true,
+			type: 'archiveComment',
+			message: 'Comment archived.'
+		};
 	},
 	createResume: async ({ request, cookies, params }) => {
 		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);

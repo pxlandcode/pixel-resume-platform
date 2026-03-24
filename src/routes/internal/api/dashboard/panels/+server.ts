@@ -5,6 +5,7 @@ import {
 	PROFILE_AVAILABILITY_SELECT,
 	normalizeAvailabilityRow
 } from '$lib/server/consultantAvailability';
+import { getEarliestAvailabilityDate } from '$lib/utils/availability';
 import { getAccessibleTalentIds } from '$lib/server/access';
 
 const CACHE_TTL_MS = 60_000;
@@ -222,9 +223,7 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 				if (!availability?.hasData) continue;
 				if (availability.nowPercent && availability.nowPercent >= 50) continue;
 
-				const switchDate = availability.switchFromDate;
-				const plannedDate = availability.plannedFromDate;
-				const relevantDate = switchDate ?? plannedDate;
+				const relevantDate = getEarliestAvailabilityDate(availability);
 				if (!relevantDate || relevantDate > thirtyDaysIso) continue;
 
 				const futurePercent = availability.futurePercent ?? 100;
@@ -243,10 +242,8 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 			}
 
 			availableSoon.sort((left, right) => {
-				const leftDate =
-					left.availability.switchFromDate ?? left.availability.plannedFromDate ?? '';
-				const rightDate =
-					right.availability.switchFromDate ?? right.availability.plannedFromDate ?? '';
+				const leftDate = getEarliestAvailabilityDate(left.availability) ?? '';
+				const rightDate = getEarliestAvailabilityDate(right.availability) ?? '';
 				return leftDate.localeCompare(rightDate);
 			});
 

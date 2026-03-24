@@ -310,6 +310,36 @@ function createUserSettingsStore() {
 		await persistPatch(requestUserId, requestSequence, patch);
 	};
 
+	const setSidebarCollapsed = async (collapsed: boolean) => {
+		const current = getState();
+		if (current.settings.navigation.sidebarCollapsed === collapsed) return;
+
+		const patch: UserSettingsPatch = {
+			navigation: {
+				sidebarCollapsed: collapsed
+			}
+		};
+		const nextSettings = applyUserSettingsPatch(current.settings, patch);
+
+		update((state) =>
+			state.userId === current.userId
+				? {
+						...state,
+						settings: nextSettings,
+						source: state.userId ? 'local' : state.source
+					}
+				: state
+		);
+
+		if (!current.userId) return;
+
+		writeLocalSettings(current.userId, nextSettings, current.updatedAt);
+
+		const requestUserId = current.userId;
+		const requestSequence = ++patchSequence;
+		await persistPatch(requestUserId, requestSequence, patch);
+	};
+
 	const reset = () => {
 		activeUserId = null;
 		patchSequence += 1;
@@ -322,6 +352,7 @@ function createUserSettingsStore() {
 		syncFromServer,
 		setViewMode,
 		setOrganisationFilters,
+		setSidebarCollapsed,
 		reset
 	};
 }

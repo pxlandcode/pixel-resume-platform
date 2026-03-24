@@ -1,7 +1,17 @@
 import type { PageServerLoad } from './$types';
 import { getAccessibleTalentIds } from '$lib/server/access';
+import {
+	PROFILE_AVAILABILITY_SELECT,
+	normalizeAvailabilityRow
+} from '$lib/server/consultantAvailability';
 
 const emptyStats = { totalTalents: 0, totalResumes: 0, availableNow: 0 };
+
+const countAvailableNow = (rows: Array<unknown> | null | undefined) =>
+	(rows ?? []).reduce<number>((count, row) => {
+		const availability = normalizeAvailabilityRow(row);
+		return availability.nowPercent && availability.nowPercent > 0 ? count + 1 : count;
+	}, 0);
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const requestContext = locals.requestContext;
@@ -29,8 +39,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			adminClient.from('resumes').select('id', { count: 'exact', head: true }),
 			adminClient
 				.from('profile_availability')
-				.select('profile_id', { count: 'exact', head: true })
-				.gt('availability_now_percent', 0)
+				.select(PROFILE_AVAILABILITY_SELECT)
 		]);
 
 		if (talentsCountResult.error) {
@@ -43,9 +52,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			console.warn('[dashboard] availability count failed', availabilityCountResult.error);
 		}
 
-		totalTalents = talentsCountResult.count ?? 0;
-		totalResumes = resumesCountResult.count ?? 0;
-		availableNow = availabilityCountResult.count ?? 0;
+		totalTalents = Number(talentsCountResult.count ?? 0);
+		totalResumes = Number(resumesCountResult.count ?? 0);
+		availableNow = countAvailableNow(availabilityCountResult.data);
 	} else {
 		totalTalents = accessibleTalentIds.length;
 
@@ -57,9 +66,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 					.in('talent_id', accessibleTalentIds),
 				adminClient
 					.from('profile_availability')
-					.select('profile_id', { count: 'exact', head: true })
+					.select(PROFILE_AVAILABILITY_SELECT)
 					.in('profile_id', accessibleTalentIds)
-					.gt('availability_now_percent', 0)
 			]);
 
 			if (resumesCountResult.error) {
@@ -69,8 +77,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 				console.warn('[dashboard] scoped availability count failed', availabilityCountResult.error);
 			}
 
-			totalResumes = resumesCountResult.count ?? 0;
-			availableNow = availabilityCountResult.count ?? 0;
+			totalResumes = Number(resumesCountResult.count ?? 0);
+			availableNow = countAvailableNow(availabilityCountResult.data);
 		}
 	}
 

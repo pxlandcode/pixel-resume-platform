@@ -17,3 +17,4 @@ export { ResumeSkills } from './ResumeSkills';
 export { ResumeOther } from './ResumeOther';
 export { ResumeFooter } from './ResumeFooter';
 export { ResumeAiWriterDrawer } from './ResumeAiWriterDrawer';
+export * from './TalentProfile';
