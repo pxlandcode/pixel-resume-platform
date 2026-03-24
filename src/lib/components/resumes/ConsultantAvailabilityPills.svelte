@@ -86,9 +86,9 @@
 
 {#if compact}
 	<!-- Compact: single badge for cards -->
-	<div class="flex flex-col gap-1">
+	<div class="flex min-w-0 max-w-full flex-col gap-1">
 		<span
-			class="inline-flex w-fit items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium
+			class="inline-flex max-w-full items-center gap-1.5 px-2 py-0.5 text-[11px] font-medium
 				{statusColor === 'emerald'
 				? 'bg-emerald-100 text-emerald-700'
 				: statusColor === 'amber'
@@ -110,7 +110,7 @@
 			{statusLabel}
 		</span>
 		{#if secondaryInfo}
-			<span class="text-secondary-text text-[11px]">{secondaryInfo}</span>
+			<span class="text-secondary-text max-w-full break-words text-[11px]">{secondaryInfo}</span>
 		{/if}
 	</div>
 {:else}

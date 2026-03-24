@@ -287,6 +287,168 @@
 							<a
 								href={resolve('/resumes/[personId]', { personId: resume.talentId })}
 								class="hover:bg-muted -mx-2 flex items-center gap-3 rounded-sm px-2 py-2 transition-colors"
+	<!-- Stats -->
+	<div class="grid gap-4 sm:grid-cols-3">
+		<a href={resolve('/talents')}>
+			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
+				<div class="flex items-start gap-4">
+					<div
+						class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-blue-500 text-white"
+					>
+						<Users size={24} />
+					</div>
+					<div>
+						<p class="text-muted-fg text-sm">Total Talents</p>
+						<p class="text-foreground text-2xl font-bold">{stats.totalTalents}</p>
+					</div>
+				</div>
+				<ArrowRight
+					size={20}
+					class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
+				/>
+			</Card>
+		</a>
+		<a href={resolve('/resumes')}>
+			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
+				<div class="flex items-start gap-4">
+					<div
+						class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-emerald-500 text-white"
+					>
+						<FileText size={24} />
+					</div>
+					<div>
+						<p class="text-muted-fg text-sm">Total Resumes</p>
+						<p class="text-foreground text-2xl font-bold">{stats.totalResumes}</p>
+					</div>
+				</div>
+				<ArrowRight
+					size={20}
+					class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
+				/>
+			</Card>
+		</a>
+		<a href={resolve('/resumes')}>
+			<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
+				<div class="flex items-start gap-4">
+					<div
+						class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-amber-500 text-white"
+					>
+						<CalendarCheck size={24} />
+					</div>
+					<div>
+						<p class="text-muted-fg text-sm">Available Now</p>
+						<p class="text-foreground text-2xl font-bold">{stats.availableNow}</p>
+					</div>
+				</div>
+				<ArrowRight
+					size={20}
+					class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
+				/>
+			</Card>
+		</a>
+	</div>
+
+	<!-- Recent Resumes & Available Soon -->
+	<div class="grid gap-6 lg:grid-cols-2">
+		<!-- Recent Resumes -->
+		<Card class="min-w-0 rounded-sm p-5">
+			<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+				<h2 class="text-foreground flex items-center gap-2 font-semibold">
+					<Clock size={18} class="text-muted-fg" />
+					Recently Updated
+				</h2>
+				<a href={resolve('/resumes')} class="text-primary text-sm hover:underline">View all</a>
+			</div>
+			{#if panelsStatus === 'loading'}
+				<p class="text-muted-fg text-sm">Loading recent resumes...</p>
+			{:else if panelsError}
+				<p class="text-muted-fg text-sm">{panelsError}</p>
+			{:else if recentResumes.length === 0}
+				<p class="text-muted-fg text-sm">No resumes yet.</p>
+			{:else}
+				<div class="space-y-3">
+					{#each recentResumes as resume (resume.id)}
+						<a
+							href={resolve('/resumes/[personId]', { personId: resume.talentId })}
+							class="hover:bg-muted -mx-2 grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-sm px-2 py-2 transition-colors sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center"
+						>
+							<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
+								{#if resume.talentAvatarUrl}
+									<img
+										src={listAvatarSrc(resume.talentAvatarUrl)}
+										srcset={listAvatarSrcSet(resume.talentAvatarUrl)}
+										sizes="36px"
+										alt={resume.talentName}
+										class="h-9 w-9 rounded-sm object-cover"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, listAvatarFallbackSrc(resume.talentAvatarUrl))}
+									/>
+								{:else}
+									<User size={18} class="text-muted-fg" />
+								{/if}
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="text-foreground truncate text-sm font-medium">{resume.talentName}</p>
+								<p class="text-muted-fg truncate text-xs">
+									{resume.versionName || 'Main resume'}
+								</p>
+							</div>
+							<span class="text-muted-fg col-start-2 text-xs sm:col-auto sm:justify-self-end">
+								{formatDate(resume.updatedAt)}
+							</span>
+						</a>
+					{/each}
+				</div>
+			{/if}
+		</Card>
+
+		<!-- Available Soon -->
+		<Card class="min-w-0 rounded-sm p-5">
+			<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+				<h2 class="text-foreground flex items-center gap-2 font-semibold">
+					<CalendarCheck size={18} class="text-muted-fg" />
+					Available Soon
+				</h2>
+				<a href={resolve('/resumes')} class="text-primary text-sm hover:underline">Search</a>
+			</div>
+			{#if panelsStatus === 'loading'}
+				<p class="text-muted-fg text-sm">Loading upcoming availability...</p>
+			{:else if panelsError}
+				<p class="text-muted-fg text-sm">{panelsError}</p>
+			{:else if availableSoon.length === 0}
+				<p class="text-muted-fg text-sm">No consultants becoming available within 30 days.</p>
+			{:else}
+				<div class="space-y-3">
+					{#each availableSoon as consultant (consultant.id)}
+						<a
+							href={resolve('/resumes/[personId]', { personId: consultant.id })}
+							class="hover:bg-muted -mx-2 grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-sm px-2 py-2 transition-colors sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center"
+						>
+							<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
+								{#if consultant.avatarUrl}
+									<img
+										src={listAvatarSrc(consultant.avatarUrl)}
+										srcset={listAvatarSrcSet(consultant.avatarUrl)}
+										sizes="36px"
+										alt={consultant.name}
+										class="h-9 w-9 rounded-sm object-cover"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, listAvatarFallbackSrc(consultant.avatarUrl))}
+									/>
+								{:else}
+									<User size={18} class="text-muted-fg" />
+								{/if}
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="text-foreground truncate text-sm font-medium">{consultant.name}</p>
+								<ConsultantAvailabilityPills compact availability={consultant.availability} />
+							</div>
+							<span
+								class="col-start-2 w-fit rounded-sm bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 sm:col-auto sm:justify-self-end"
 							>
 								<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
 									{#if resume.talentAvatarUrl}

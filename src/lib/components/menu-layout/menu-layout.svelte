@@ -376,7 +376,7 @@
 				type="button"
 				variant="outline"
 				size="sm"
-				class="border-border bg-card text-foreground fixed bottom-4 left-4 z-50 inline-flex h-10 w-10 min-w-10 items-center justify-center rounded-sm p-0 md:hidden"
+				class="border-border bg-card text-foreground fixed bottom-4 right-4 z-50 inline-flex h-10 w-10 min-w-10 items-center justify-center rounded-sm p-0 md:hidden"
 				aria-controls="mobile-curtain-menu"
 				aria-expanded={isMobileMenuOpen ? 'true' : 'false'}
 				aria-label="Open menu"

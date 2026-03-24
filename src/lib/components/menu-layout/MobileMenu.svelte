@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Button, Input } from '@pixelcode_/blocks/components';
-	import { LogOut, Moon, Search, Settings, Sun, X } from 'lucide-svelte';
+	import { Input } from '@pixelcode_/blocks/components';
+	import { LogOut, Moon, Search, Settings, Sun } from 'lucide-svelte';
 	import { mode, toggleMode } from 'mode-watcher';
 	import type { QuickSearchSection } from '$lib/types/quickSearch';
 	import MenuQuickSearchResults from './MenuQuickSearchResults.svelte';
@@ -82,12 +82,12 @@
 	></button>
 
 	<aside
-		class={`border-border bg-card absolute left-0 top-0 flex h-dvh w-[min(88vw,320px)] flex-col overflow-y-auto border-r transition-transform duration-300 ${
-			isOpen ? 'translate-x-0' : '-translate-x-full'
+		class={`border-border bg-card absolute right-0 top-0 flex h-dvh w-[min(88vw,320px)] flex-col overflow-y-auto border-l transition-transform duration-300 ${
+			isOpen ? 'translate-x-0' : 'translate-x-full'
 		}`}
 	>
 		<div class="border-border border-b px-4 py-4">
-			<div class="flex items-start justify-between gap-3">
+			<div class="flex min-w-0 items-center gap-3">
 				<div class="flex min-w-0 items-center gap-3">
 					{#if showUserAvatar}
 						<img
@@ -114,17 +114,6 @@
 						{/if}
 					</div>
 				</div>
-
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					class="inline-flex h-10 w-10 min-w-10 items-center justify-center rounded-sm p-0 shadow-none"
-					aria-label="Close menu"
-					onclick={() => onclose?.()}
-				>
-					<X size={16} />
-				</Button>
 			</div>
 
 			<div class="mt-4">
