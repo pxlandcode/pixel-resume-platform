@@ -48,7 +48,6 @@ type BrandingCacheEntry = {
 	};
 };
 
-const DATA_CACHE_CONTROL = 'private, max-age=20, stale-while-revalidate=60';
 const PROFILE_CACHE_TTL_MS = 60_000;
 const BRANDING_CACHE_TTL_MS = 120_000;
 const DEFAULT_MAIN_FONT = resolveOrganisationMainFont(null);
@@ -209,7 +208,7 @@ const buildAnonymousResult = () => {
 	} satisfies LoadResult;
 };
 
-export const load: LayoutServerLoad = async ({ cookies, locals, setHeaders }) => {
+export const load: LayoutServerLoad = async ({ cookies, locals }) => {
 	const requestContext = locals.requestContext;
 	const accessToken = requestContext.accessToken;
 
@@ -222,11 +221,6 @@ export const load: LayoutServerLoad = async ({ cookies, locals, setHeaders }) =>
 		clearAuthCookies(cookies);
 		return buildAnonymousResult();
 	}
-
-	setHeaders({
-		'cache-control': DATA_CACHE_CONTROL,
-		vary: 'cookie'
-	});
 
 	try {
 		const authUser = await requestContext.getAuthenticatedUser();

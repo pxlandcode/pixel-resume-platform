@@ -1161,33 +1161,6 @@
 
 <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
 	<div class="mb-8">
-<<<<<<< HEAD
-		<div class="mb-6 flex items-center justify-between">
-			{#if !isTalentOnly}
-				<Button
-					variant="ghost"
-					href="/resumes"
-					class="hover:text-primary pl-0 hover:bg-transparent"
-				>
-					<ArrowLeft size={16} class="mr-2" />
-					Back to all talents
-				</Button>
-			{/if}
-
-			{#if profile && canEdit}
-				<div class="ml-auto flex gap-2">
-					{#if isEditing}
-						<Button type="button" variant="ghost" onclick={cancelProfileEdit}>Cancel</Button>
-						<Button form="profile-form" type="submit" variant="primary" disabled={avatarUploading}>
-							Save profile
-						</Button>
-					{:else}
-						<Button type="button" onclick={() => (isEditing = true)}>Edit profile</Button>
-					{/if}
-				</div>
-			{/if}
-		</div>
-=======
 		<TalentProfileHeader
 			hasProfile={Boolean(profile)}
 			{canEdit}
@@ -1196,7 +1169,6 @@
 			onStartEdit={startProfileEdit}
 			onCancelEdit={cancelProfileEdit}
 		/>
->>>>>>> 15bfdcd (Refactor code structure for improved readability and maintainability)
 
 		{#if profile}
 			<div class="flex flex-col gap-8 md:flex-row md:items-start">

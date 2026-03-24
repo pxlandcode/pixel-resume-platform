@@ -387,7 +387,7 @@
 {/if}
 
 {#if showActivityIndicator}
-	<div class="fixed bottom-6 left-6 z-40">
+	<div class="fixed bottom-6 left-6 z-[60] sm:left-auto sm:right-6">
 		<div class="group relative">
 			{#if indicatorCanOpenImport}
 				<a
@@ -420,7 +420,7 @@
 			{/if}
 
 			<div
-				class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-64 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100"
+				class="border-border bg-card text-foreground pointer-events-none invisible absolute bottom-full left-0 mb-2 w-64 rounded-lg border p-3 text-left text-sm opacity-0 shadow-xl transition-all group-hover:visible group-hover:opacity-100 sm:left-auto sm:right-0"
 			>
 				<div class="flex flex-col gap-2">
 					{#if hasDownloadActivityCard}
