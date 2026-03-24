@@ -10,6 +10,9 @@
 		Cell,
 		type SuperTableHead
 	} from '@pixelcode_/blocks/components';
+	import { CircleCheck, CircleX } from 'lucide-svelte';
+	import { getRoleLabel, getRoleIcon } from '$lib/types/roles';
+	import { tooltip } from '$lib/utils/tooltip';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -137,20 +140,34 @@
 				<Cell.Value class="py-4 align-top">
 					<div class="flex flex-wrap gap-2">
 						{#each row.roles as role (role)}
-							<Badge variant="default" size="xs" class="uppercase tracking-wide">
-								{role.replace('_', ' ')}
-							</Badge>
+							{@const RoleIcon = getRoleIcon(role)}
+							<span
+								class="text-muted-fg hover:text-foreground inline-flex cursor-default transition-colors"
+								use:tooltip={getRoleLabel(role)}
+							>
+								<RoleIcon size={16} />
+							</span>
 						{:else}
-							<Badge variant="default" size="xs" class="uppercase tracking-wide">talent</Badge>
+							<span
+								class="text-muted-fg hover:text-foreground inline-flex cursor-default transition-colors"
+								use:tooltip={getRoleLabel('talent')}
+							>
+								{@const TalentIcon = getRoleIcon('talent')}
+								<TalentIcon size={16} />
+							</span>
 						{/each}
 					</div>
 				</Cell.Value>
 
 				<Cell.Value class="py-4 align-top">
 					{#if row.active}
-						<Badge variant="success" size="xs">Active</Badge>
+						<span class="inline-flex cursor-default text-emerald-500" use:tooltip={'Active'}>
+							<CircleCheck size={16} />
+						</span>
 					{:else}
-						<Badge variant="destructive" size="xs">Inactive</Badge>
+						<span class="inline-flex cursor-default text-red-500" use:tooltip={'Inactive'}>
+							<CircleX size={16} />
+						</span>
 					{/if}
 				</Cell.Value>
 

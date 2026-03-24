@@ -13,6 +13,7 @@
 	import type { Body, Meta } from '@uppy/utils/lib/UppyFile';
 	import { Lock, Trash2, Unlock } from 'lucide-svelte';
 	import { confirm } from '$lib/utils/confirm';
+	import { ROLE_CONFIG } from '$lib/types/roles';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -30,16 +31,9 @@
 		requestDelete: { userId: string };
 	}>();
 
-	const roleOptions: Array<{ value: UserRole; label: string; description: string }> = [
-		{ value: 'admin', label: 'Admin', description: 'Full access to internal tools.' },
-		{ value: 'broker', label: 'Broker', description: 'Manage content, resumes, and talent flows.' },
-		{
-			value: 'talent',
-			label: 'Talent',
-			description: 'Can access talent-facing flows when a talent record is linked.'
-		},
-		{ value: 'employer', label: 'Employer', description: 'Client-side access to assigned resumes.' }
-	];
+	const roleOptions: Array<{ value: UserRole; label: string; description: string }> = (
+		Object.entries(ROLE_CONFIG) as [UserRole, (typeof ROLE_CONFIG)[UserRole]][]
+	).map(([value, cfg]) => ({ value, label: cfg.label, description: cfg.description }));
 
 	type InitialUser = {
 		id: string;

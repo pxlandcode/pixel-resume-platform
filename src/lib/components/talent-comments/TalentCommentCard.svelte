@@ -2,16 +2,8 @@
 	import { Card } from '@pixelcode_/blocks/components';
 	import { confirm } from '$lib/utils/confirm';
 	import type { TalentComment } from '$lib/types/talentComments';
-	import {
-		BriefcaseBusiness,
-		Building2,
-		CalendarClock,
-		MessageSquare,
-		Shield,
-		Trash2,
-		User,
-		Workflow
-	} from 'lucide-svelte';
+	import { getRoleLabel, getRoleIcon } from '$lib/types/roles';
+	import { BriefcaseBusiness, CalendarClock, MessageSquare, Trash2, Workflow } from 'lucide-svelte';
 
 	let {
 		comment,
@@ -23,20 +15,6 @@
 		onArchive?: ((commentId: string) => Promise<void> | void) | null;
 	} = $props();
 
-	const roleLabelByKey = {
-		admin: 'Admin',
-		broker: 'Broker',
-		employer: 'Employer',
-		talent: 'Talent'
-	} as const;
-
-	const roleIconByKey = {
-		admin: Shield,
-		broker: BriefcaseBusiness,
-		employer: Building2,
-		talent: User
-	} as const;
-
 	const typeIconByName = {
 		'briefcase-business': BriefcaseBusiness,
 		'calendar-clock': CalendarClock,
@@ -46,13 +24,9 @@
 
 	const resolveTypeIcon = (iconName: string) =>
 		typeIconByName[iconName as keyof typeof typeIconByName] ?? MessageSquare;
-	const resolveRoleIcon = (role: TalentComment['author_role']) =>
-		roleIconByKey[role as keyof typeof roleIconByKey] ?? User;
-	const roleLabel = (role: TalentComment['author_role']) =>
-		roleLabelByKey[role as keyof typeof roleLabelByKey] ?? 'User';
 
 	const authorDisplayLabel = (comment: TalentComment) => {
-		const role = roleLabel(comment.author_role);
+		const role = getRoleLabel(comment.author_role);
 		return comment.author_name ? `${comment.author_name} (${role})` : role;
 	};
 
@@ -69,7 +43,7 @@
 	};
 
 	const TypeIcon = $derived(resolveTypeIcon(comment.comment_type.icon_name));
-	const AuthorIcon = $derived(resolveRoleIcon(comment.author_role));
+	const AuthorIcon = $derived(getRoleIcon(comment.author_role));
 </script>
 
 <Card class="border-border/20 bg-card space-y-3 rounded-none p-4">
