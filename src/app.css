@@ -399,7 +399,7 @@
 		line-height: 1.3;
 		white-space: nowrap;
 		pointer-events: none;
-		background: var(--color-foreground);
+		background: var(--color-primary);
 		color: var(--color-background);
 	}
 
