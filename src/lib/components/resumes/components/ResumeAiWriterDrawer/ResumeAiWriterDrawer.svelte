@@ -72,7 +72,8 @@
 		descriptionSv = '',
 		descriptionEn = '',
 		onGenerateDescription,
-		onAccept
+		onAccept,
+		organisationId = null
 	}: {
 		rowTitle: string;
 		sectionType: ResumeAiSectionType;
@@ -89,6 +90,7 @@
 		descriptionEn?: string;
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
 		onAccept?: (payload: AcceptPayload) => void;
+		organisationId?: string | null;
 	} = $props();
 
 	let open = $state(false);
@@ -654,8 +656,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'sv'
-							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
+							? 'bg-primary rounded-full px-3 py-1 text-xs font-semibold text-white'
+							: 'bg-muted text-secondary-text rounded-full px-3 py-1 text-xs font-semibold'}
 						disabled={generating || translating}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -667,8 +669,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'en'
-							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
+							? 'bg-primary rounded-full px-3 py-1 text-xs font-semibold text-white'
+							: 'bg-muted text-secondary-text rounded-full px-3 py-1 text-xs font-semibold'}
 						disabled={generating || translating}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -678,7 +680,7 @@
 						EN
 					</button>
 				</div>
-				<p class="text-xs text-secondary-text">
+				<p class="text-secondary-text text-xs">
 					{showFieldPanel
 						? 'Locked fields and description still guide AI context.'
 						: 'Fields and description appear after first generation.'}
@@ -690,7 +692,7 @@
 					bind:value={prompt}
 					rows="5"
 					placeholder="Describe the project, ownership, solution, and outcomes..."
-					class="rounded-xs w-full resize-y border border-border bg-card p-3 text-sm text-foreground outline-none focus:border-primary"
+					class="rounded-xs border-border bg-card text-foreground focus:border-primary w-full resize-y border p-3 text-sm outline-none"
 				></textarea>
 			</FormControl>
 
@@ -734,9 +736,9 @@
 			{/if}
 
 			{#if showFieldPanel}
-				<div class="rounded-xs grid gap-3 border border-border bg-muted p-3">
+				<div class="rounded-xs border-border bg-muted grid gap-3 border p-3">
 					<div class="flex items-center justify-between gap-3">
-						<p class="text-sm font-medium text-secondary-text">Fields</p>
+						<p class="text-secondary-text text-sm font-medium">Fields</p>
 						<div class="flex gap-2">
 							<Button type="button" size="sm" variant="ghost" onclick={unlockAllVisibleFields}
 								>Unlock all</Button
@@ -746,16 +748,16 @@
 							>
 						</div>
 					</div>
-					<p class="text-xs text-secondary-text">
+					<p class="text-secondary-text text-xs">
 						AI can only update unlocked fields. Locked fields remain unchanged.
 					</p>
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-secondary-text">Company</label>
+							<label class="text-secondary-text text-xs font-medium">Company</label>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
+								class="rounded-xs text-secondary-text hover:bg-muted inline-flex items-center gap-1 px-2 py-1 text-xs font-medium"
 								onclick={() => toggleFieldLock('company')}
 							>
 								{#if isLocked('company')}
@@ -777,12 +779,12 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-secondary-text"
+							<label class="text-secondary-text text-xs font-medium"
 								>Role ({activeLanguage.toUpperCase()})</label
 							>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
+								class="rounded-xs text-secondary-text hover:bg-muted inline-flex items-center gap-1 px-2 py-1 text-xs font-medium"
 								onclick={() => toggleFieldLock('role')}
 							>
 								{#if isLocked('role')}
@@ -806,12 +808,12 @@
 					{#if sectionType === 'experience'}
 						<div class="space-y-1">
 							<div class="flex items-center justify-between gap-3">
-								<label class="text-xs font-medium text-secondary-text"
+								<label class="text-secondary-text text-xs font-medium"
 									>Location ({activeLanguage.toUpperCase()})</label
 								>
 								<button
 									type="button"
-									class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
+									class="rounded-xs text-secondary-text hover:bg-muted inline-flex items-center gap-1 px-2 py-1 text-xs font-medium"
 									onclick={() => toggleFieldLock('location')}
 								>
 									{#if isLocked('location')}
@@ -835,10 +837,12 @@
 						<div class="grid grid-cols-2 gap-3">
 							<div class="space-y-1">
 								<div class="flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-secondary-text">Start Date (YYYY-MM-DD)</label>
+									<label class="text-secondary-text text-xs font-medium"
+										>Start Date (YYYY-MM-DD)</label
+									>
 									<button
 										type="button"
-										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
+										class="rounded-xs text-secondary-text hover:bg-muted inline-flex items-center gap-1 px-2 py-1 text-xs font-medium"
 										onclick={() => toggleFieldLock('startDate')}
 									>
 										{#if isLocked('startDate')}
@@ -859,12 +863,12 @@
 							</div>
 							<div class="space-y-1">
 								<div class="flex items-center justify-between gap-3">
-									<label class="text-xs font-medium text-secondary-text"
+									<label class="text-secondary-text text-xs font-medium"
 										>End Date (empty = Present)</label
 									>
 									<button
 										type="button"
-										class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
+										class="rounded-xs text-secondary-text hover:bg-muted inline-flex items-center gap-1 px-2 py-1 text-xs font-medium"
 										onclick={() => toggleFieldLock('endDate')}
 									>
 										{#if isLocked('endDate')}
@@ -893,12 +897,12 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-secondary-text"
+							<label class="text-secondary-text text-xs font-medium"
 								>Description ({activeLanguage.toUpperCase()})</label
 							>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
+								class="rounded-xs text-secondary-text hover:bg-muted inline-flex items-center gap-1 px-2 py-1 text-xs font-medium"
 								onclick={() => (descriptionLocked = !descriptionLocked)}
 							>
 								{#if descriptionLocked}
@@ -912,17 +916,17 @@
 						</div>
 						<div
 							class={descriptionLocked
-								? 'rounded-xs border border-border bg-muted text-secondary-text'
-								: 'rounded-xs border border-border bg-card'}
+								? 'rounded-xs border-border bg-muted text-secondary-text border'
+								: 'rounded-xs border-border bg-card border'}
 						>
 							{#if descriptionLocked}
 								{#if normalizeDescription(draftByLanguage[activeLanguage])}
-									<div class="p-3 text-sm text-secondary-text">
+									<div class="text-secondary-text p-3 text-sm">
 										<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 										{@html draftByLanguage[activeLanguage]}
 									</div>
 								{:else}
-									<p class="p-3 text-sm text-secondary-text">No description yet.</p>
+									<p class="text-secondary-text p-3 text-sm">No description yet.</p>
 								{/if}
 							{:else}
 								{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}`}
@@ -939,10 +943,10 @@
 
 					<div class="space-y-1">
 						<div class="flex items-center justify-between gap-3">
-							<label class="text-xs font-medium text-secondary-text">Key Technologies</label>
+							<label class="text-secondary-text text-xs font-medium">Key Technologies</label>
 							<button
 								type="button"
-								class="rounded-xs inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-secondary-text hover:bg-muted"
+								class="rounded-xs text-secondary-text hover:bg-muted inline-flex items-center gap-1 px-2 py-1 text-xs font-medium"
 								onclick={() => toggleFieldLock('technologies')}
 							>
 								{#if isLocked('technologies')}
@@ -964,6 +968,7 @@
 						{:else}
 							<TechStackSelector
 								value={sharedDraft.technologies}
+								{organisationId}
 								onchange={(techs) => setTechnologies(techs ?? [])}
 							/>
 						{/if}
@@ -972,7 +977,7 @@
 			{/if}
 		</div>
 
-		<div class="flex justify-end gap-2 border-t border-border pt-4">
+		<div class="border-border flex justify-end gap-2 border-t pt-4">
 			<Button type="button" variant="ghost" onclick={closeDrawer}>Close</Button>
 			<Button type="button" variant="primary" disabled={generating || translating} onclick={accept}
 				>Apply changes</Button

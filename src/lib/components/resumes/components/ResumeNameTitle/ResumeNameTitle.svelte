@@ -4,10 +4,12 @@
 	import { t, getLocalizedValue, setLocalizedValue, type Language } from '../utils';
 
 	let {
+		name = '',
 		title = $bindable(),
 		isEditing = false,
 		language = 'sv'
 	}: {
+		name?: string;
 		title: LocalizedText;
 		isEditing?: boolean;
 		language?: Language;
@@ -35,6 +37,9 @@
 	</div>
 {:else}
 	<div>
+		{#if name}
+			<h1 class="text-text text-2xl font-semibold">{name}</h1>
+		{/if}
 		<h2 class="text-text text-xl font-medium">{t(title, language)}</h2>
 	</div>
 {/if}

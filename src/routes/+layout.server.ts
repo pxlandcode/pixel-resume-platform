@@ -24,6 +24,7 @@ type LoadResult = {
 	role: Role | null;
 	roles: Role[];
 	currentTalentId: string | null;
+	effectiveHomeOrganisationId: string | null;
 	brandingTheme: OrganisationBrandingTheme;
 	brandingFont: {
 		cssStack: string;
@@ -199,6 +200,7 @@ const buildAnonymousResult = () => {
 		role: null,
 		roles: [],
 		currentTalentId: null,
+		effectiveHomeOrganisationId: null,
 		brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
 		brandingFont: {
 			cssStack: DEFAULT_MAIN_FONT.cssStack,
@@ -258,6 +260,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals }) => {
 			role: primaryRole,
 			roles: effectiveRoles,
 			currentTalentId: actorContext.talentId,
+			effectiveHomeOrganisationId: homeOrganisationId,
 			brandingTheme: branding.theme,
 			brandingFont: branding.font,
 			meta: APP_META

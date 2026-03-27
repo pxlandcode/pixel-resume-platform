@@ -6,7 +6,6 @@
 	import ResumeSearchInsights from './ResumeSearchInsights.svelte';
 	import ResumeSearchReasons from './ResumeSearchReasons.svelte';
 	import ResumeTalentCard from './ResumeTalentCard.svelte';
-	import ResumeTechMatchBadges from './ResumeTechMatchBadges.svelte';
 	import type { FreeTextTalentResult } from './pageShared';
 	import { getSearchMatchBadgeClass, getSearchMatchPillClass } from './pageShared';
 
@@ -45,14 +44,8 @@
 					{/if}
 
 					<div class="mt-3">
-						<ResumeSearchInsights search={talent.search} />
+						<ResumeSearchInsights search={talent.search} techMatches={talent.techMatches} />
 					</div>
-
-					{#if talent.total > 0}
-						<div class="mt-3">
-							<ResumeTechMatchBadges techMatches={talent.techMatches} />
-						</div>
-					{/if}
 				{/snippet}
 			</ResumeTalentCard>
 		{/each}

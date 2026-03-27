@@ -39,6 +39,7 @@
 		isEditing = false,
 		person,
 		profileTechStack,
+		techCatalogOrganisationId = null,
 		templateMainLogotypeUrl = null,
 		templateAccentLogoUrl = null,
 		templateEndLogoUrl = null,
@@ -54,6 +55,7 @@
 		isEditing?: boolean;
 		person?: Person;
 		profileTechStack?: TechCategory[];
+		techCatalogOrganisationId?: string | null;
 		templateMainLogotypeUrl?: string | null;
 		templateAccentLogoUrl?: string | null;
 		templateEndLogoUrl?: string | null;
@@ -715,6 +717,7 @@
 						bind:skills={editingData.exampleSkills}
 						{isEditing}
 						language={componentLanguage}
+						organisationId={techCatalogOrganisationId}
 					/>
 
 					<!-- Contacts -->
@@ -752,6 +755,7 @@
 						bind:experiences={editingData.highlightedExperiences}
 						{isEditing}
 						language={componentLanguage}
+						organisationId={techCatalogOrganisationId}
 						{onGenerateDescription}
 						libraryExperiences={experienceLibrary}
 						onAdd={addHighlightedExperience}
@@ -770,6 +774,7 @@
 		bind:experiences={editingData.experiences}
 		{isEditing}
 		language={componentLanguage}
+		organisationId={techCatalogOrganisationId}
 		{onGenerateDescription}
 		libraryExperiences={experienceLibrary}
 		onAdd={addExperience}
@@ -786,6 +791,7 @@
 		bind:profileTechStack={profileCategories}
 		{isEditing}
 		language={componentLanguage}
+		organisationId={techCatalogOrganisationId}
 	/>
 
 	<!-- Other Section -->

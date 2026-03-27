@@ -10,7 +10,8 @@
 		language = 'sv',
 		resumeContextSv = '',
 		resumeContextEn = '',
-		onGenerateDescription
+		onGenerateDescription,
+		organisationId = null
 	}: {
 		skills: string[];
 		isEditing?: boolean;
@@ -18,13 +19,16 @@
 		resumeContextSv?: string;
 		resumeContextEn?: string;
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
+		organisationId?: string | null;
 	} = $props();
 </script>
 
 {#if isEditing}
-	<div class="rounded-xs border border-border bg-muted p-4">
+	<div class="rounded-xs border-border bg-muted border p-4">
 		<div class="mb-3 flex items-center justify-between gap-2">
-			<p class="text-xs font-semibold tracking-wide text-secondary-text uppercase">Examples of skills</p>
+			<p class="text-secondary-text text-xs font-semibold uppercase tracking-wide">
+				Examples of skills
+			</p>
 			{#if onGenerateDescription}
 				<ResumeExampleSkillsAiWriterDrawer
 					rowTitle="Examples of skills"
@@ -33,22 +37,23 @@
 					{resumeContextEn}
 					{onGenerateDescription}
 					{skills}
+					{organisationId}
 					onAccept={(payload) => {
 						skills = payload.skills;
 					}}
 				/>
 			{/if}
 		</div>
-		<TechStackSelector bind:value={skills} onchange={(s) => (skills = s ?? [])} />
+		<TechStackSelector bind:value={skills} {organisationId} onchange={(s) => (skills = s ?? [])} />
 	</div>
 {:else if skills.length > 0}
-	<div class="flex-shrink-0 rounded-xs p-4">
-		<p class="mb-3 text-xs font-semibold tracking-wide text-secondary-text uppercase">
+	<div class="rounded-xs flex-shrink-0 p-4">
+		<p class="text-secondary-text mb-3 text-xs font-semibold uppercase tracking-wide">
 			{language === 'sv' ? 'Exempel på färdigheter' : 'Examples of skills'}
 		</p>
 		<div class="flex flex-wrap gap-1">
 			{#each skills as skill}
-				<span class="rounded-xs bg-muted px-2 py-0.5 text-xs text-secondary-text">{skill}</span>
+				<span class="rounded-xs bg-muted text-secondary-text px-2 py-0.5 text-xs">{skill}</span>
 			{/each}
 		</div>
 	</div>

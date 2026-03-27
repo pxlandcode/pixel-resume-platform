@@ -6,6 +6,7 @@ import {
 	normalizeAvailabilityRow
 } from '$lib/server/consultantAvailability';
 import { getAccessibleTalentIds } from '$lib/server/access';
+import { resolveHomeOrganisationId } from '$lib/server/homeOrganisation';
 import type { ResumesTalentListItem } from '$lib/types/resumes';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
@@ -82,11 +83,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 	if (!actor.userId) {
 		return emptyResult;
 	}
+	const effectiveHomeOrganisationId = await resolveHomeOrganisationId({
+		adminClient,
+		homeOrganisationId: actor.homeOrganisationId,
+		talentId: actor.talentId
+	});
 	const cacheKey = buildActorScopeCacheKey({
 		userId: actor.userId,
 		isAdmin: actor.isAdmin,
 		roles: actor.roles,
-		homeOrganisationId: actor.homeOrganisationId,
+		homeOrganisationId: effectiveHomeOrganisationId,
 		accessibleOrganisationIds: actor.accessibleOrganisationIds,
 		talentId: actor.talentId
 	});
@@ -261,7 +267,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const payload: ResumesIndexCachePayload = {
 		talents,
 		organisationOptions,
-		homeOrganisationId: actor.homeOrganisationId ?? null
+		homeOrganisationId: effectiveHomeOrganisationId
 	};
 	resumesIndexCache.set(cacheKey, {
 		expiresAt: now + RESUMES_INDEX_CACHE_TTL_MS,

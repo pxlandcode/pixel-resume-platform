@@ -1,94 +1,36 @@
 <script lang="ts">
+	import { page } from '$app/stores';
 	import ArrowDown from 'lucide-svelte/icons/arrow-down';
 	import Check from 'lucide-svelte/icons/check';
 	import ChevronDown from 'lucide-svelte/icons/chevron-down';
 	import X from 'lucide-svelte/icons/x';
 	import { Input } from '@pixelcode_/blocks/components';
+	import { loadTechCatalog, peekTechCatalogCache } from '$lib/stores/techCatalogStore';
+	import type {
+		EffectiveTechCatalogCategory,
+		EffectiveTechCatalogItem,
+		TechCatalogScopeMode
+	} from '$lib/types/techCatalog';
 
-	type Technology = {
-		name: string;
+	type Technology = EffectiveTechCatalogItem & {
 		category: string;
+		categorySortOrder: number;
 	};
-
-	const technologies: Technology[] = [
-		// Frontend
-		{ name: 'React', category: 'Frontend' },
-		{ name: 'Vue', category: 'Frontend' },
-		{ name: 'Svelte', category: 'Frontend' },
-		{ name: 'Angular', category: 'Frontend' },
-		{ name: 'TypeScript', category: 'Frontend' },
-		{ name: 'JavaScript', category: 'Frontend' },
-		{ name: 'HTML', category: 'Frontend' },
-		{ name: 'CSS', category: 'Frontend' },
-		{ name: 'Tailwind', category: 'Frontend' },
-		{ name: 'SASS', category: 'Frontend' },
-
-		// Backend
-		{ name: 'Node.js', category: 'Backend' },
-		{ name: 'Python', category: 'Backend' },
-		{ name: 'Java', category: 'Backend' },
-		{ name: 'Go', category: 'Backend' },
-		{ name: 'PHP', category: 'Backend' },
-		{ name: 'Ruby', category: 'Backend' },
-		{ name: 'C#', category: 'Backend' },
-		{ name: '.NET', category: 'Backend' },
-		{ name: 'Express', category: 'Backend' },
-		{ name: 'Django', category: 'Backend' },
-		{ name: 'Spring Boot', category: 'Backend' },
-
-		// Database
-		{ name: 'PostgreSQL', category: 'Database' },
-		{ name: 'MySQL', category: 'Database' },
-		{ name: 'MongoDB', category: 'Database' },
-		{ name: 'Redis', category: 'Database' },
-		{ name: 'SQL', category: 'Database' },
-		{ name: 'Neo4j', category: 'Database' },
-		{ name: 'Supabase', category: 'Database' },
-		{ name: 'Firebase', category: 'Database' },
-
-		// DevOps & Tools
-		{ name: 'Docker', category: 'DevOps' },
-		{ name: 'Kubernetes', category: 'DevOps' },
-		{ name: 'AWS', category: 'DevOps' },
-		{ name: 'Azure', category: 'DevOps' },
-		{ name: 'GCP', category: 'DevOps' },
-		{ name: 'Git', category: 'DevOps' },
-		{ name: 'GitHub Actions', category: 'DevOps' },
-		{ name: 'CI/CD', category: 'DevOps' },
-
-		// Software & Methods
-		{ name: 'Agile', category: 'Methods' },
-		{ name: 'Scrum', category: 'Methods' },
-		{ name: 'Kanban', category: 'Methods' },
-		{ name: 'TDD', category: 'Methods' },
-		{ name: 'REST API', category: 'Architecture' },
-		{ name: 'GraphQL', category: 'Architecture' },
-		{ name: 'Microservices', category: 'Architecture' },
-		{ name: 'Serverless', category: 'Architecture' },
-
-		// Design & UX
-		{ name: 'Figma', category: 'Design' },
-		{ name: 'Adobe Illustrator', category: 'Design' },
-		{ name: 'Photoshop', category: 'Design' },
-		{ name: 'UI/UX', category: 'Design' },
-		{ name: 'Responsive Design', category: 'Design' },
-
-		// Soft Skills
-		{ name: 'Leadership', category: 'Soft Skills' },
-		{ name: 'Communication', category: 'Soft Skills' },
-		{ name: 'Team Collaboration', category: 'Soft Skills' },
-		{ name: 'Problem Solving', category: 'Soft Skills' },
-		{ name: 'Project Management', category: 'Soft Skills' }
-	];
 
 	let {
 		value = $bindable([]),
 		showSelectedChips = true,
-		onchange
+		onchange,
+		catalogScope = 'auto',
+		organisationId = null,
+		organisationIds = []
 	}: {
 		value?: string[];
 		showSelectedChips?: boolean;
 		onchange?: (techs: string[]) => void;
+		catalogScope?: TechCatalogScopeMode;
+		organisationId?: string | null;
+		organisationIds?: string[];
 	} = $props();
 
 	let searchTerm = $state('');
@@ -98,12 +40,135 @@
 	let dragOverIndex = $state<number | null>(null);
 	let wrapperRef: HTMLElement | null = null;
 	let inputRef = $state<HTMLInputElement | undefined>(undefined);
+	let catalogStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let catalogError = $state<string | null>(null);
+	let catalogCategories = $state<EffectiveTechCatalogCategory[]>([]);
+
+	const fallbackOrganisationId = $derived(
+		(($page.data as { effectiveHomeOrganisationId?: string | null } | undefined)
+			?.effectiveHomeOrganisationId ?? null) as string | null
+	);
+	const explicitOrganisationIds = $derived.by(() =>
+		Array.from(new Set(organisationIds.map((id) => id.trim()).filter(Boolean)))
+	);
+	const effectiveCatalogueRequests = $derived.by(() => {
+		if (explicitOrganisationIds.length > 1) {
+			return explicitOrganisationIds.map((id) => ({
+				scope: 'organisation' as const,
+				organisationId: id
+			}));
+		}
+
+		if (explicitOrganisationIds.length === 1) {
+			return [
+				{
+					scope: 'organisation' as const,
+					organisationId: explicitOrganisationIds[0]
+				}
+			];
+		}
+
+		const requestedOrganisationId = organisationId?.trim() || fallbackOrganisationId;
+		if (catalogScope === 'global') {
+			return [{ scope: 'global' as const, organisationId: null as string | null }];
+		}
+		if (organisationId?.trim()) {
+			return [
+				{
+					scope: 'organisation' as const,
+					organisationId: organisationId.trim()
+				}
+			];
+		}
+		return [
+			{
+				scope: catalogScope,
+				organisationId: requestedOrganisationId
+			}
+		];
+	});
+	const effectiveCatalogueKey = $derived(
+		effectiveCatalogueRequests
+			.map((request) => `${request.scope}:${request.organisationId ?? ''}`)
+			.join('|')
+	);
+
+	const sortMergedTechnologies = (left: Technology, right: Technology) => {
+		if (left.categorySortOrder !== right.categorySortOrder) {
+			return left.categorySortOrder - right.categorySortOrder;
+		}
+		if (left.category !== right.category) {
+			return left.category.localeCompare(right.category, undefined, { sensitivity: 'base' });
+		}
+		if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+		return left.label.localeCompare(right.label, undefined, { sensitivity: 'base' });
+	};
+
+	const mergeCatalogCategories = (
+		payloads: Array<{ categories?: EffectiveTechCatalogCategory[] }>
+	) => {
+		const categoriesById = new Map<
+			string,
+			Omit<EffectiveTechCatalogCategory, 'items'> & { items: EffectiveTechCatalogCategory['items'] }
+		>();
+		const seenItemKeys = new Set<string>();
+
+		for (const payload of payloads) {
+			for (const category of payload.categories ?? []) {
+				if (!categoriesById.has(category.id)) {
+					categoriesById.set(category.id, {
+						...category,
+						items: []
+					});
+				}
+
+				const targetCategory = categoriesById.get(category.id);
+				if (!targetCategory) continue;
+
+				for (const item of category.items ?? []) {
+					const dedupeKey = item.normalizedLabel || item.slug || item.id;
+					if (!dedupeKey || seenItemKeys.has(dedupeKey)) continue;
+					seenItemKeys.add(dedupeKey);
+					targetCategory.items.push(item);
+				}
+			}
+		}
+
+		return Array.from(categoriesById.values())
+			.map((category) => ({
+				...category,
+				items: category.items.sort((left, right) => {
+					if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+					return left.label.localeCompare(right.label, undefined, { sensitivity: 'base' });
+				})
+			}))
+			.filter((category) => category.items.length > 0)
+			.sort((left, right) => {
+				if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+				return left.name.localeCompare(right.name, undefined, { sensitivity: 'base' });
+			});
+	};
+
+	const catalogTechnologies = $derived.by<Technology[]>(() =>
+		catalogCategories.flatMap((category) =>
+			category.items.map((item) => ({
+				...item,
+				category: category.name,
+				categorySortOrder: category.sortOrder
+			}))
+		)
+	);
+
+	const matchesSearch = (tech: Technology, term: string) =>
+		tech.label.toLowerCase().includes(term) ||
+		tech.aliases.some((alias) => alias.toLowerCase().includes(term));
 
 	const filteredTechnologies = $derived.by<Technology[]>(() => {
 		const term = searchTerm.trim().toLowerCase();
-		return term
-			? technologies.filter((tech) => tech.name.toLowerCase().includes(term))
-			: technologies;
+		const technologies = term
+			? catalogTechnologies.filter((tech) => matchesSearch(tech, term))
+			: catalogTechnologies;
+		return [...technologies].sort(sortMergedTechnologies);
 	});
 
 	const groupedOptions = $derived.by<{ category: string; items: Technology[] }[]>(() => {
@@ -137,8 +202,13 @@
 		const trimmed = rawName.trim();
 		if (!trimmed) return;
 
-		const existing = technologies.find((tech) => tech.name.toLowerCase() === trimmed.toLowerCase());
-		const normalized = existing?.name ?? trimmed;
+		const normalizedInput = trimmed.toLowerCase();
+		const existing = catalogTechnologies.find(
+			(tech) =>
+				tech.label.toLowerCase() === normalizedInput ||
+				tech.aliases.some((alias) => alias.toLowerCase() === normalizedInput)
+		);
+		const normalized = existing?.label ?? trimmed;
 
 		if (valueIncludes(normalized)) {
 			searchTerm = '';
@@ -162,15 +232,19 @@
 		if (!term) return;
 
 		if (activeIndex !== null && filteredTechnologies[activeIndex]) {
-			addTechnology(filteredTechnologies[activeIndex].name);
+			addTechnology(filteredTechnologies[activeIndex].label);
 			activeIndex = null;
 			return;
 		}
 
-		const exactMatch = technologies.find((tech) => tech.name.toLowerCase() === term.toLowerCase());
+		const exactMatch = catalogTechnologies.find(
+			(tech) =>
+				tech.label.toLowerCase() === term.toLowerCase() ||
+				tech.aliases.some((alias) => alias.toLowerCase() === term.toLowerCase())
+		);
 
 		if (exactMatch) {
-			addTechnology(exactMatch.name);
+			addTechnology(exactMatch.label);
 			return;
 		}
 
@@ -266,6 +340,34 @@
 		activeIndex = null;
 	};
 
+	const loadCatalog = async (force = false) => {
+		const cachedPayloads = !force
+			? effectiveCatalogueRequests
+					.map((request) => peekTechCatalogCache(request))
+					.filter((payload) => payload !== null)
+			: [];
+		if (cachedPayloads.length === effectiveCatalogueRequests.length && cachedPayloads.length > 0) {
+			catalogCategories = mergeCatalogCategories(cachedPayloads);
+			catalogStatus = 'ready';
+			catalogError = null;
+			return;
+		}
+
+		catalogStatus = 'loading';
+		catalogError = null;
+		try {
+			const payloads = await Promise.all(
+				effectiveCatalogueRequests.map((request) => loadTechCatalog(request, fetch, force))
+			);
+			catalogCategories = mergeCatalogCategories(payloads);
+			catalogStatus = 'ready';
+		} catch (error) {
+			catalogCategories = [];
+			catalogStatus = 'error';
+			catalogError = error instanceof Error ? error.message : 'Could not load technology catalog.';
+		}
+	};
+
 	$effect(() => {
 		if (!inputRef) return;
 
@@ -296,6 +398,11 @@
 		isOpen;
 		activeIndex = null;
 	});
+
+	$effect(() => {
+		effectiveCatalogueKey;
+		void loadCatalog();
+	});
 </script>
 
 <svelte:window on:click={handleClickOutside} />
@@ -312,7 +419,6 @@
 					}`}
 					role="listitem"
 					aria-grabbed={draggingIndex === index}
-					tabindex="0"
 					draggable="true"
 					ondragstart={(event) => handleDragStart(event, index)}
 					ondragover={(event) => handleDragOver(event, index)}
@@ -371,7 +477,7 @@
 								<div class="flex flex-col">
 									{#each group.items as tech}
 										{@const optionIndex = filteredTechnologies.findIndex(
-											(item) => item.name === tech.name
+											(item) => item.id === tech.id
 										)}
 										{@const isActive = activeIndex === optionIndex}
 										<button
@@ -379,10 +485,10 @@
 											class={`hover:bg-primary/10 flex w-full items-center justify-between px-3 py-2 text-left text-sm transition ${
 												isActive ? 'bg-primary/10 text-primary' : ''
 											}`}
-											onclick={() => handleSelect(tech.name)}
+											onclick={() => handleSelect(tech.label)}
 										>
-											<span class="truncate">{tech.name}</span>
-											{#if valueIncludes(tech.name)}
+											<span class="truncate">{tech.label}</span>
+											{#if valueIncludes(tech.label)}
 												<Check class="text-primary h-4 w-4" />
 											{/if}
 										</button>
@@ -393,7 +499,11 @@
 					</div>
 				{:else}
 					<div class="text-muted-fg px-3 py-3 text-sm">
-						{#if searchTerm.trim()}
+						{#if catalogStatus === 'loading' && !searchTerm.trim()}
+							Loading technologies...
+						{:else if catalogStatus === 'error' && !searchTerm.trim()}
+							{catalogError ?? 'Could not load technology catalog.'}
+						{:else if searchTerm.trim()}
 							Press Enter to add "{searchTerm.trim()}"
 						{:else}
 							Start typing to search technologies

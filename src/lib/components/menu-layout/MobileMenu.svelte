@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { Input } from '@pixelcode_/blocks/components';
 	import { LogOut, Moon, Search, Settings, Sun } from 'lucide-svelte';
 	import { mode, toggleMode } from 'mode-watcher';
@@ -152,7 +151,7 @@
 						<div class="space-y-1.5">
 							{#each section.items as item (item.href)}
 								<a
-									href={resolve(item.href)}
+									href={item.href}
 									onclick={() => onnavigate?.()}
 									use:ripple={{ opacity: 0.14 }}
 									class={`relative isolate flex items-center gap-3 rounded-sm px-3 py-2.5 transition-colors ${
@@ -175,7 +174,7 @@
 			<div class="space-y-1.5">
 				{#if showSettingsLink}
 					<a
-						href={resolve(settingsItem.href)}
+						href={settingsItem.href}
 						onclick={() => onnavigate?.()}
 						use:ripple={{ opacity: 0.14 }}
 						class={`relative isolate flex items-center gap-3 rounded-sm px-3 py-2.5 transition-colors ${

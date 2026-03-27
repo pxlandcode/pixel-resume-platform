@@ -2,8 +2,16 @@
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { ComponentProps } from 'svelte';
-	import { Alert, Button, Checkbox, FormControl, Input } from '@pixelcode_/blocks/components';
+	import {
+		Alert,
+		Button,
+		Checkbox,
+		FormControl,
+		Input,
+		Toaster
+	} from '@pixelcode_/blocks/components';
 	import LegalDocumentsManager from '$lib/components/admin/LegalDocumentsManager.svelte';
+	import TechCatalogManager from '$lib/components/admin/TechCatalogManager.svelte';
 	import { Dropdown } from '$lib/components/dropdown';
 	import { OptionButton, type OptionButtonOption } from '$lib/components/option-button';
 	import { ripple } from '$lib/utils/ripple';
@@ -51,7 +59,7 @@
 	};
 
 	type LegalDocumentsProp = ComponentProps<typeof LegalDocumentsManager>['documents'];
-	type SettingsPanel = 'account' | 'legal' | 'sharing' | null;
+	type SettingsPanel = 'account' | 'legal' | 'tech' | 'sharing' | null;
 
 	const organisationRuleAccessOptions = [
 		{ value: 'read', label: 'Read only', icon: Eye },
@@ -104,11 +112,43 @@
 		typeof form.source_context_id === 'string'
 			? form.source_context_id
 			: null;
+	const techContextFromForm =
+		form &&
+		typeof form === 'object' &&
+		'tech_context_id' in form &&
+		typeof form.tech_context_id === 'string'
+			? form.tech_context_id
+			: null;
+	const TECH_ACTION_TYPES = new Set([
+		'upsertTechCategory',
+		'setTechCategoryStatus',
+		'upsertGlobalTechCatalogItem',
+		'setGlobalTechCatalogItemStatus',
+		'reorderTechCategories',
+		'reorderGlobalTechCatalogItems',
+		'setOrganisationTechCatalogExclusion',
+		'upsertOrganisationTechCatalogItem',
+		'setOrganisationTechCatalogItemStatus',
+		'reorderOrganisationTechCatalogItems'
+	]);
 
 	const initialSourceOrganisationId =
 		sourceContextFromForm ?? data.defaultSourceOrganisationId ?? '';
 	const initialExpandedPanel: SettingsPanel =
-		form?.type === 'changePassword' ? 'account' : form?.type ? 'sharing' : null;
+		form?.type === 'changePassword'
+			? 'account'
+			: TECH_ACTION_TYPES.has(form?.type ?? '')
+				? 'tech'
+				: form?.type
+					? 'sharing'
+					: null;
+	const techRefreshToken = $derived(
+		JSON.stringify({
+			type: form?.type ?? null,
+			ok: form?.ok ?? null,
+			tech_context_id: techContextFromForm ?? null
+		})
+	);
 
 	let selectedSourceOrganisationId = $state(initialSourceOrganisationId);
 	let expandedPanel = $state<SettingsPanel>(initialExpandedPanel);
@@ -336,6 +376,8 @@
 </script>
 
 <div class="space-y-8">
+	<Toaster />
+
 	<header class="space-y-3">
 		<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Settings</h1>
 		<p class="text-muted-fg max-w-3xl text-lg">
@@ -484,6 +526,62 @@
 			{#if expandedPanel === 'legal'}
 				<div id="settings-legal-panel" class="border-border border-t px-5 py-5 sm:px-6">
 					<LegalDocumentsManager documents={legalDocuments} />
+				</div>
+			{/if}
+		</section>
+	{/if}
+
+	{#if data.canManageGlobalTechCatalog || data.canManageOrganisationTechCatalog}
+		<section
+			class={`bg-card group overflow-hidden rounded-sm border transition-colors ${
+				expandedPanel === 'tech' ? 'border-primary/50' : 'border-border hover:border-primary/50'
+			}`}
+		>
+			<button
+				type="button"
+				use:ripple={{ opacity: 0.14 }}
+				class="w-full text-left"
+				onclick={() => togglePanel('tech')}
+				aria-expanded={expandedPanel === 'tech'}
+				aria-controls="settings-tech-panel"
+			>
+				<div
+					class="group-hover:bg-muted/50 flex items-start gap-3 px-5 py-5 transition-colors sm:px-6"
+				>
+					<div
+						class="bg-muted text-muted-fg flex h-10 w-10 shrink-0 items-center justify-center rounded-sm"
+					>
+						<Building2 class="h-5 w-5" />
+					</div>
+					<div class="min-w-0 flex-1">
+						<h2 class="text-foreground text-lg font-semibold">Technology catalog</h2>
+						<p class="text-muted-fg mt-1 text-sm">
+							Manage the global technology standard and organisation-specific catalog deltas.
+						</p>
+					</div>
+					<div class="text-muted-fg flex shrink-0 items-center gap-2">
+						<span class="hidden text-xs font-medium uppercase tracking-[0.16em] sm:block">
+							Manage
+						</span>
+						{#if expandedPanel === 'tech'}
+							<ChevronDown class="h-5 w-5" />
+						{:else}
+							<ChevronRight class="h-5 w-5" />
+						{/if}
+					</div>
+				</div>
+			</button>
+
+			{#if expandedPanel === 'tech'}
+				<div id="settings-tech-panel" class="border-border border-t px-5 py-5 sm:px-6">
+					<TechCatalogManager
+						canManageGlobal={data.canManageGlobalTechCatalog}
+						canManageOrganisation={data.canManageOrganisationTechCatalog}
+						organisationOptions={sourceOrganisationOptions}
+						defaultOrganisationId={data.defaultSourceOrganisationId ?? ''}
+						formTechContextId={techContextFromForm ?? ''}
+						refreshToken={techRefreshToken}
+					/>
 				</div>
 			{/if}
 		</section>

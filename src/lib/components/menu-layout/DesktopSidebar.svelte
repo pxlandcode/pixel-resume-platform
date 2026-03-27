@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { Input } from '@pixelcode_/blocks/components';
 	import { ChevronLeft, ChevronRight, LogOut, Moon, Search, Settings, Sun } from 'lucide-svelte';
 	import { mode, toggleMode } from 'mode-watcher';
@@ -192,7 +191,7 @@
 						{#each section.items as item (item.href)}
 							<div class="sidebar-tooltip-anchor relative">
 								<a
-									href={resolve(item.href)}
+									href={item.href}
 									onclick={() => onnavigate?.()}
 									use:ripple={{ opacity: 0.14 }}
 									class={`sidebar-item sidebar-item--nav relative isolate flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''} ${
@@ -221,7 +220,7 @@
 			{#if showSettingsLink}
 				<div class="sidebar-tooltip-anchor relative">
 					<a
-						href={resolve(settingsItem.href)}
+						href={settingsItem.href}
 						onclick={() => onnavigate?.()}
 						use:ripple={{ opacity: 0.14 }}
 						class={`sidebar-item sidebar-item--footer relative isolate flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''} ${

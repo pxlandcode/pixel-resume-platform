@@ -1196,6 +1196,7 @@
 								{canEdit}
 								bind:editingTechStack
 								{viewCategories}
+								organisationId={data.organisation_id}
 							/>
 						</div>
 					{/if}
@@ -1277,6 +1278,7 @@
 							{canEdit}
 							bind:editingTechStack
 							{viewCategories}
+							organisationId={data.organisation_id}
 						/>
 					{/if}
 
@@ -1287,6 +1289,7 @@
 								{canEdit}
 								bind:editingTechStack
 								{viewCategories}
+								organisationId={data.organisation_id}
 							/>
 						</div>
 					{/if}

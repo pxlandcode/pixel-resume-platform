@@ -21,7 +21,8 @@
 		resumeContextSv = '',
 		resumeContextEn = '',
 		onGenerateDescription,
-		onAccept
+		onAccept,
+		organisationId = null
 	}: {
 		rowTitle?: string;
 		language?: Language;
@@ -30,6 +31,7 @@
 		resumeContextEn?: string;
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
 		onAccept?: (payload: AcceptPayload) => void;
+		organisationId?: string | null;
 	} = $props();
 
 	let open = $state(false);
@@ -231,8 +233,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'sv'
-							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
+							? 'bg-primary rounded-full px-3 py-1 text-xs font-semibold text-white'
+							: 'bg-muted text-secondary-text rounded-full px-3 py-1 text-xs font-semibold'}
 						disabled={isBusy}
 						onclick={() => {
 							activeLanguage = 'sv';
@@ -244,8 +246,8 @@
 					<button
 						type="button"
 						class={activeLanguage === 'en'
-							? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-white'
-							: 'rounded-full bg-muted px-3 py-1 text-xs font-semibold text-secondary-text'}
+							? 'bg-primary rounded-full px-3 py-1 text-xs font-semibold text-white'
+							: 'bg-muted text-secondary-text rounded-full px-3 py-1 text-xs font-semibold'}
 						disabled={isBusy}
 						onclick={() => {
 							activeLanguage = 'en';
@@ -255,7 +257,9 @@
 						EN
 					</button>
 				</div>
-				<p class="text-xs text-secondary-text">AI uses resume experiences + skill profile as evidence</p>
+				<p class="text-secondary-text text-xs">
+					AI uses resume experiences + skill profile as evidence
+				</p>
 			</div>
 
 			<FormControl label="Prompt / relevance context">
@@ -263,7 +267,7 @@
 					bind:value={prompt}
 					rows="5"
 					placeholder="Optional job focus, e.g. '.NET backend role with Angular frontend and Azure'"
-					class="rounded-xs w-full resize-y border border-border bg-card p-3 text-sm text-foreground outline-none focus:border-primary"
+					class="rounded-xs border-border bg-card text-foreground focus:border-primary w-full resize-y border p-3 text-sm outline-none"
 				></textarea>
 			</FormControl>
 
@@ -306,21 +310,22 @@
 				<p class="text-sm text-red-600">{errorMessage}</p>
 			{/if}
 
-			<div class="rounded-xs border border-border bg-muted p-4">
+			<div class="rounded-xs border-border bg-muted border p-4">
 				<div class="mb-2 flex items-center justify-between gap-2">
-					<p class="text-xs font-semibold uppercase tracking-wide text-secondary-text">
+					<p class="text-secondary-text text-xs font-semibold uppercase tracking-wide">
 						Draft skills ({draftSkills.length})
 					</p>
-					<p class="text-xs text-secondary-text">Adjust before applying</p>
+					<p class="text-secondary-text text-xs">Adjust before applying</p>
 				</div>
 				<TechStackSelector
 					bind:value={draftSkills}
+					{organisationId}
 					onchange={(next) => (draftSkills = next ?? [])}
 				/>
 			</div>
 		</div>
 
-		<div class="flex justify-end gap-2 border-t border-border pt-4">
+		<div class="border-border flex justify-end gap-2 border-t pt-4">
 			<Button type="button" variant="ghost" onclick={closeDrawer}>Close</Button>
 			<Button type="button" variant="primary" disabled={isBusy} onclick={accept}>
 				Apply skills

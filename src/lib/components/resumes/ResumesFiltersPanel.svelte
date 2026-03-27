@@ -6,7 +6,7 @@
 	import TechStackSelector from '$lib/components/tech-stack-selector/tech-stack-selector.svelte';
 	import { clickOutside } from '$lib/utils/clickOutside';
 	import { ResumeFreeTextSearchInput } from '$lib/components/resumes/resume-free-text-search-input';
-	import type { AvailabilityMode, SelectedTechFilter } from './pageShared';
+	import type { AvailabilityMode, SelectedSearchFilter } from './pageShared';
 	import { formatYears } from './pageShared';
 
 	type OrganisationFilterOption = {
@@ -18,6 +18,8 @@
 		open: boolean;
 		organisationFilterOptions: OrganisationFilterOption[];
 		selectedOrganisationIds: string[];
+		techCatalogOrganisationId: string | null;
+		techCatalogScope: 'global' | 'organisation';
 		onOrganisationFilterChange: (selected: string[]) => void;
 		availabilityMode: AvailabilityMode;
 		onAvailabilityModeChange: (mode: AvailabilityMode) => void;
@@ -33,14 +35,14 @@
 		onClearFreeTextSearch: () => void;
 		selectedTechs: string[];
 		onSelectedTechsChange: (techs: string[]) => void;
-		selectedTechFilters: SelectedTechFilter[];
+		selectedSearchFilters: SelectedSearchFilter[];
 		openTechRequirementKey: string | null;
 		techRequirementDraft: string;
 		techRequirementError: string;
-		onOpenTechRequirementPopover: (filter: SelectedTechFilter) => void;
+		onOpenTechRequirementPopover: (filter: SelectedSearchFilter) => void;
 		onCloseTechRequirementPopover: () => void;
-		onRemoveSelectedTech: (techKey: string) => void;
-		onClearSelectedTechFilters: () => void;
+		onRemoveSelectedSearchFilter: (filterKey: string) => void;
+		onClearSelectedSearchFilters: () => void;
 		onApplyTechRequirementDraft: (techKey: string, rawDraft?: string) => unknown;
 		onClearTechRequirement: (techKey: string) => void;
 		onTechRequirementKeydown: (event: KeyboardEvent, techKey: string) => void;
@@ -51,6 +53,8 @@
 		open,
 		organisationFilterOptions,
 		selectedOrganisationIds,
+		techCatalogOrganisationId,
+		techCatalogScope,
 		onOrganisationFilterChange,
 		availabilityMode,
 		onAvailabilityModeChange,
@@ -66,14 +70,14 @@
 		onClearFreeTextSearch,
 		selectedTechs,
 		onSelectedTechsChange,
-		selectedTechFilters,
+		selectedSearchFilters,
 		openTechRequirementKey,
 		techRequirementDraft,
 		techRequirementError,
 		onOpenTechRequirementPopover,
 		onCloseTechRequirementPopover,
-		onRemoveSelectedTech,
-		onClearSelectedTechFilters,
+		onRemoveSelectedSearchFilter,
+		onClearSelectedSearchFilters,
 		onApplyTechRequirementDraft,
 		onClearTechRequirement,
 		onTechRequirementKeydown,
@@ -161,102 +165,17 @@
 			</div>
 
 			<div>
-				<div class="mb-3 flex items-center justify-between gap-4">
-					<h2 class="text-muted-fg text-xs font-semibold uppercase tracking-wide">
-						Search by tech
-					</h2>
-					{#if selectedTechFilters.length > 0}
-						<Button variant="ghost" size="sm" onclick={onClearSelectedTechFilters}>Clear</Button>
-					{/if}
-				</div>
+				<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">
+					Search by tech
+				</h2>
 
 				<TechStackSelector
 					value={selectedTechs}
 					showSelectedChips={false}
+					catalogScope={techCatalogScope}
+					organisationId={techCatalogOrganisationId}
 					onchange={onSelectedTechsChange}
 				/>
-
-				{#if selectedTechFilters.length > 0}
-					<div class="mt-3 flex flex-wrap gap-2" use:clickOutside={onCloseTechRequirementPopover}>
-						{#each selectedTechFilters as techFilter (techFilter.key)}
-							<div class="relative">
-								<button
-									type="button"
-									onclick={() => onOpenTechRequirementPopover(techFilter)}
-									class="border-border bg-muted text-foreground inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 pr-8 text-xs font-medium"
-								>
-									<span>{techFilter.label}</span>
-									{#if techFilter.requiredYears !== null}
-										<span class="text-muted-fg text-[10px]">
-											{formatYears(techFilter.requiredYears)}
-										</span>
-									{:else}
-										<span class="text-muted-fg text-[10px]">any years</span>
-									{/if}
-								</button>
-
-								<button
-									type="button"
-									onclick={(event) => {
-										event.stopPropagation();
-										onRemoveSelectedTech(techFilter.key);
-									}}
-									class="text-muted-fg hover:text-foreground absolute right-1 top-1/2 -translate-y-1/2 rounded-sm px-1 text-xs"
-									aria-label={`Remove ${techFilter.label}`}
-								>
-									×
-								</button>
-
-								{#if openTechRequirementKey === techFilter.key}
-									<div
-										class="border-border bg-card absolute left-0 top-full z-20 mt-2 w-52 rounded-sm border p-3 shadow-xl"
-									>
-										<p class="text-foreground text-xs font-semibold">
-											Min years for {techFilter.label}
-										</p>
-										<Input
-											type="number"
-											min="0"
-											step="0.5"
-											size="sm"
-											class="mt-2 w-full"
-											value={techRequirementDraft}
-											oninput={(event) =>
-												void onApplyTechRequirementDraft(
-													techFilter.key,
-													(event.currentTarget as HTMLInputElement).value
-												)}
-											onblur={(event) =>
-												void onApplyTechRequirementDraft(
-													techFilter.key,
-													(event.currentTarget as HTMLInputElement).value
-												)}
-											onkeydown={(event) => onTechRequirementKeydown(event, techFilter.key)}
-										/>
-
-										{#if techRequirementError}
-											<p class="mt-1 text-xs text-red-600">{techRequirementError}</p>
-										{/if}
-
-										<div class="mt-2 flex items-center justify-between gap-2">
-											<Button
-												type="button"
-												size="sm"
-												variant="ghost"
-												onclick={() => onClearTechRequirement(techFilter.key)}
-											>
-												Clear
-											</Button>
-											<span class="text-muted-fg text-[11px]">Auto-saved</span>
-										</div>
-									</div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				{/if}
-
-				<p class="text-muted-fg mt-3 text-sm">{summaryText}</p>
 			</div>
 
 			<div>
@@ -270,6 +189,104 @@
 					oncommit={onFreeTextSearchCommit}
 					onclear={onClearFreeTextSearch}
 				/>
+			</div>
+
+			<div>
+				<div class="mb-3 flex items-center justify-between gap-4">
+					<h2 class="text-muted-fg text-xs font-semibold uppercase tracking-wide">
+						All active filters
+					</h2>
+					{#if selectedSearchFilters.length > 0}
+						<Button variant="ghost" size="sm" onclick={onClearSelectedSearchFilters}>Clear</Button>
+					{/if}
+				</div>
+
+				{#if selectedSearchFilters.length > 0}
+					<div class="mt-3 flex flex-wrap gap-2" use:clickOutside={onCloseTechRequirementPopover}>
+						{#each selectedSearchFilters as searchFilter (searchFilter.key)}
+							<div class="relative">
+								<button
+									type="button"
+									onclick={() => onOpenTechRequirementPopover(searchFilter)}
+									class="border-border bg-muted text-foreground inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 pr-8 text-xs font-medium"
+								>
+									<span>{searchFilter.label}</span>
+									{#if searchFilter.requiredYears !== null}
+										<span class="text-muted-fg text-[10px]">
+											{formatYears(searchFilter.requiredYears)}
+										</span>
+									{/if}
+								</button>
+
+								<button
+									type="button"
+									onclick={(event) => {
+										event.stopPropagation();
+										onRemoveSelectedSearchFilter(searchFilter.key);
+									}}
+									class="text-muted-fg hover:text-foreground absolute right-1 top-1/2 -translate-y-1/2 rounded-sm px-1 text-xs"
+									aria-label={`Remove ${searchFilter.label}`}
+								>
+									×
+								</button>
+
+								{#if openTechRequirementKey === searchFilter.key}
+									<div
+										class="border-border bg-card absolute left-0 top-full z-20 mt-2 w-52 rounded-sm border p-3 shadow-xl"
+									>
+										<p class="text-foreground text-xs font-semibold">
+											Min years for {searchFilter.label}
+										</p>
+										<Input
+											type="number"
+											min="0"
+											step="0.5"
+											size="sm"
+											class="mt-2 w-full"
+											value={techRequirementDraft}
+											oninput={(event) =>
+												void onApplyTechRequirementDraft(
+													searchFilter.key,
+													(event.currentTarget as HTMLInputElement).value
+												)}
+											onblur={(event) =>
+												void onApplyTechRequirementDraft(
+													searchFilter.key,
+													(event.currentTarget as HTMLInputElement).value
+												)}
+											onkeydown={(event) => onTechRequirementKeydown(event, searchFilter.key)}
+										/>
+
+										{#if techRequirementError}
+											<p class="mt-1 text-xs text-red-600">{techRequirementError}</p>
+										{/if}
+
+										<div class="mt-2 flex items-center justify-between gap-2">
+											<Button
+												type="button"
+												size="sm"
+												variant="ghost"
+												onclick={() => onClearTechRequirement(searchFilter.key)}
+											>
+												Clear
+											</Button>
+											<span class="text-muted-fg text-[11px]">Auto-saved</span>
+										</div>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{:else if hasFreeTextSearch}
+					<p class="text-muted-fg text-sm">
+						AI-picked filters will appear here after analysis. You can remove terms or add years
+						once they show up.
+					</p>
+				{:else}
+					<p class="text-muted-fg text-sm">No active search filters yet.</p>
+				{/if}
+
+				<p class="text-muted-fg mt-3 text-sm">{summaryText}</p>
 			</div>
 		</div>
 	</div>

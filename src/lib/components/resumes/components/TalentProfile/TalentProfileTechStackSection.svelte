@@ -7,12 +7,14 @@
 		isEditing = false,
 		canEdit = false,
 		editingTechStack = $bindable([] as TechCategory[]),
-		viewCategories = []
+		viewCategories = [],
+		organisationId = null
 	}: {
 		isEditing?: boolean;
 		canEdit?: boolean;
 		editingTechStack?: TechCategory[];
 		viewCategories?: TalentTechCategory[];
+		organisationId?: string | null;
 	} = $props();
 </script>
 
@@ -26,7 +28,7 @@
 	</h3>
 
 	{#if isEditing && canEdit}
-		<TechStackEditor bind:categories={editingTechStack} isEditing />
+		<TechStackEditor bind:categories={editingTechStack} isEditing {organisationId} />
 	{:else if viewCategories.length === 0}
 		<p class="text-muted-fg text-sm">No tech stack recorded yet.</p>
 	{:else}
