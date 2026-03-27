@@ -1,6 +1,7 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getAccessibleTalentIds, type ActorAccessContext } from '$lib/server/access';
+import { loadEffectiveTechCatalog } from '$lib/server/techCatalog';
 import {
 	buildResumeSearchIndex,
 	type ResumeSearchConsultantDocument,
@@ -8,12 +9,20 @@ import {
 } from '$lib/server/resumes/searchIndex';
 import {
 	analyzeResumeSearchQuery,
-	MAX_RESUME_SEARCH_QUERY_LENGTH
+	buildParsedResumeSearchQueryFromFilterTerms,
+	MAX_RESUME_SEARCH_QUERY_LENGTH,
+	type ResumeSearchQueryCatalogContext,
+	toResumeSearchFilterTerms
 } from '$lib/server/resumes/searchQueryAnalysis';
-import type { ResumeSearchResponse } from '$lib/types/resumes';
+import type {
+	ResumeSearchFilterKind,
+	ResumeSearchFilterTerm,
+	ResumeSearchResponse
+} from '$lib/types/resumes';
 
 const CACHE_TTL_MS = 60_000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SEARCH_FILTER_KINDS = new Set<ResumeSearchFilterKind>(['technology', 'role', 'concept']);
 
 type SearchIndexCacheEntry = {
 	expiresAt: number;
@@ -22,15 +31,80 @@ type SearchIndexCacheEntry = {
 	documents: ResumeSearchConsultantDocument[];
 };
 
+type SearchRequestPayload = {
+	query: string;
+	orgIds: string[];
+	termOverrides: ResumeSearchFilterTerm[] | null;
+	hasExplicitTermOverrides: boolean;
+};
+
 const searchIndexCache = new Map<string, SearchIndexCacheEntry>();
+
+const buildHash = (value: string) => {
+	let hash = 5381;
+	for (let index = 0; index < value.length; index += 1) {
+		hash = ((hash << 5) + hash + value.charCodeAt(index)) >>> 0;
+	}
+	return hash.toString(36);
+};
+
+const buildTechCatalogContext = async (payload: {
+	adminClient: SupabaseClient;
+	actor: ActorAccessContext;
+}): Promise<ResumeSearchQueryCatalogContext | null> => {
+	const catalog = await loadEffectiveTechCatalog({
+		adminClient: payload.adminClient,
+		actor: payload.actor,
+		requestedMode: 'auto'
+	});
+
+	const technologies = catalog.categories.flatMap((category) =>
+		category.items.map((item) => ({
+			label: item.label,
+			aliases: item.aliases,
+			category: category.name || null
+		}))
+	);
+
+	if (technologies.length === 0) return null;
+
+	const fingerprint = buildHash(
+		technologies
+			.map((technology) =>
+				[
+					technology.category ?? '',
+					technology.label.trim(),
+					technology.aliases.map((alias) => alias.trim()).join('|')
+				].join('::')
+			)
+			.join('\n')
+	);
+
+	return {
+		scopeSignature: catalog.scope.signature,
+		cacheKey: `${catalog.scope.signature}:${fingerprint}`,
+		technologies
+	};
+};
 
 const buildResponseHeaders = () => ({
 	'Cache-Control': 'private, no-store',
 	Vary: 'Cookie'
 });
 
-const parseOrgIds = (url: URL): { ok: true; orgIds: string[] } | { ok: false; message: string } => {
-	const orgParams = url.searchParams.getAll('org');
+const emptyResponse = (query: string): ResumeSearchResponse => ({
+	query,
+	scope: { orgIds: [], signature: 'default' },
+	aiApplied: false,
+	analyzedTerms: [],
+	appliedTerms: [],
+	items: [],
+	generatedAt: new Date().toISOString()
+});
+
+const parseOrgIds = (
+	orgParams: string[]
+): { ok: true; orgIds: string[] } | { ok: false; message: string } => {
 	if (orgParams.length === 0) return { ok: true, orgIds: [] };
 
 	const uniqueOrgIds = Array.from(
@@ -45,6 +119,33 @@ const parseOrgIds = (url: URL): { ok: true; orgIds: string[] } | { ok: false; me
 	}
 
 	return { ok: true, orgIds: uniqueOrgIds };
+};
+
+const sanitizeTermOverrides = (value: unknown): ResumeSearchFilterTerm[] | null => {
+	if (!Array.isArray(value)) return null;
+
+	const deduped = new Map<string, ResumeSearchFilterTerm>();
+
+	for (const entry of value) {
+		if (!entry || typeof entry !== 'object') continue;
+
+		const label = typeof entry.label === 'string' ? entry.label.trim() : '';
+		const kind = typeof entry.kind === 'string' ? entry.kind.trim() : '';
+		if (!label || !SEARCH_FILTER_KINDS.has(kind as ResumeSearchFilterKind)) continue;
+
+		const key =
+			typeof entry.key === 'string' && entry.key.trim().length > 0
+				? entry.key.trim().toLowerCase()
+				: label.toLowerCase();
+
+		deduped.set(key, {
+			label,
+			key,
+			kind: kind as ResumeSearchFilterKind
+		});
+	}
+
+	return Array.from(deduped.values());
 };
 
 const resolveScope = (actor: ActorAccessContext, requestedOrgIds: string[]) => {
@@ -115,7 +216,12 @@ const resolveScopedTalentIds = async (payload: {
 	return scopedTalentIds.filter((talentId) => accessibleSet.has(talentId));
 };
 
-export const GET: RequestHandler = async ({ url, locals }) => {
+const executeSearch = async (payload: {
+	requestPayload: SearchRequestPayload;
+	locals: App.Locals;
+}) => {
+	const { requestPayload, locals } = payload;
+	const { query, orgIds, termOverrides, hasExplicitTermOverrides } = requestPayload;
 	const requestContext = locals.requestContext;
 	const adminClient = requestContext.getAdminClient();
 	const actor = await requestContext.getActorContext();
@@ -124,15 +230,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		return json({ message: 'Unauthorized.' }, { status: 401, headers: buildResponseHeaders() });
 	}
 
-	const query = (url.searchParams.get('q') ?? '').trim();
 	if (!query) {
-		const emptyResponse: ResumeSearchResponse = {
-			query: '',
-			scope: { orgIds: [], signature: 'default' },
-			items: [],
-			generatedAt: new Date().toISOString()
-		};
-		return json(emptyResponse, { headers: buildResponseHeaders() });
+		return json(emptyResponse(''), { headers: buildResponseHeaders() });
 	}
 
 	if (query.length > MAX_RESUME_SEARCH_QUERY_LENGTH) {
@@ -142,7 +241,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		);
 	}
 
-	const parsedOrgIds = parseOrgIds(url);
+	const parsedOrgIds = parseOrgIds(orgIds);
 	if (!parsedOrgIds.ok) {
 		return json(
 			{ message: parsedOrgIds.message },
@@ -198,14 +297,93 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		);
 	}
 
-	const analyzedQuery = await analyzeResumeSearchQuery(query);
+	let techCatalogContext: ResumeSearchQueryCatalogContext | null = null;
+	try {
+		techCatalogContext = await buildTechCatalogContext({ adminClient, actor });
+	} catch (error) {
+		console.warn('[resume-search] could not load tech catalog context for query analysis', error);
+	}
+
+	const analyzedQuery = await analyzeResumeSearchQuery(query, {
+		catalogContext: techCatalogContext
+	});
+	const appliedQuery = hasExplicitTermOverrides
+		? buildParsedResumeSearchQueryFromFilterTerms({
+				raw: query,
+				terms: termOverrides ?? [],
+				aiApplied: analyzedQuery?.aiApplied ?? false
+			})
+		: analyzedQuery;
 
 	const responseBody: ResumeSearchResponse = {
 		query,
 		scope: entry.scope,
-		items: analyzedQuery ? searchResumeIndex(entry.documents, analyzedQuery) : [],
+		aiApplied: analyzedQuery?.aiApplied ?? false,
+		analyzedTerms: analyzedQuery ? toResumeSearchFilterTerms(analyzedQuery.terms) : [],
+		appliedTerms: appliedQuery ? toResumeSearchFilterTerms(appliedQuery.terms) : [],
+		items:
+			appliedQuery && appliedQuery.terms.length > 0
+				? searchResumeIndex(entry.documents, appliedQuery)
+				: [],
 		generatedAt: entry.generatedAt
 	};
 
 	return json(responseBody, { headers: buildResponseHeaders() });
+};
+
+export const GET: RequestHandler = async ({ url, locals }) =>
+	executeSearch({
+		requestPayload: {
+			query: (url.searchParams.get('q') ?? '').trim(),
+			orgIds: url.searchParams.getAll('org'),
+			termOverrides: null,
+			hasExplicitTermOverrides: false
+		},
+		locals
+	});
+
+export const POST: RequestHandler = async ({ request, locals }) => {
+	let body: unknown = null;
+
+	try {
+		body = await request.json();
+	} catch {
+		return json(
+			{ message: 'Invalid JSON body.' },
+			{ status: 400, headers: buildResponseHeaders() }
+		);
+	}
+
+	if (!body || typeof body !== 'object') {
+		return json(
+			{ message: 'Invalid request body.' },
+			{ status: 400, headers: buildResponseHeaders() }
+		);
+	}
+
+	const requestBody = body as Record<string, unknown>;
+
+	const query = typeof requestBody.q === 'string' ? requestBody.q.trim() : '';
+	const orgIds = Array.isArray(requestBody.orgIds)
+		? requestBody.orgIds.filter((value): value is string => typeof value === 'string')
+		: [];
+	const hasExplicitTermOverrides = Object.prototype.hasOwnProperty.call(requestBody, 'terms');
+	const termOverrides = sanitizeTermOverrides(requestBody.terms);
+
+	if (hasExplicitTermOverrides && termOverrides === null) {
+		return json(
+			{ message: 'Invalid search term overrides.' },
+			{ status: 400, headers: buildResponseHeaders() }
+		);
+	}
+
+	return executeSearch({
+		requestPayload: {
+			query,
+			orgIds,
+			termOverrides,
+			hasExplicitTermOverrides
+		},
+		locals
+	});
 };

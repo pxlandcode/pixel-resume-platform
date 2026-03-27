@@ -60,6 +60,7 @@
 		{ heading: 'Status', width: 10 },
 		{ heading: 'Actions', width: 8 }
 	];
+	const fallbackRoleIcon = getRoleIcon('talent');
 
 	const toRows = (items: UserRow[]): TableRow[] =>
 		items.map((user) => {
@@ -152,8 +153,7 @@
 								class="text-muted-fg hover:text-foreground inline-flex cursor-default transition-colors"
 								use:tooltip={getRoleLabel('talent')}
 							>
-								{@const TalentIcon = getRoleIcon('talent')}
-								<TalentIcon size={16} />
+								<fallbackRoleIcon size={16} />
 							</span>
 						{/each}
 					</div>

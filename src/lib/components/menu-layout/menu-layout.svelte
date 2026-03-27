@@ -28,6 +28,7 @@
 		profile?: MenuProfile | null;
 		role?: AdminRole | null;
 		roles?: AdminRole[];
+		currentTalentId?: string | null;
 		userEmail?: string | null;
 		unauthorizedMessage?: string | null;
 		children: Snippet;
@@ -38,6 +39,7 @@
 		profile = null,
 		role = null,
 		roles = [],
+		currentTalentId = null,
 		userEmail = null,
 		unauthorizedMessage = null,
 		children,

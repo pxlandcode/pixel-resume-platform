@@ -42,6 +42,14 @@ export type ResumeSearchReason = {
 	resumeTitle: string | null;
 };
 
+export type ResumeSearchFilterKind = 'technology' | 'role' | 'concept';
+
+export type ResumeSearchFilterTerm = {
+	label: string;
+	key: string;
+	kind: ResumeSearchFilterKind;
+};
+
 export type ResumeSearchItem = {
 	talentId: string;
 	score: number;
@@ -64,6 +72,9 @@ export type ResumeSearchScope = {
 export type ResumeSearchResponse = {
 	query: string;
 	scope: ResumeSearchScope;
+	aiApplied: boolean;
+	analyzedTerms: ResumeSearchFilterTerm[];
+	appliedTerms: ResumeSearchFilterTerm[];
 	items: ResumeSearchItem[];
 	generatedAt: string;
 };

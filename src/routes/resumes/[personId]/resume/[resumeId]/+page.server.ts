@@ -100,6 +100,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 		avatarUrl: resumePerson?.avatar_url ?? null,
 		language,
 		isPdf: url.searchParams.get('pdf') === '1',
+		talentOrganisationId: permissions.talentOrganisationId ?? null,
 		canView,
 		canEdit,
 		canEditAll,

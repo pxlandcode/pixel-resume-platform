@@ -2,6 +2,7 @@ import type {
 	ExperienceItem,
 	HighlightedExperience,
 	LabeledItem,
+	LocalizedText,
 	ResumeData
 } from '../../types/resume';
 import { getPdfImportModel, openai } from '../openai';
@@ -358,6 +359,11 @@ const sanitizeLocalized = (value: unknown, maxLength: number): { sv: string; en:
 	};
 };
 
+const toLocalizedObject = (
+	value: LocalizedText | null | undefined,
+	maxLength: number
+): { sv: string; en: string } => sanitizeLocalized(value ?? '', maxLength);
+
 const sanitizeStringArray = (value: unknown, maxItems: number, maxLength: number): string[] => {
 	if (!Array.isArray(value)) return [];
 
@@ -513,8 +519,10 @@ const sanitizeLabeledItems = (value: unknown): LabeledItem[] => {
 
 const normalizeKeyPart = (value: string): string => normalize(stripTags(value)).toLowerCase();
 
-const normalizeLocalizedKey = (value: { sv: string; en: string }): string =>
-	`${normalizeKeyPart(value.sv)}|${normalizeKeyPart(value.en)}`;
+const normalizeLocalizedKey = (value: LocalizedText): string => {
+	const localized = toLocalizedObject(value, 8_000);
+	return `${normalizeKeyPart(localized.sv)}|${normalizeKeyPart(localized.en)}`;
+};
 
 const mapHighlightedToExperience = (entry: HighlightedExperience): ExperienceItem => ({
 	startDate: '',
@@ -568,14 +576,19 @@ const isSameExperience = (left: ExperienceItem, right: ExperienceItem): boolean 
 const mergeHighlightIntoExperience = (
 	base: ExperienceItem,
 	fromHighlight: ExperienceItem
-): ExperienceItem => ({
-	...base,
-	description: {
-		sv: base.description.sv || fromHighlight.description.sv,
-		en: base.description.en || fromHighlight.description.en
-	},
-	technologies: mergeTechnologies(base.technologies, fromHighlight.technologies)
-});
+): ExperienceItem => {
+	const baseDescription = toLocalizedObject(base.description, 8_000);
+	const highlightDescription = toLocalizedObject(fromHighlight.description, 8_000);
+
+	return {
+		...base,
+		description: {
+			sv: baseDescription.sv || highlightDescription.sv,
+			en: baseDescription.en || highlightDescription.en
+		},
+		technologies: mergeTechnologies(base.technologies, fromHighlight.technologies)
+	};
+};
 
 const ensureHighlightedIncludedInExperiences = (
 	experiences: ExperienceItem[],
@@ -631,11 +644,12 @@ const isUsableTitleText = (value: string, personName: string): boolean => {
 };
 
 const normalizeTitleCandidate = (
-	candidate: { sv: string; en: string },
+	candidate: LocalizedText,
 	personName: string
 ): { sv: string; en: string } | null => {
-	const sv = sanitizeOptionalText(candidate.sv, 180);
-	const en = sanitizeOptionalText(candidate.en, 180);
+	const localized = toLocalizedObject(candidate, 180);
+	const sv = sanitizeOptionalText(localized.sv, 180);
+	const en = sanitizeOptionalText(localized.en, 180);
 
 	const hasValidSv = isUsableTitleText(sv, personName);
 	const hasValidEn = isUsableTitleText(en, personName);
@@ -791,10 +805,11 @@ const sanitizeImportedPayload = (
 		portfolio: sanitizeStringArray(payload.portfolio, 20, 260),
 		footerNote: sanitizeLocalized(payload.footerNote, 2_000)
 	};
+	const normalizedSummary = toLocalizedObject(content.summary, 8_000);
 
 	const hasCriticalContent =
-		normalize(stripTags(content.summary.sv)).length > 0 ||
-		normalize(stripTags(content.summary.en)).length > 0 ||
+		normalize(stripTags(normalizedSummary.sv)).length > 0 ||
+		normalize(stripTags(normalizedSummary.en)).length > 0 ||
 		content.highlightedExperiences.length > 0 ||
 		content.experiences.length > 0 ||
 		normalize(normalizedTitle.sv).length > 0 ||

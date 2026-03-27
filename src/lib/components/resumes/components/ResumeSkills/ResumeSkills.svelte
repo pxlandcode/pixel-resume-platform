@@ -1,36 +1,23 @@
 <script lang="ts">
-	import { TechStackEditor, TechStackSelector } from '$lib/components';
+	import { TechStackEditor } from '$lib/components';
 	import type { Language } from '../utils';
 	import type { TechCategory } from '$lib/types/resume';
 
 	let {
 		techniques = $bindable(),
 		methods = $bindable(),
-		profileTechStack = [],
+		profileTechStack = $bindable([] as TechCategory[]),
 		isEditing = false,
-		language = 'sv'
+		language = 'sv',
+		organisationId = null
 	}: {
 		techniques: string[];
 		methods: string[];
 		profileTechStack?: TechCategory[];
 		isEditing?: boolean;
 		language?: Language;
+		organisationId?: string | null;
 	} = $props();
-
-	const normalize = (value: string) => value.trim().toLowerCase();
-	const profileSkills = $derived(
-		profileTechStack
-			?.flatMap((cat) => cat.skills ?? [])
-			.map((s) => s.trim())
-			.filter(Boolean) ?? []
-	);
-	const profileSet = $derived(new Set(profileSkills.map(normalize)));
-	const extraTechniques = $derived(
-		techniques
-			.filter((tech) => !profileSet.has(normalize(tech)))
-			.map((t) => t.trim())
-			.filter(Boolean)
-	);
 
 	const translations: Record<string, { sv: string; en: string }> = {
 		frontend: { sv: 'Frontend', en: 'Frontend' },
@@ -64,33 +51,33 @@
 	<section class="resume-print-section mt-8">
 		<!-- Section Header with dividers -->
 		<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-			<h2 class="text-base font-bold text-foreground uppercase">
+			<h2 class="text-foreground text-base font-bold uppercase">
 				{language === 'sv' ? 'Kompetenser' : 'Skills'}
 			</h2>
 			<div class="flex items-center">
-				<div class="h-px flex-1 bg-border"></div>
+				<div class="bg-border h-px flex-1"></div>
 			</div>
 		</div>
 
 		<div class="mt-4 space-y-4">
 			{#if isEditing}
-				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-secondary-text">
+				<div class="rounded-xs border-border bg-muted border p-4">
+					<p class="text-secondary-text mb-2 text-sm font-semibold">
 						{language === 'sv'
 							? 'Teknikstack (ändra och dra/ släpp kategorier och skills)'
 							: 'Tech stack (drag/drop between categories)'}
 					</p>
-					<TechStackEditor bind:categories={profileTechStack} {isEditing} />
+					<TechStackEditor bind:categories={profileTechStack} {isEditing} {organisationId} />
 				</div>
 			{:else}
 				{#each displayCategories() as category (category.id)}
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
+						<p class="text-secondary-text pt-1 text-xs font-bold uppercase tracking-wide">
 							{labelFor(category.name, language)}
 						</p>
 						<div class="flex flex-wrap gap-2">
 							{#each category.skills as tech}
-								<span class="rounded-xs bg-muted px-3 py-1 text-xs text-foreground">{tech}</span>
+								<span class="rounded-xs bg-muted text-foreground px-3 py-1 text-xs">{tech}</span>
 							{/each}
 						</div>
 					</div>

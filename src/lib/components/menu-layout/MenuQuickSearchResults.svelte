@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { resolve } from '$app/paths';
 	import { ripple } from '$lib/utils/ripple';
 	import type { QuickSearchSection } from '$lib/types/quickSearch';
 	import type { QuickSearchStatus } from './types';
@@ -62,7 +61,7 @@
 					{#each section.results as result (`${result.kind}:${result.id}`)}
 						{@const ResultIcon = getQuickSearchResultIcon(result.kind)}
 						<a
-							href={resolve(result.href)}
+							href={result.href}
 							onclick={() => onselect?.()}
 							use:ripple={{ opacity: 0.14 }}
 							class={`relative isolate flex items-start gap-3 rounded-sm px-3 py-2.5 transition-colors ${

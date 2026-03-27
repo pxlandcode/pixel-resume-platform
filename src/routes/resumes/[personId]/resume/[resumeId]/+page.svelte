@@ -372,7 +372,7 @@
 	</div>
 </div>
 
-<Toaster richColors position="top-center" closeButton />
+<Toaster />
 
 <!-- Fixed Edit/Save/Download Buttons in Bottom Right -->
 <div class="fixed bottom-6 right-6 z-50 flex gap-2 print:hidden">
@@ -470,6 +470,7 @@
 				person={data.resumePerson ?? undefined}
 				image={avatarImage ?? undefined}
 				profileTechStack={data.resumePerson?.techStack}
+				techCatalogOrganisationId={data.talentOrganisationId}
 				templateMainLogotypeUrl={data.templateContext?.mainLogotypeUrl}
 				templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
 				templateEndLogoUrl={data.templateContext?.endLogoUrl}

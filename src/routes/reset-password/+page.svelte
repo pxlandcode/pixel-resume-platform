@@ -4,11 +4,11 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
-	import type { ActionData } from './$types';
+	import type { PageProps } from './$types';
 	import { getSupabaseClient } from '$lib/supabaseClient';
 	import { Button, FormControl, Input } from '@pixelcode_/blocks/components';
 
-	let { form }: { form: ActionData | null } = $props();
+	let { form }: PageProps = $props();
 
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
 	let errorMessage = $state<string | null>(null);
@@ -21,7 +21,7 @@
 		expiresIn: number | null;
 	} | null>(null);
 
-	const handleSubmit: SubmitFunction<ActionData, ActionData> = async () => {
+	const handleSubmit: SubmitFunction = async () => {
 		pending = true;
 
 		return async ({ update }) => {
@@ -35,7 +35,8 @@
 
 		if (!hash) {
 			status = 'error';
-			errorMessage = 'This reset link is invalid or has already been used. Please request a new email.';
+			errorMessage =
+				'This reset link is invalid or has already been used. Please request a new email.';
 			return;
 		}
 
@@ -48,7 +49,8 @@
 
 		if (type !== 'recovery' || !accessToken || !refreshToken) {
 			status = 'error';
-			errorMessage = 'This reset link is invalid or has already been used. Please request a new email.';
+			errorMessage =
+				'This reset link is invalid or has already been used. Please request a new email.';
 			return;
 		}
 
@@ -101,7 +103,9 @@
 	<div class="border-border bg-card w-full max-w-md space-y-6 rounded-lg border p-8 shadow">
 		<header class="space-y-1 text-center">
 			<h1 class="text-foreground text-xl font-semibold">Reset your password</h1>
-			<p class="text-muted-fg text-sm">Choose a new password to regain access to Resume Platform.</p>
+			<p class="text-muted-fg text-sm">
+				Choose a new password to regain access to Resume Platform.
+			</p>
 		</header>
 
 		{#if status === 'loading'}
@@ -128,7 +132,7 @@
 						type="password"
 						class="bg-input text-foreground placeholder:text-muted-fg"
 						required
-						minlength="8"
+						minlength={8}
 						autocomplete="new-password"
 					/>
 				</FormControl>
@@ -140,7 +144,7 @@
 						type="password"
 						class="bg-input text-foreground placeholder:text-muted-fg"
 						required
-						minlength="8"
+						minlength={8}
 						autocomplete="new-password"
 					/>
 				</FormControl>

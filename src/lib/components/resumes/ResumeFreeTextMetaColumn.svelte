@@ -3,7 +3,6 @@
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
 	import ResumeOrganisationMark from './ResumeOrganisationMark.svelte';
 	import ResumeSearchInsights from './ResumeSearchInsights.svelte';
-	import ResumeTechMatchBadges from './ResumeTechMatchBadges.svelte';
 	import type { FreeTextTalentResult } from './pageShared';
 	import { getMatchPillClass, getSearchMatchPillClass, getTalentName } from './pageShared';
 
@@ -56,15 +55,6 @@
 	{/if}
 
 	<div>
-		<ResumeSearchInsights search={talent.search} />
+		<ResumeSearchInsights search={talent.search} techMatches={talent.techMatches} />
 	</div>
-
-	{#if talent.total > 0}
-		<div>
-			<p class="text-foreground text-[11px] font-semibold uppercase tracking-wide">Selected tech</p>
-			<div class="mt-1">
-				<ResumeTechMatchBadges techMatches={talent.techMatches} />
-			</div>
-		</div>
-	{/if}
 </div>

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ResumeTechIndexItem } from '$lib/types/resumes';
+import { loadTechCatalogMatchState, resolveTechCatalogMatchKeys } from '$lib/server/techCatalog';
 
 const toStringArray = (value: unknown): string[] => {
 	if (!Array.isArray(value)) return [];
@@ -46,7 +47,6 @@ const normalizeId = (value: unknown): string | null => {
 	return null;
 };
 
-const normalizeTechKey = (value: string) => value.trim().toLowerCase();
 const ONGOING_END_DATE_KEYWORDS = new Set([
 	'present',
 	'current',
@@ -110,6 +110,7 @@ export const buildResumeTechIndex = async (
 
 	const scopedTalentIdSet = new Set(talentRows.map((row) => row.id));
 	const scopedTalentIds = Array.from(scopedTalentIdSet);
+	const techCatalogMatchState = await loadTechCatalogMatchState(adminClient);
 
 	const resumesResult = await adminClient
 		.from('resumes')
@@ -130,6 +131,33 @@ export const buildResumeTechIndex = async (
 	const resumeIdToTalentId = new Map<string, string>(
 		resumeMetadata.map((row) => [row.id, row.talentId])
 	);
+
+	const talentOrganisationRowsResult =
+		scopedTalentIds.length === 0
+			? {
+					data: [] as Array<{ talent_id: string; organisation_id: string }>,
+					error: null
+				}
+			: await adminClient
+					.from('organisation_talents')
+					.select('talent_id, organisation_id')
+					.in('talent_id', scopedTalentIds);
+	if (talentOrganisationRowsResult.error) {
+		throw new Error(talentOrganisationRowsResult.error.message);
+	}
+
+	const organisationIdByTalentId = new Map<string, string>();
+	for (const row of talentOrganisationRowsResult.data ?? []) {
+		if (typeof row.talent_id !== 'string' || typeof row.organisation_id !== 'string') continue;
+		organisationIdByTalentId.set(row.talent_id, row.organisation_id);
+	}
+
+	const resolveMatchKeys = (rawTech: string, talentId: string) =>
+		resolveTechCatalogMatchKeys(
+			techCatalogMatchState,
+			rawTech,
+			organisationIdByTalentId.get(talentId) ?? null
+		);
 
 	const [resumeSkillRowsResult, resumeExperienceRowsResult] =
 		resumeIds.length === 0
@@ -274,7 +302,14 @@ export const buildResumeTechIndex = async (
 		const value = getSafeText(row.value);
 		if (!value) continue;
 		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
-		set.add(value);
+		const talentId = resumeIdToTalentId.get(resumeId);
+		if (talentId) {
+			for (const key of resolveMatchKeys(value, talentId)) {
+				set.add(key);
+			}
+		} else {
+			set.add(value);
+		}
 		resumeSearchMap.set(resumeId, set);
 	}
 
@@ -283,6 +318,7 @@ export const buildResumeTechIndex = async (
 		const experienceId = normalizeId((item as { experience_id: unknown }).experience_id);
 		const itemId = normalizeId((item as { id: unknown }).id);
 		if (!resumeId || !experienceId || !itemId) continue;
+		const talentId = resumeIdToTalentId.get(resumeId);
 
 		const set = resumeSearchMap.get(resumeId) ?? new Set<string>();
 		const library = libraryById.get(experienceId);
@@ -294,11 +330,23 @@ export const buildResumeTechIndex = async (
 
 		if (item.use_tech_override) {
 			for (const tech of overrideTechByItemId.get(itemId) ?? []) {
-				set.add(tech);
+				if (!talentId) {
+					set.add(tech);
+					continue;
+				}
+				for (const key of resolveMatchKeys(tech, talentId)) {
+					set.add(key);
+				}
 			}
 		} else {
 			for (const tech of libraryTechByExperienceId.get(experienceId) ?? []) {
-				set.add(tech);
+				if (!talentId) {
+					set.add(tech);
+					continue;
+				}
+				for (const key of resolveMatchKeys(tech, talentId)) {
+					set.add(key);
+				}
 			}
 		}
 
@@ -360,16 +408,17 @@ export const buildResumeTechIndex = async (
 		}
 
 		for (const rawTech of techValues) {
-			const techKey = normalizeTechKey(rawTech);
-			if (!techKey) continue;
+			for (const techKey of resolveMatchKeys(rawTech, talentId)) {
+				if (!techKey) continue;
 
-			let intervalMap = talentIntervals.get(techKey);
-			if (!intervalMap) {
-				intervalMap = new Map();
-				talentIntervals.set(techKey, intervalMap);
+				let intervalMap = talentIntervals.get(techKey);
+				if (!intervalMap) {
+					intervalMap = new Map();
+					talentIntervals.set(techKey, intervalMap);
+				}
+
+				intervalMap.set(`${startMs}:${endMs}`, { startMs, endMs });
 			}
-
-			intervalMap.set(`${startMs}:${endMs}`, { startMs, endMs });
 		}
 	}
 
@@ -413,7 +462,9 @@ export const buildResumeTechIndex = async (
 
 	const items: ResumeTechIndexItem[] = talentRows
 		.map((talent) => {
-			const profileTechs = extractTalentTechs(talent.tech_stack);
+			const profileTechs = extractTalentTechs(talent.tech_stack).flatMap((tech) =>
+				resolveMatchKeys(tech, talent.id)
+			);
 			const resumeTechs = Array.from(resumeSearchByTalentId.get(talent.id) ?? []);
 			return {
 				talentId: talent.id,

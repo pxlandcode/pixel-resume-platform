@@ -6,6 +6,7 @@
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
 	import type {
+		ResumeSearchFilterTerm,
 		ResumeSearchItem,
 		ResumeSearchResponse,
 		ResumeTechIndexResponse
@@ -19,6 +20,7 @@
 	import {
 		type AvailabilityMode,
 		type FreeTextTalentResult,
+		type SelectedSearchFilter,
 		type SelectedTechFilter,
 		type TechMatch,
 		type TechMatchSummary,
@@ -31,6 +33,9 @@
 
 	type FreeTextSearchCacheEntry = {
 		generatedAt: string | null;
+		aiApplied: boolean;
+		analyzedTerms: ResumeSearchFilterTerm[];
+		appliedTerms: ResumeSearchFilterTerm[];
 		items: ResumeSearchItem[];
 	};
 
@@ -49,9 +54,13 @@
 		itemsByTalentId: Record<string, TalentTechData>;
 	};
 	type TalentWithScore = Talent & TechMatchSummary;
+	type SearchFilterTermInput = Pick<SelectedSearchFilter, 'label' | 'key' | 'kind'>;
 
 	let selectedTechs = $state<string[]>([]);
-	let requiredYearsByTechKey = $state<Record<string, number>>({});
+	let analyzedSearchTerms = $state<ResumeSearchFilterTerm[]>([]);
+	let extractedSearchTerms = $state<ResumeSearchFilterTerm[]>([]);
+	let analyzedSearchTermsBaseKey = $state<string | null>(null);
+	let requiredYearsByFilterKey = $state<Record<string, number>>({});
 	let filtersOpen = $state(false);
 	let searchQuery = $state('');
 	let freeTextSearchInput = $state('');
@@ -117,6 +126,10 @@
 	const techScopeOrgIds = $derived(
 		Array.from(new Set(selectedOrganisationIds.map((id) => id.trim()).filter(Boolean))).sort()
 	);
+	const techCatalogScope = $derived<'global' | 'organisation'>(
+		homeOrganisationId ? 'organisation' : 'global'
+	);
+	const techCatalogOrganisationId = $derived(homeOrganisationId);
 	const techScopeSignature = $derived(
 		techScopeOrgIds.length > 0 ? `org:${techScopeOrgIds.join(',')}` : 'default'
 	);
@@ -131,7 +144,45 @@
 		);
 	});
 
-	const normalize = (value: string) => value.trim().toLowerCase();
+	const normalize = (value: string) =>
+		value
+			.trim()
+			.normalize('NFKD')
+			.replace(/[\u0300-\u036f]/g, '')
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, ' ')
+			.replace(/\s+/g, ' ')
+			.trim();
+	const FILTER_KIND_ORDER: Record<SelectedSearchFilter['kind'], number> = {
+		technology: 0,
+		role: 1,
+		concept: 2
+	};
+
+	const serializeSearchFilterTerms = (terms: SearchFilterTermInput[]) =>
+		JSON.stringify(
+			terms
+				.map((term) => ({
+					label: term.label.trim(),
+					key: normalize(term.key),
+					kind: term.kind
+				}))
+				.sort((left, right) => {
+					if (left.kind !== right.kind) return left.kind.localeCompare(right.kind);
+					return left.key.localeCompare(right.key);
+				})
+		);
+
+	const searchFilterTermsEqual = (left: SearchFilterTermInput[], right: SearchFilterTermInput[]) =>
+		serializeSearchFilterTerms(left) === serializeSearchFilterTerms(right);
+
+	const sortSelectedSearchFilters = (filters: SelectedSearchFilter[]) =>
+		[...filters].sort((left, right) => {
+			if (FILTER_KIND_ORDER[left.kind] !== FILTER_KIND_ORDER[right.kind]) {
+				return FILTER_KIND_ORDER[left.kind] - FILTER_KIND_ORDER[right.kind];
+			}
+			return left.label.localeCompare(right.label);
+		});
 
 	const toIsoUtcDateFromMs = (timeMs: number) => {
 		const date = new globalThis.Date(timeMs);
@@ -154,7 +205,7 @@
 	);
 	const appliedFreeTextSearch = $derived(freeTextSearchApplied.trim());
 	const hasFreeTextSearch = $derived(appliedFreeTextSearch.length > 0);
-	const freeTextSearchCacheKey = $derived(
+	const freeTextSearchBaseKey = $derived(
 		hasFreeTextSearch ? `${techScopeSignature}::${appliedFreeTextSearch}` : null
 	);
 
@@ -244,7 +295,7 @@
 		});
 	});
 
-	const selectedTechFilters = $derived.by<SelectedTechFilter[]>(() => {
+	const manualTechFilters = $derived.by<SelectedTechFilter[]>(() => {
 		const seen: Record<string, true> = {};
 		const filters: SelectedTechFilter[] = [];
 
@@ -257,12 +308,51 @@
 			filters.push({
 				label: trimmed,
 				key,
-				requiredYears: requiredYearsByTechKey[key] ?? null
+				requiredYears: requiredYearsByFilterKey[key] ?? null
 			});
 		}
 
 		return filters;
 	});
+
+	const extractedSearchFilters = $derived.by<SelectedSearchFilter[]>(() =>
+		extractedSearchTerms.map((term) => ({
+			label: term.label,
+			key: term.key,
+			kind: term.kind,
+			requiredYears: requiredYearsByFilterKey[term.key] ?? null
+		}))
+	);
+
+	const selectedSearchFilters = $derived.by<SelectedSearchFilter[]>(() => {
+		const filtersByKey = new Map<string, SelectedSearchFilter>();
+
+		for (const filter of extractedSearchFilters) {
+			filtersByKey.set(filter.key, filter);
+		}
+
+		for (const filter of manualTechFilters) {
+			filtersByKey.set(filter.key, {
+				...filter,
+				kind: 'technology'
+			});
+		}
+
+		return sortSelectedSearchFilters(Array.from(filtersByKey.values()));
+	});
+
+	const selectedTechFilters = $derived.by<SelectedTechFilter[]>(() =>
+		selectedSearchFilters
+			.filter(
+				(filter): filter is SelectedSearchFilter & { kind: 'technology' } =>
+					filter.kind === 'technology'
+			)
+			.map((filter) => ({
+				label: filter.label,
+				key: filter.key,
+				requiredYears: filter.requiredYears
+			}))
+	);
 
 	const hasSelectedTechFilters = $derived(selectedTechFilters.length > 0);
 	const techIndexReady = $derived(
@@ -276,19 +366,52 @@
 	const techIndexIsLoadingForScope = $derived(
 		techIndexStatus === 'loading' && activeTechScopeSignature === techScopeSignature
 	);
+	const baselineExtractedSearchTermInputs = $derived.by<SearchFilterTermInput[]>(() =>
+		analyzedSearchTerms.map((term) => ({
+			label: term.label,
+			key: term.key,
+			kind: term.kind
+		}))
+	);
+	const selectedSearchFilterInputs = $derived.by<SearchFilterTermInput[]>(() =>
+		selectedSearchFilters.map((filter) => ({
+			label: filter.label,
+			key: filter.key,
+			kind: filter.kind
+		}))
+	);
+	const activeFreeTextRequestTerms = $derived.by<ResumeSearchFilterTerm[] | null>(() => {
+		if (!hasFreeTextSearch) return null;
+		if (analyzedSearchTermsBaseKey !== freeTextSearchBaseKey) return null;
+		if (searchFilterTermsEqual(selectedSearchFilterInputs, baselineExtractedSearchTermInputs)) {
+			return null;
+		}
+
+		return selectedSearchFilterInputs.map((term) => ({
+			label: term.label,
+			key: term.key,
+			kind: term.kind
+		}));
+	});
+	const freeTextSearchRequestKey = $derived.by(() => {
+		if (!freeTextSearchBaseKey) return null;
+		if (activeFreeTextRequestTerms === null) return `${freeTextSearchBaseKey}::auto`;
+		return `${freeTextSearchBaseKey}::terms:${serializeSearchFilterTerms(activeFreeTextRequestTerms)}`;
+	});
 	const freeTextSearchReady = $derived(
 		hasFreeTextSearch &&
 			freeTextSearchStatus === 'ready' &&
-			loadedFreeTextSearchCacheKey === freeTextSearchCacheKey
+			loadedFreeTextSearchCacheKey === freeTextSearchRequestKey
 	);
 	const freeTextSearchIsLoadingForKey = $derived(
-		freeTextSearchStatus === 'loading' && activeFreeTextSearchCacheKey === freeTextSearchCacheKey
+		freeTextSearchStatus === 'loading' && activeFreeTextSearchCacheKey === freeTextSearchRequestKey
 	);
-	const activeFreeTextSearchResults = $derived(
-		freeTextSearchCacheKey && loadedFreeTextSearchCacheKey === freeTextSearchCacheKey
-			? (freeTextSearchCache[freeTextSearchCacheKey]?.items ?? [])
-			: []
+	const activeFreeTextSearchResponse = $derived(
+		freeTextSearchRequestKey && loadedFreeTextSearchCacheKey === freeTextSearchRequestKey
+			? (freeTextSearchCache[freeTextSearchRequestKey] ?? null)
+			: null
 	);
+	const activeFreeTextSearchResults = $derived(activeFreeTextSearchResponse?.items ?? []);
 
 	const toItemsByTalentId = (items: ResumeTechIndexResponse['items']) => {
 		const normalizedItems: Record<string, TalentTechData> = {};
@@ -419,10 +542,14 @@
 	const loadFreeTextSearchForScope = async (
 		scopeSignature: string,
 		orgIds: string[],
-		query: string
+		query: string,
+		termOverrides: ResumeSearchFilterTerm[] | null
 	) => {
 		const trimmedQuery = query.trim();
-		const cacheKey = `${scopeSignature}::${trimmedQuery}`;
+		const cacheKey =
+			termOverrides === null
+				? `${scopeSignature}::${trimmedQuery}::auto`
+				: `${scopeSignature}::${trimmedQuery}::terms:${serializeSearchFilterTerms(termOverrides)}`;
 		if (freeTextSearchStatus === 'loading' && activeFreeTextSearchCacheKey === cacheKey) return;
 
 		const cached = freeTextSearchCache[cacheKey];
@@ -442,13 +569,17 @@
 		freeTextSearchError = null;
 
 		try {
-			const params = new URLSearchParams();
-			params.set('q', trimmedQuery);
-			for (const orgId of orgIds) params.append('org', orgId);
-
-			const response = await fetch(`/internal/api/resumes/search?${params.toString()}`, {
-				method: 'GET',
+			const response = await fetch('/internal/api/resumes/search', {
+				method: 'POST',
 				credentials: 'include',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					q: trimmedQuery,
+					orgIds,
+					...(termOverrides !== null ? { terms: termOverrides } : {})
+				}),
 				signal: controller.signal
 			});
 
@@ -466,13 +597,19 @@
 				typeof payload?.query === 'string' && payload.query.trim().length > 0
 					? payload.query.trim()
 					: trimmedQuery;
-			const responseCacheKey = `${responseScopeSignature}::${responseQuery}`;
+			const responseCacheKey =
+				termOverrides === null
+					? `${responseScopeSignature}::${responseQuery}::auto`
+					: `${responseScopeSignature}::${responseQuery}::terms:${serializeSearchFilterTerms(termOverrides)}`;
 
 			setFreeTextSearchCacheEntry(responseCacheKey, {
 				generatedAt:
 					typeof payload?.generatedAt === 'string' && payload.generatedAt.trim().length > 0
 						? payload.generatedAt
 						: null,
+				aiApplied: Boolean(payload?.aiApplied),
+				analyzedTerms: Array.isArray(payload?.analyzedTerms) ? payload.analyzedTerms : [],
+				appliedTerms: Array.isArray(payload?.appliedTerms) ? payload.appliedTerms : [],
 				items: Array.isArray(payload?.items) ? payload.items : []
 			});
 
@@ -517,10 +654,32 @@
 			freeTextSearchStatus = 'idle';
 			freeTextSearchError = null;
 			loadedFreeTextSearchCacheKey = null;
+			analyzedSearchTerms = [];
+			extractedSearchTerms = [];
+			analyzedSearchTermsBaseKey = null;
 			return;
 		}
 
-		void loadFreeTextSearchForScope(techScopeSignature, techScopeOrgIds, appliedFreeTextSearch);
+		if (analyzedSearchTermsBaseKey && analyzedSearchTermsBaseKey !== freeTextSearchBaseKey) {
+			analyzedSearchTerms = [];
+			extractedSearchTerms = [];
+			analyzedSearchTermsBaseKey = null;
+		}
+
+		void loadFreeTextSearchForScope(
+			techScopeSignature,
+			techScopeOrgIds,
+			appliedFreeTextSearch,
+			activeFreeTextRequestTerms
+		);
+	});
+
+	$effect(() => {
+		if (!hasFreeTextSearch || !freeTextSearchReady || !activeFreeTextSearchResponse) return;
+		if (analyzedSearchTermsBaseKey === freeTextSearchBaseKey) return;
+		analyzedSearchTerms = activeFreeTextSearchResponse.analyzedTerms;
+		extractedSearchTerms = activeFreeTextSearchResponse.analyzedTerms;
+		analyzedSearchTermsBaseKey = freeTextSearchBaseKey;
 	});
 
 	const recordsEqual = (left: Record<string, number>, right: Record<string, number>) => {
@@ -535,16 +694,16 @@
 	};
 
 	$effect(() => {
-		const validKeys = new Set(selectedTechFilters.map((filter) => filter.key));
+		const validKeys = new Set(selectedSearchFilters.map((filter) => filter.key));
 		const nextYearsByKey: Record<string, number> = {};
 
-		for (const [key, years] of Object.entries(requiredYearsByTechKey)) {
+		for (const [key, years] of Object.entries(requiredYearsByFilterKey)) {
 			if (!validKeys.has(key)) continue;
 			nextYearsByKey[key] = years;
 		}
 
-		if (!recordsEqual(requiredYearsByTechKey, nextYearsByKey)) {
-			requiredYearsByTechKey = nextYearsByKey;
+		if (!recordsEqual(requiredYearsByFilterKey, nextYearsByKey)) {
+			requiredYearsByFilterKey = nextYearsByKey;
 		}
 
 		if (openTechRequirementKey && !validKeys.has(openTechRequirementKey)) {
@@ -622,6 +781,63 @@
 		};
 	};
 
+	const buildFreeTextTechMatchSummary = (
+		talentId: string,
+		searchResult: ResumeSearchItem
+	): TechMatchSummary => {
+		if (!hasSelectedTechFilters) {
+			return {
+				metCount: 0,
+				insufficientCount: 0,
+				missingCount: 0,
+				total: 0,
+				techMatches: []
+			};
+		}
+
+		const techData = getTalentTechData(talentId);
+		const matchedSearchTermSet = new Set(
+			[...searchResult.matchedTerms, ...searchResult.matchedQueryTechs]
+				.map((term) => normalize(term))
+				.filter((term) => term.length > 0)
+		);
+		const talentTechYearsByKey = techData.techYearsByKey;
+
+		const techMatches: TechMatch[] = selectedTechFilters.map((techFilter) => {
+			const normalizedLabel = normalize(techFilter.label);
+			const foundInSearch =
+				matchedSearchTermSet.has(techFilter.key) || matchedSearchTermSet.has(normalizedLabel);
+			const actualYears =
+				talentTechYearsByKey[techFilter.key] ?? talentTechYearsByKey[normalizedLabel] ?? 0;
+
+			let status: TechMatch['status'] = 'missing';
+			if (foundInSearch) {
+				if (techFilter.requiredYears === null || actualYears >= techFilter.requiredYears) {
+					status = 'met';
+				} else {
+					status = 'insufficient';
+				}
+			}
+
+			return {
+				...techFilter,
+				actualYears,
+				status
+			};
+		});
+
+		const metCount = techMatches.filter((match) => match.status === 'met').length;
+		const insufficientCount = techMatches.filter((match) => match.status === 'insufficient').length;
+
+		return {
+			metCount,
+			insufficientCount,
+			missingCount: techMatches.length - metCount - insufficientCount,
+			total: techMatches.length,
+			techMatches
+		};
+	};
+
 	const groupedTalents = $derived.by<TalentGroup[]>(() => {
 		if (!hasSelectedTechFilters || !techIndexReady) return [];
 
@@ -673,7 +889,7 @@
 				if (!availabilityFilteredTalentIdSet.has(talent.id)) return null;
 				if (!matchesNameFilter(talent)) return null;
 
-				const techMatchSummary = buildTechMatchSummary(talent.id);
+				const techMatchSummary = buildFreeTextTechMatchSummary(talent.id, searchResult);
 				if (
 					hasSelectedTechFilters &&
 					techMatchSummary.metCount + techMatchSummary.insufficientCount === 0
@@ -703,9 +919,12 @@
 			});
 	});
 
-	const activeFilterCount = $derived(
-		selectedTechFilters.length + (availabilityMode === 'all' ? 0 : 1) + (hasFreeTextSearch ? 1 : 0)
-	);
+	const activeFilterCount = $derived.by(() => {
+		const searchFilterCount = hasFreeTextSearch
+			? Math.max(selectedSearchFilters.length, 1)
+			: selectedSearchFilters.length;
+		return searchFilterCount + (availabilityMode === 'all' ? 0 : 1);
+	});
 
 	const filtersSummaryText = $derived.by(() => {
 		if (hasFreeTextSearch) {
@@ -767,7 +986,7 @@
 		techRequirementError = '';
 	};
 
-	const openTechRequirementPopover = (filter: SelectedTechFilter) => {
+	const openTechRequirementPopover = (filter: SelectedSearchFilter) => {
 		if (openTechRequirementKey === filter.key) {
 			closeTechRequirementPopover();
 			return;
@@ -778,16 +997,21 @@
 		techRequirementError = '';
 	};
 
-	const removeSelectedTech = (techKey: string) => {
-		selectedTechs = selectedTechs.filter((tech) => normalize(tech) !== techKey);
-		if (openTechRequirementKey === techKey) {
+	const removeSelectedSearchFilter = (filterKey: string) => {
+		selectedTechs = selectedTechs.filter((tech) => normalize(tech) !== filterKey);
+		extractedSearchTerms = extractedSearchTerms.filter((term) => term.key !== filterKey);
+		const nextYears = { ...requiredYearsByFilterKey };
+		delete nextYears[filterKey];
+		requiredYearsByFilterKey = nextYears;
+		if (openTechRequirementKey === filterKey) {
 			closeTechRequirementPopover();
 		}
 	};
 
-	const clearSelectedTechFilters = () => {
+	const clearSelectedSearchFilters = () => {
 		selectedTechs = [];
-		requiredYearsByTechKey = {};
+		extractedSearchTerms = [];
+		requiredYearsByFilterKey = {};
 		closeTechRequirementPopover();
 	};
 
@@ -800,9 +1024,9 @@
 		const raw = rawDraft.trim().replace(',', '.');
 
 		if (!raw) {
-			const next = { ...requiredYearsByTechKey };
+			const next = { ...requiredYearsByFilterKey };
 			delete next[techKey];
-			requiredYearsByTechKey = next;
+			requiredYearsByFilterKey = next;
 			techRequirementError = '';
 			if (closeOnSuccess) closeTechRequirementPopover();
 			return true;
@@ -814,8 +1038,8 @@
 			return false;
 		}
 
-		requiredYearsByTechKey = {
-			...requiredYearsByTechKey,
+		requiredYearsByFilterKey = {
+			...requiredYearsByFilterKey,
 			[techKey]: Math.round(parsed * 2) / 2
 		};
 		techRequirementError = '';
@@ -824,9 +1048,9 @@
 	};
 
 	const clearTechRequirement = (techKey: string) => {
-		const next = { ...requiredYearsByTechKey };
+		const next = { ...requiredYearsByFilterKey };
 		delete next[techKey];
-		requiredYearsByTechKey = next;
+		requiredYearsByFilterKey = next;
 		closeTechRequirementPopover();
 	};
 
@@ -863,6 +1087,8 @@
 		open={filtersOpen}
 		{organisationFilterOptions}
 		{selectedOrganisationIds}
+		{techCatalogOrganisationId}
+		{techCatalogScope}
 		onOrganisationFilterChange={handleOrganisationFilterChange}
 		{availabilityMode}
 		onAvailabilityModeChange={setAvailabilityMode}
@@ -878,14 +1104,14 @@
 		onClearFreeTextSearch={clearFreeTextSearch}
 		{selectedTechs}
 		onSelectedTechsChange={setSelectedTechs}
-		{selectedTechFilters}
+		{selectedSearchFilters}
 		{openTechRequirementKey}
 		{techRequirementDraft}
 		{techRequirementError}
 		onOpenTechRequirementPopover={openTechRequirementPopover}
 		onCloseTechRequirementPopover={closeTechRequirementPopover}
-		onRemoveSelectedTech={removeSelectedTech}
-		onClearSelectedTechFilters={clearSelectedTechFilters}
+		onRemoveSelectedSearchFilter={removeSelectedSearchFilter}
+		onClearSelectedSearchFilters={clearSelectedSearchFilters}
 		onApplyTechRequirementDraft={applyTechRequirementDraft}
 		onClearTechRequirement={clearTechRequirement}
 		onTechRequirementKeydown={handleTechRequirementKeydown}

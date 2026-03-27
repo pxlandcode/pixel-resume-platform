@@ -1,3 +1,5 @@
+import type { ResumeSearchFilterTerm } from '$lib/types/resumes';
+
 const AI_QUERY_ANALYSIS_CACHE_TTL_MS = 10 * 60_000;
 const AI_QUERY_ANALYSIS_INPUT_MAX_LENGTH = 2_500;
 const MAX_TERMS_PER_KIND = 12;
@@ -171,6 +173,18 @@ type QueryAnalysisPayload = {
 	ignore?: unknown;
 };
 
+export type ResumeSearchQueryCatalogTechnology = {
+	label: string;
+	aliases: string[];
+	category: string | null;
+};
+
+export type ResumeSearchQueryCatalogContext = {
+	scopeSignature: string;
+	cacheKey: string;
+	technologies: ResumeSearchQueryCatalogTechnology[];
+};
+
 export type ResumeSearchQueryTermKind = 'technology' | 'role' | 'concept';
 
 export type ResumeSearchQueryTerm = {
@@ -189,6 +203,8 @@ export type ParsedResumeSearchQuery = {
 };
 
 const queryAnalysisCache = new Map<string, QueryAnalysisCacheEntry>();
+const MAX_CATALOG_CONTEXT_CHARS = 10_000;
+const MAX_CATALOG_ALIASES_PER_TECH = 6;
 
 export const stripTags = (value: string) => value.replace(/<[^>]*>/g, ' ');
 
@@ -247,12 +263,22 @@ const sanitizeTermDisplay = (value: unknown, maxLength = 80) => {
 	return collapseWhitespace(stripTags(value)).slice(0, maxLength).trim();
 };
 
+const toTitleCaseDisplay = (value: string) => {
+	if (!value || value !== value.toLowerCase()) return value;
+
+	return value.replace(/\p{L}[\p{L}\p{M}'’.-]*/gu, (word) => {
+		const [first = '', ...rest] = Array.from(word);
+		return `${first.toLocaleUpperCase()}${rest.join('')}`;
+	});
+};
+
 const buildSearchTerm = (
 	value: unknown,
 	kind: ResumeSearchQueryTermKind,
 	importance: number
 ): ResumeSearchQueryTerm | null => {
-	const display = sanitizeTermDisplay(value);
+	const rawDisplay = sanitizeTermDisplay(value);
+	const display = kind === 'technology' ? rawDisplay : toTitleCaseDisplay(rawDisplay);
 	if (!display) return null;
 
 	const normalized = normalizeSearchText(display);
@@ -299,8 +325,12 @@ const dedupeTerms = (terms: ResumeSearchQueryTerm[]) => {
 const buildFallbackTerms = (normalized: string) =>
 	tokenizeQuery(normalized).map((token) => {
 		const kind = getFallbackTermKind(token);
+		const display =
+			kind === 'technology'
+				? formatFallbackDisplay(token)
+				: toTitleCaseDisplay(formatFallbackDisplay(token));
 		return {
-			display: formatFallbackDisplay(token),
+			display,
 			normalized: token,
 			tokens: [token],
 			kind,
@@ -430,15 +460,139 @@ const sanitizeAiTerms = (payload: QueryAnalysisPayload) => {
 	);
 };
 
+const buildCatalogCanonicalLabelByMatchKey = (
+	catalogContext: ResumeSearchQueryCatalogContext | null | undefined
+) => {
+	if (!catalogContext) return new Map<string, string>();
+
+	const canonicalLabelByMatchKey = new Map<string, string>();
+
+	for (const technology of catalogContext.technologies) {
+		const canonicalLabel = sanitizeTermDisplay(technology.label);
+		if (!canonicalLabel) continue;
+
+		for (const candidate of [technology.label, ...technology.aliases]) {
+			const normalized = normalizeSearchText(candidate);
+			if (!normalized || canonicalLabelByMatchKey.has(normalized)) continue;
+			canonicalLabelByMatchKey.set(normalized, canonicalLabel);
+		}
+	}
+
+	return canonicalLabelByMatchKey;
+};
+
+const canonicalizeTermsWithCatalogContext = (
+	terms: ResumeSearchQueryTerm[],
+	catalogContext: ResumeSearchQueryCatalogContext | null | undefined
+) => {
+	const canonicalLabelByMatchKey = buildCatalogCanonicalLabelByMatchKey(catalogContext);
+	if (canonicalLabelByMatchKey.size === 0) return terms;
+
+	return dedupeTerms(
+		terms.map((term) => {
+			if (term.kind !== 'technology') return term;
+
+			const canonicalLabel = canonicalLabelByMatchKey.get(term.normalized);
+			if (!canonicalLabel || canonicalLabel === term.display) return term;
+
+			return (
+				buildSearchTerm(canonicalLabel, 'technology', term.importance) ?? {
+					...term,
+					display: canonicalLabel
+				}
+			);
+		})
+	);
+};
+
+const buildCatalogContextPrompt = (
+	catalogContext: ResumeSearchQueryCatalogContext | null | undefined
+) => {
+	if (!catalogContext || catalogContext.technologies.length === 0) return null;
+
+	const lines: string[] = [];
+	let totalLength = 0;
+
+	for (const technology of catalogContext.technologies) {
+		const aliases = uniqueValues(technology.aliases).slice(0, MAX_CATALOG_ALIASES_PER_TECH);
+		const line = [
+			`- ${technology.label}`,
+			technology.category ? `[${technology.category}]` : null,
+			aliases.length > 0 ? `(aliases: ${aliases.join(', ')})` : null
+		]
+			.filter(Boolean)
+			.join(' ');
+
+		if (totalLength + line.length + 1 > MAX_CATALOG_CONTEXT_CHARS) {
+			const remaining = catalogContext.technologies.length - lines.length;
+			if (remaining > 0) lines.push(`- ... ${remaining} more catalog technologies omitted`);
+			break;
+		}
+
+		lines.push(line);
+		totalLength += line.length + 1;
+	}
+
+	return lines.join('\n');
+};
+
+const getKindImportance = (kind: ResumeSearchQueryTermKind) => {
+	if (kind === 'technology') return 1.35;
+	if (kind === 'role') return 1.15;
+	return 1;
+};
+
+export const toResumeSearchFilterTerms = (
+	terms: ResumeSearchQueryTerm[]
+): ResumeSearchFilterTerm[] =>
+	terms.map((term) => ({
+		label: term.display,
+		key: term.normalized,
+		kind: term.kind
+	}));
+
+export const buildParsedResumeSearchQueryFromFilterTerms = (payload: {
+	raw: string;
+	terms: ResumeSearchFilterTerm[];
+	aiApplied?: boolean;
+}): ParsedResumeSearchQuery | null => {
+	const raw = payload.raw.trim().slice(0, MAX_RESUME_SEARCH_QUERY_LENGTH);
+	const normalized = normalizeSearchText(raw);
+	const terms = dedupeTerms(
+		payload.terms
+			.map((term) => buildSearchTerm(term.label, term.kind, getKindImportance(term.kind)))
+			.filter((term): term is ResumeSearchQueryTerm => term !== null)
+	).slice(0, MAX_TERMS_PER_KIND * 3);
+
+	if (terms.length === 0) {
+		return {
+			raw,
+			normalized,
+			terms: [],
+			aiApplied: payload.aiApplied ?? false
+		};
+	}
+
+	return {
+		raw,
+		normalized,
+		terms,
+		aiApplied: payload.aiApplied ?? false
+	};
+};
+
 const analyzeQueryWithAi = async (
-	fallbackQuery: ParsedResumeSearchQuery
+	fallbackQuery: ParsedResumeSearchQuery,
+	catalogContext: ResumeSearchQueryCatalogContext | null = null
 ): Promise<ParsedResumeSearchQuery | null> => {
 	if (!process.env.OPENAI_API_KEY?.trim()) return fallbackQuery;
 
 	const sanitizedInput = sanitizeQueryAnalysisInput(fallbackQuery.raw);
 	if (!sanitizedInput) return fallbackQuery;
 
-	const cacheKey = fallbackQuery.normalized;
+	const cacheKey = catalogContext
+		? `${catalogContext.cacheKey}:${fallbackQuery.normalized}`
+		: fallbackQuery.normalized;
 	const cached = queryAnalysisCache.get(cacheKey);
 	if (cached && cached.expiresAt > Date.now()) {
 		return cached.value ?? fallbackQuery;
@@ -447,6 +601,7 @@ const analyzeQueryWithAi = async (
 	try {
 		const { getModel, openai } = await import('$lib/server/openai');
 		const model = process.env.LLM_MODEL_SEARCH_QUERY?.trim() || getModel();
+		const catalogContextPrompt = buildCatalogContextPrompt(catalogContext);
 		const response = await openai.responses.create({
 			model,
 			temperature: 0.1,
@@ -467,8 +622,13 @@ Return JSON only with this exact shape:
 Rules:
 - technologies: only concrete technologies, programming languages, frameworks, databases, platforms, tools, cloud services, or named engineering methods with clear resume-search value.
 - roles: only job titles or specialist role names.
-- concepts: only short meaningful noun phrases for non-technology requirements, responsibilities, domains, or focus areas.
+- concepts: only short meaningful noun phrases for non-technology requirements, responsibilities, domains, industries, branches, or focus areas.
 - ignore: words or phrases from the text that should not be used as searchable requirements.
+- When a technology clearly matches the provided tech catalog or one of its aliases, prefer the exact catalog label.
+- Do not expect industries or branch experience to be in the tech catalog. Keep those as concepts.
+- Domain and industry experience are important concepts. Examples: medtech, medical devices, municipality, kommun, public sector, offentlig sektor, gaming, gambling, iGaming, fintech, telecom, banking, insurance, healthcare.
+- Searches may be written in Swedish or English. If the query clearly refers to a domain or industry, keep it as a searchable concept even if the resume may phrase it differently.
+- Still include technologies that are not in the catalog when they are clearly relevant.
 - Never output generic verbs, adjectives, filler, locations, dates, percentages, contact details, company boilerplate, or language-fluency phrases unless they are directly technical.
 - Never split a technology into fragments.
 - Keep each item concise, usually 1-4 words.
@@ -478,12 +638,12 @@ Rules:
 Good technologies: Python, DataOps, dbt, Snowflake, SQL, Git, React Native, Swift.
 Bad technologies: engineer, bygga, arbeta, tal, skrift, stark erfarenhet, modern.
 
-Good concepts: data platform, data modeling, data quality, pipelines, mobile app maintenance.
+Good concepts: data platform, data modeling, data quality, pipelines, mobile app maintenance, medtech, municipality, public sector, gaming, gambling, fintech.
 Bad concepts: vår kund, spännande uppdrag, asap, stockholm, onsite.`
 				},
 				{
 					role: 'user',
-					content: `Extract the searchable requirements from this query:
+					content: `${catalogContextPrompt ? `Known technology catalog for this user scope:\n${catalogContextPrompt}\n\n` : ''}Extract the searchable requirements from this query:
 
 ${sanitizedInput}`
 				}
@@ -492,7 +652,7 @@ ${sanitizedInput}`
 
 		const rawOutput = response.output_text ?? '';
 		const payload = extractJsonPayload(rawOutput);
-		const aiTerms = sanitizeAiTerms(payload);
+		const aiTerms = canonicalizeTermsWithCatalogContext(sanitizeAiTerms(payload), catalogContext);
 		const value =
 			buildParsedQuery({
 				raw: fallbackQuery.raw,
@@ -518,10 +678,21 @@ ${sanitizedInput}`
 };
 
 export const analyzeResumeSearchQuery = async (
-	query: string
+	query: string,
+	options?: {
+		catalogContext?: ResumeSearchQueryCatalogContext | null;
+	}
 ): Promise<ParsedResumeSearchQuery | null> => {
 	const fallbackQuery = parseResumeSearchQueryFallback(query);
 	if (!fallbackQuery) return null;
-	if (!shouldUseAiForQuery(fallbackQuery)) return fallbackQuery;
-	return analyzeQueryWithAi(fallbackQuery);
+	const catalogContext = options?.catalogContext ?? null;
+	const canonicalFallbackQuery =
+		buildParsedQuery({
+			raw: fallbackQuery.raw,
+			normalized: fallbackQuery.normalized,
+			terms: canonicalizeTermsWithCatalogContext(fallbackQuery.terms, catalogContext),
+			aiApplied: fallbackQuery.aiApplied
+		}) ?? fallbackQuery;
+	if (!shouldUseAiForQuery(canonicalFallbackQuery)) return canonicalFallbackQuery;
+	return analyzeQueryWithAi(canonicalFallbackQuery, catalogContext);
 };

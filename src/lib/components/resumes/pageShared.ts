@@ -1,4 +1,5 @@
 import type {
+	ResumeSearchFilterKind,
 	ResumeSearchItem,
 	ResumeSearchReason,
 	ResumesTalentListItem
@@ -11,6 +12,10 @@ export type SelectedTechFilter = {
 	label: string;
 	key: string;
 	requiredYears: number | null;
+};
+
+export type SelectedSearchFilter = SelectedTechFilter & {
+	kind: ResumeSearchFilterKind;
 };
 
 export type TechMatch = SelectedTechFilter & {

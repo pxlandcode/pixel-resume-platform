@@ -269,6 +269,7 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 		canEdit,
 		canEditAll,
 		isOwnProfile,
+		organisation_id: organisationId ?? null,
 		organisation_name: organisationName,
 		organisation_logo_url: organisationLogoUrl
 	};
