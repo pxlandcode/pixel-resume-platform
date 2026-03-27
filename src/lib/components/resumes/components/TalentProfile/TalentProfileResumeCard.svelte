@@ -16,6 +16,7 @@
 		isDownloadMenuOpen = false,
 		isDownloading = false,
 		downloadLang = 'sv',
+		downloadAnonymized = false,
 		onOpenResume,
 		onDragStartResume,
 		onDragOverResume,
@@ -24,6 +25,7 @@
 		onDragEndResume,
 		onToggleDownloadMenu,
 		onSelectDownloadLang,
+		onSetDownloadAnonymized,
 		onDownloadResume,
 		onCopyResume,
 		onSetMainResume,
@@ -37,6 +39,7 @@
 		isDownloadMenuOpen?: boolean;
 		isDownloading?: boolean;
 		downloadLang?: DownloadLanguage;
+		downloadAnonymized?: boolean;
 		onOpenResume?: (resumeId: string) => void;
 		onDragStartResume?: (resume: TalentProfileResume) => void;
 		onDragOverResume?: (event: DragEvent, index: number) => void;
@@ -45,6 +48,7 @@
 		onDragEndResume?: () => void;
 		onToggleDownloadMenu?: (resumeId: string) => void;
 		onSelectDownloadLang?: (lang: DownloadLanguage) => void;
+		onSetDownloadAnonymized?: (value: boolean) => void;
 		onDownloadResume?: (resumeId: string, type: 'pdf' | 'word', lang: DownloadLanguage) => void;
 		onCopyResume?: (resumeId: string) => void;
 		onSetMainResume?: (resumeId: string) => void;
@@ -149,6 +153,17 @@
 							EN
 						</button>
 					</div>
+					<label
+						class="border-border bg-card text-muted-fg flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium"
+					>
+						<input
+							type="checkbox"
+							class="accent-primary"
+							checked={downloadAnonymized}
+							onchange={(event) => onSetDownloadAnonymized?.(event.currentTarget.checked)}
+						/>
+						Anonymize
+					</label>
 					<Button
 						type="button"
 						variant="outline"

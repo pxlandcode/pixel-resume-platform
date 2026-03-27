@@ -17,6 +17,7 @@ import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
 import { writeAuditLog } from '$lib/server/legalService';
 import { resolveResumeExportPolicy } from '$lib/server/resumes/exportPolicy';
+import { buildAnonymizedResumeFilename, parseResumeAnonymizeFlag } from '$lib/resumes/anonymize';
 
 const isServerless =
 	Boolean(process.env.NETLIFY) ||
@@ -432,7 +433,15 @@ const buildExportObjectPath = ({
 	return `resume-exports/${toSafePathSegment(userId)}/${toSafePathSegment(resumeId)}/${timestamp}-${safeFilename}.pdf`;
 };
 
-const PDF_FILENAME = async (id: string, organisationSlug: string | null) => {
+const PDF_FILENAME = async (
+	id: string,
+	organisationSlug: string | null,
+	lang: 'sv' | 'en',
+	anonymized = false
+) => {
+	if (anonymized) {
+		return buildAnonymizedResumeFilename(lang, 'pdf');
+	}
 	try {
 		const resume = await ResumeService.getResume(id);
 		if (!resume) {
@@ -458,9 +467,11 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 	}
 	const lang = url.searchParams.get('lang') ?? 'sv';
 	const debugEnabled = url.searchParams.get('debug') === '1';
+	const anonymized = parseResumeAnonymizeFlag(url.searchParams.get('anonymize'));
 	console.log('[pdf debug] request received', {
 		resumeId,
 		lang,
+		anonymized,
 		debugEnabled,
 		query: url.search
 	});
@@ -553,6 +564,9 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			'template',
 			exportPolicy.templateUsed === 'target' ? 'target' : 'source'
 		);
+		if (anonymized) {
+			target.searchParams.set('anonymize', '1');
+		}
 		if (debugEnabled) {
 			target.searchParams.set('debug', '1');
 		}
@@ -861,7 +875,12 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 			});
 		}
 
-		const filename = await PDF_FILENAME(resumeId, sourceOrganisationSlug);
+		const filename = await PDF_FILENAME(
+			resumeId,
+			sourceOrganisationSlug,
+			lang === 'en' ? 'en' : 'sv',
+			anonymized
+		);
 		console.log('[pdf] Response filename:', filename, 'type:', typeof filename);
 		if (!RESUME_EXPORTS_BUCKET) {
 			throw error(500, 'Resume exports bucket is not configured.');
@@ -917,6 +936,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 				source_org_id: exportPolicy.sourceOrganisationId,
 				target_org_id: exportPolicy.targetOrganisationId,
 				format: 'pdf',
+				anonymized,
 				size_bytes: pdfBuffer.byteLength,
 				storage_bucket: RESUME_EXPORTS_BUCKET,
 				storage_object_path: objectPath

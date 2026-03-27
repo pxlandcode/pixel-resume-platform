@@ -22,6 +22,7 @@
 	let showDownloadOptions = $state(false);
 	let viewLanguage: 'sv' | 'en' = $state((data.language as 'sv' | 'en') ?? 'sv');
 	let downloadLanguageOverride: 'sv' | 'en' | null = $state(null);
+	let downloadAnonymized = $state(false);
 	const downloadLanguage = $derived(downloadLanguageOverride ?? viewLanguage);
 	let isEditing = $state(false);
 	let saving = $state(false);
@@ -40,6 +41,7 @@
 		showDownloadOptions = false;
 		viewLanguage = (data.language as 'sv' | 'en') ?? 'sv';
 		downloadLanguageOverride = null;
+		downloadAnonymized = false;
 		isEditing = false;
 		saving = false;
 		downloading = null;
@@ -64,6 +66,9 @@
 		return `${inlineVars}; --color-primary: ${theme.light.primary};`;
 	});
 	const downloadBaseName = $derived(() => {
+		if (downloadAnonymized) {
+			return downloadLanguage === 'sv' ? 'anonymized-cv' : 'anonymized-resume';
+		}
 		const name = (personName ?? 'Resume').trim();
 		const kind = downloadLanguage === 'sv' ? 'CV' : 'Resume';
 		return `${name} - Pixel&Code - ${kind}`;
@@ -265,8 +270,14 @@
 	const downloadFile = async (type: 'pdf' | 'word') => {
 		const extension = type === 'pdf' ? 'pdf' : 'doc';
 		const label = type === 'pdf' ? 'Generating PDF...' : 'Generating Word file...';
-		const debugParam = type === 'pdf' ? '&debug=1' : '';
-		const url = `/api/resumes/${data.resume.id}/${type}?lang=${downloadLanguage}${debugParam}`;
+		const params = new URLSearchParams({ lang: downloadLanguage });
+		if (downloadAnonymized) {
+			params.set('anonymize', '1');
+		}
+		if (type === 'pdf') {
+			params.set('debug', '1');
+		}
+		const url = `/api/resumes/${data.resume.id}/${type}?${params.toString()}`;
 		const filename = `${downloadBaseName}.${extension}`;
 		const ensureExtension = (rawName: string, ext: string) => {
 			const cleaned = rawName.trim();
@@ -412,6 +423,19 @@
 								EN
 							</button>
 						</div>
+					</div>
+					<div transition:fly={{ y: 14, duration: 140 }}>
+						<label
+							class="border-border bg-card text-muted-fg flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium shadow-sm"
+						>
+							<input
+								type="checkbox"
+								class="accent-primary"
+								checked={downloadAnonymized}
+								onchange={(event) => (downloadAnonymized = event.currentTarget.checked)}
+							/>
+							Anonymize
+						</label>
 					</div>
 					<div transition:fly={{ y: 16, duration: 160 }}>
 						<Button

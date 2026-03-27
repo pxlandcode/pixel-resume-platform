@@ -23,6 +23,8 @@ export type Person = {
 	id: string;
 	slug?: string;
 	name: string;
+	firstName?: string | null;
+	lastName?: string | null;
 	title: string;
 	portraitId?: string;
 	avatar_url?: string | null;

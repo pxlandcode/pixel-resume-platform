@@ -34,6 +34,8 @@ type ResumeRow = {
 const mapTalentToPerson = (row: TalentRow): Person => ({
 	id: row.id,
 	name: [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Unnamed',
+	firstName: row.first_name ?? null,
+	lastName: row.last_name ?? null,
 	title: row.title ?? '',
 	bio: row.bio ?? '',
 	portraitId: undefined,

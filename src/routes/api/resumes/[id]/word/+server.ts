@@ -12,6 +12,11 @@ import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
 import { writeAuditLog } from '$lib/server/legalService';
 import { resolveResumeExportPolicy } from '$lib/server/resumes/exportPolicy';
 import { getActorAccessContext, resolvePrintTemplateContext } from '$lib/server/access';
+import {
+	anonymizeResumeExport,
+	buildAnonymizedResumeFilename,
+	parseResumeAnonymizeFlag
+} from '$lib/resumes/anonymize';
 
 const toSafeFilename = (value: string) =>
 	value
@@ -19,7 +24,10 @@ const toSafeFilename = (value: string) =>
 		.trim()
 		.replace(/\s+/g, ' ') || 'resume';
 
-const buildFilename = async (resumeId: string, lang: 'sv' | 'en') => {
+const buildFilename = async (resumeId: string, lang: 'sv' | 'en', anonymized = false) => {
+	if (anonymized) {
+		return buildAnonymizedResumeFilename(lang, 'doc');
+	}
 	try {
 		const resume = await ResumeService.getResume(resumeId);
 		if (!resume) {
@@ -238,6 +246,7 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 
 	const langParam = url.searchParams.get('lang');
 	const lang: 'sv' | 'en' = langParam === 'en' ? 'en' : 'sv';
+	const anonymized = parseResumeAnonymizeFlag(url.searchParams.get('anonymize'));
 
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 	const adminClient = getSupabaseAdminClient();
@@ -284,7 +293,20 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		templateMode: exportPolicy.templateUsed
 	});
 	const person = await ResumeService.getPerson(resume.personId);
-	const profileSkills = person?.techStack ?? [];
+	const anonymizedExport = anonymized
+		? anonymizeResumeExport({
+				resumeData: resume.data,
+				person
+			})
+		: null;
+	const anonymizedTitle = lang === 'sv' ? 'Anonymized CV' : 'Anonymized Resume';
+	const exportResume = {
+		...resume,
+		title: anonymized ? anonymizedTitle : resume.title,
+		data: anonymizedExport?.resumeData ?? resume.data
+	};
+	const exportPerson = anonymizedExport?.person ?? person;
+	const profileSkills = exportPerson?.techStack ?? [];
 	const translations: Record<string, { sv: string; en: string }> = {
 		frontend: { sv: 'Frontend', en: 'Frontend' },
 		backend: { sv: 'Backend', en: 'Backend' },
@@ -305,15 +327,15 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 <html>
 <head>
 	<meta charset="utf-8" />
-	<title>Resume ${resume.title}</title>
+	<title>Resume ${exportResume.title}</title>
 	${buildDocStyles(templateContext.mainFontCssStack, templateContext.mainFontFaceCss)}
 </head>
 <body>
-${renderHtmlSection(resume.data, lang, profileSkills, labelFor)}
+${renderHtmlSection(exportResume.data, lang, profileSkills, labelFor)}
 </body>
 </html>`;
 
-	const filename = await buildFilename(resumeId, lang);
+	const filename = await buildFilename(resumeId, lang, anonymized);
 	console.log('[word] Response filename:', filename, 'type:', typeof filename);
 
 	const auditResult = await writeAuditLog({
@@ -327,7 +349,8 @@ ${renderHtmlSection(resume.data, lang, profileSkills, labelFor)}
 			template_used: exportPolicy.templateUsed,
 			source_org_id: exportPolicy.sourceOrganisationId,
 			target_org_id: exportPolicy.targetOrganisationId,
-			format: 'word'
+			format: 'word',
+			anonymized
 		}
 	});
 	if (!auditResult.ok) {
