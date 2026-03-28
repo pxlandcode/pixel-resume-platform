@@ -392,12 +392,11 @@
 						<td class="px-3 py-4 text-sm text-muted-fg">{link.successfulViewCount}</td>
 						<td class="px-3 py-4 text-sm text-muted-fg">{formatDate(link.lastViewedAt)}</td>
 						<td class="px-3 py-4 text-sm">
-							{@const StatusIcon = statusIcon(link.status)}
 							<span
 								class={`inline-flex cursor-default ${statusIconClass(link.status)}`}
 								use:tooltip={statusLabel(link.status)}
 							>
-								<StatusIcon size={16} />
+								<svelte:component this={statusIcon(link.status)} size={16} />
 							</span>
 						</td>
 						<td class="px-3 py-4 text-right">
@@ -460,14 +459,13 @@
 					<p class="mt-2 text-2xl font-semibold text-foreground">{selectedLink.downloadCount}</p>
 				</div>
 				<div class="rounded-sm border border-border px-4 py-3">
-					{@const StatusIcon = statusIcon(selectedLink.status)}
 					<div class="flex items-center gap-2 text-xs uppercase tracking-[0.16em] text-muted-fg">
 						<Info size={14} />
 						<span>Status</span>
 					</div>
 					<div class="mt-2 flex items-center gap-2">
 						<span class={`inline-flex ${statusIconClass(selectedLink.status)}`}>
-							<StatusIcon size={16} />
+							<svelte:component this={statusIcon(selectedLink.status)} size={16} />
 						</span>
 						<p class="text-sm font-semibold text-foreground">{statusLabel(selectedLink.status)}</p>
 					</div>
@@ -618,11 +616,10 @@
 
 				<div class="space-y-2">
 					{#each selectedLink.events as event (event.id)}
-						{@const EventIcon = eventIcon(event)}
 						<div class="rounded-sm border border-border px-4 py-3">
 							<div class="flex min-w-0 items-start gap-3">
 								<div class={`mt-0.5 inline-flex shrink-0 rounded-full p-2 ${eventIconClass(event)}`}>
-									<EventIcon size={14} />
+									<svelte:component this={eventIcon(event)} size={14} />
 								</div>
 								<div class="min-w-0 flex-1">
 									<div class="flex flex-wrap items-center gap-2">
