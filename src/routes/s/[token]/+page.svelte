@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { Button, Card, FormControl, Input, toast } from '@pixelcode_/blocks/components';
+	import { fly } from 'svelte/transition';
+	import { Button, Card, FormControl, Icon, Input, toast } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { OptionButton, type OptionButtonOption } from '$lib/components/option-button';
 	import ResumePrint from '$lib/components/resumes/ResumePrint.svelte';
+	import ResumeView from '$lib/components/resumes/ResumeView.svelte';
 	import {
 		DEFAULT_ORGANISATION_BRANDING_THEME,
 		organisationBrandingThemeToInlineStyle
 	} from '$lib/branding/theme';
-	import Mail from 'lucide-svelte/icons/mail';
-	import Phone from 'lucide-svelte/icons/phone';
-	import MessageSquareText from 'lucide-svelte/icons/message-square-text';
+	import { Download, Globe2, Mail, MessageSquareText, MoreHorizontal, Phone, X } from 'lucide-svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData | null } = $props();
@@ -77,6 +77,7 @@
 	const canSwitchLanguage = $derived((readyData?.availableLanguages?.length ?? 0) > 1);
 	const showFloatingBar = $derived(Boolean(downloadHref || hasContactInfo || canSwitchLanguage));
 	let contactDrawerOpen = $state(false);
+	let mobileActionsOpen = $state(false);
 	let isSwitchingLanguage = $state(false);
 	let isCreatingPdf = $state(false);
 	let pendingLanguage = $state<'sv' | 'en' | null>(null);
@@ -149,6 +150,10 @@
 			isCreatingPdf = false;
 		}
 	};
+
+	const openContactDrawer = () => {
+		contactDrawerOpen = true;
+	};
 </script>
 
 <svelte:head>
@@ -180,13 +185,14 @@
 		<div
 			class="mx-auto max-w-6xl overflow-hidden rounded-sm border border-black/10 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]"
 		>
-			<ResumePrint
+			<ResumeView
 				data={readyData.resume.data}
 				image={readyData.resumePerson?.avatar_url}
 				{language}
+				showLanguageToggle={false}
+				showMobileProfileHeading
 				person={readyData.resumePerson ?? undefined}
 				profileTechStack={readyData.resumePerson?.techStack}
-				templateKey={readyData.templateContext?.templateKey}
 				templateMainLogotypeUrl={readyData.templateContext?.mainLogotypeUrl}
 				templateAccentLogoUrl={readyData.templateContext?.accentLogoUrl}
 				templateEndLogoUrl={readyData.templateContext?.endLogoUrl}
@@ -197,7 +203,7 @@
 		</div>
 
 		{#if showFloatingBar}
-			<div class="pointer-events-none fixed bottom-4 right-4 z-20 flex flex-wrap items-center justify-end gap-3 sm:bottom-6 sm:right-6">
+			<div class="pointer-events-none fixed bottom-4 right-4 z-20 hidden flex-wrap items-center justify-end gap-3 sm:bottom-6 sm:right-6 sm:flex">
 				{#if canSwitchLanguage}
 					<div class="pointer-events-auto relative min-w-[168px]">
 						<OptionButton
@@ -233,11 +239,94 @@
 						type="button"
 						variant="outline"
 						class="pointer-events-auto border-black/10 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.14)]"
-						onclick={() => (contactDrawerOpen = true)}
+						onclick={openContactDrawer}
 					>
 						Contact
 					</Button>
 				{/if}
+			</div>
+
+			<div class="fixed bottom-4 right-4 z-30 sm:hidden">
+				<div class="relative flex flex-col items-end gap-3">
+					{#if mobileActionsOpen}
+						<div class="absolute bottom-full right-0 mb-3 flex flex-col items-end gap-2">
+							{#if canSwitchLanguage}
+								<div
+									in:fly={{ y: 28, duration: 220, delay: 100 }}
+									out:fly={{ y: 18, duration: 140 }}
+									class="w-[164px]"
+								>
+									<div class="mb-2 flex items-center justify-end gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+										<Globe2 class="h-3.5 w-3.5" />
+										<span>Language</span>
+									</div>
+									<OptionButton
+										label="Language"
+										hideLabel
+										value={language}
+										options={languageOptions}
+										variant="outline"
+										size="sm"
+										disabled={isSwitchingLanguage}
+										loadingValue={pendingLanguage}
+										onchange={handleLanguageChange}
+										class="border-black/10 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.14)]"
+									/>
+								</div>
+							{/if}
+
+							{#if hasContactInfo}
+								<div
+									in:fly={{ y: 28, duration: 220, delay: downloadHref ? 50 : 0 }}
+									out:fly={{ y: 18, duration: 140 }}
+								>
+									<Button
+										type="button"
+										variant="outline"
+										class="min-w-[164px] justify-center border-black/10 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.14)]"
+										onclick={openContactDrawer}
+									>
+										<Mail class="h-4 w-4" />
+										<span>Contact</span>
+									</Button>
+								</div>
+							{/if}
+
+							{#if downloadHref}
+								<div
+									in:fly={{ y: 28, duration: 220 }}
+									out:fly={{ y: 18, duration: 140 }}
+								>
+									<Button
+										type="button"
+										variant="primary"
+										class="min-w-[164px] justify-center shadow-[0_12px_32px_rgba(15,23,42,0.18)]"
+										loading={isCreatingPdf}
+										loading-text="Creating PDF"
+										onclick={handleDownloadPdf}
+									>
+										<Download class="h-4 w-4" />
+										<span>Download PDF</span>
+									</Button>
+								</div>
+							{/if}
+						</div>
+					{/if}
+
+					<Button
+						type="button"
+						variant="outline"
+						class="h-12 w-12 rounded-sm border-black/10 bg-white p-0 shadow-[0_12px_32px_rgba(15,23,42,0.18)]"
+						aria-label={mobileActionsOpen ? 'Close share actions' : 'Open share actions'}
+						onclick={() => (mobileActionsOpen = !mobileActionsOpen)}
+					>
+						{#if mobileActionsOpen}
+							<Icon icon={X} size="sm" />
+						{:else}
+							<Icon icon={MoreHorizontal} size="sm" />
+						{/if}
+					</Button>
+				</div>
 			</div>
 		{/if}
 	</div>
