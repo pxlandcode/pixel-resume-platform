@@ -12,8 +12,10 @@
 	} from '@pixelcode_/blocks/components';
 	import LegalDocumentsManager from '$lib/components/admin/LegalDocumentsManager.svelte';
 	import TechCatalogManager from '$lib/components/admin/TechCatalogManager.svelte';
+	import ResumeShareLinksPanel from '$lib/components/admin/ResumeShareLinksPanel.svelte';
 	import { Dropdown } from '$lib/components/dropdown';
 	import { OptionButton, type OptionButtonOption } from '$lib/components/option-button';
+	import type { ManagedResumeShareLink } from '$lib/types/resumeShares';
 	import { ripple } from '$lib/utils/ripple';
 	import type { ActionData, PageData } from './$types';
 	import Scale from 'lucide-svelte/icons/scale';
@@ -59,7 +61,7 @@
 	};
 
 	type LegalDocumentsProp = ComponentProps<typeof LegalDocumentsManager>['documents'];
-	type SettingsPanel = 'account' | 'legal' | 'tech' | 'sharing' | null;
+	type SettingsPanel = 'account' | 'legal' | 'tech' | 'sharing' | 'resume_links' | null;
 
 	const organisationRuleAccessOptions = [
 		{ value: 'read', label: 'Read only', icon: Eye },
@@ -96,6 +98,9 @@
 		(data.organisationShareRules as OrganisationShareRule[] | undefined) ?? []
 	);
 	const talentShareRules = $derived((data.talentShareRules as TalentShareRule[] | undefined) ?? []);
+	const resumeShareLinks = $derived(
+		(data.resumeShareLinks as ManagedResumeShareLink[] | undefined) ?? []
+	);
 	const passwordMessage = $derived(
 		form?.type === 'changePassword' && typeof form.message === 'string' ? form.message : null
 	);
@@ -131,12 +136,20 @@
 		'setOrganisationTechCatalogItemStatus',
 		'reorderOrganisationTechCatalogItems'
 	]);
+	const RESUME_SHARE_ACTION_TYPES = new Set([
+		'updateResumeShareLink',
+		'revokeResumeShareLink',
+		'extendResumeShareLink',
+		'regenerateResumeShareLink'
+	]);
 
 	const initialSourceOrganisationId =
 		sourceContextFromForm ?? data.defaultSourceOrganisationId ?? '';
 	const initialExpandedPanel: SettingsPanel =
 		form?.type === 'changePassword'
 			? 'account'
+			: RESUME_SHARE_ACTION_TYPES.has(form?.type ?? '')
+				? 'resume_links'
 			: TECH_ACTION_TYPES.has(form?.type ?? '')
 				? 'tech'
 				: form?.type
@@ -282,6 +295,13 @@
 	const organisationShareCount = $derived(scopedOrganisationShareRules.length);
 	const talentShareCount = $derived(
 		scopedTalentShareGroups.reduce((total, group) => total + group.rules.length, 0)
+	);
+	const resumeShareActiveCount = $derived(
+		resumeShareLinks.filter((link) => link.status === 'active' || link.status === 'expiring_soon')
+			.length
+	);
+	const resumeShareHistoricalCount = $derived(
+		resumeShareLinks.filter((link) => link.status === 'expired' || link.status === 'revoked').length
 	);
 
 	$effect(() => {
@@ -960,4 +980,58 @@
 			{/if}
 		</section>
 	{/if}
+
+	<section
+		class={`bg-card group overflow-hidden rounded-sm border transition-colors ${
+			expandedPanel === 'resume_links'
+				? 'border-primary/50'
+				: 'border-border hover:border-primary/50'
+		}`}
+	>
+		<button
+			type="button"
+			use:ripple={{ opacity: 0.14 }}
+			class="w-full text-left"
+			onclick={() => togglePanel('resume_links')}
+			aria-expanded={expandedPanel === 'resume_links'}
+			aria-controls="settings-resume-links-panel"
+		>
+			<div
+				class="group-hover:bg-muted/50 flex items-start gap-3 px-5 py-5 transition-colors sm:px-6"
+			>
+				<div
+					class="bg-muted text-muted-fg flex h-10 w-10 shrink-0 items-center justify-center rounded-sm"
+				>
+					<Share2 class="h-5 w-5" />
+				</div>
+				<div class="min-w-0 flex-1">
+					<h2 class="text-foreground text-lg font-semibold">Resume share links</h2>
+					<p class="text-muted-fg mt-1 text-sm">
+						Review active links, inspect access history, and revoke older public shares.
+					</p>
+				</div>
+				<div class="text-muted-fg flex shrink-0 items-center gap-3">
+					<div class="hidden text-right sm:block">
+						<p class="text-foreground text-sm font-semibold">{resumeShareActiveCount}</p>
+						<p class="text-[11px] uppercase tracking-[0.16em]">Active</p>
+					</div>
+					<div class="hidden text-right sm:block">
+						<p class="text-foreground text-sm font-semibold">{resumeShareHistoricalCount}</p>
+						<p class="text-[11px] uppercase tracking-[0.16em]">History</p>
+					</div>
+					{#if expandedPanel === 'resume_links'}
+						<ChevronDown class="h-5 w-5" />
+					{:else}
+						<ChevronRight class="h-5 w-5" />
+					{/if}
+				</div>
+			</div>
+		</button>
+
+		{#if expandedPanel === 'resume_links'}
+			<div id="settings-resume-links-panel" class="border-border border-t px-5 py-5 sm:px-6">
+				<ResumeShareLinksPanel links={resumeShareLinks} />
+			</div>
+		{/if}
+	</section>
 </div>

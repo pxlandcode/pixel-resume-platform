@@ -37,6 +37,11 @@ type TemplateRow = {
 		| null;
 };
 
+type OrganisationBrandingRow = {
+	homepage_url?: string | null;
+	brand_settings?: unknown;
+};
+
 type OrganisationShareRuleRow = {
 	source_organisation_id: string;
 	target_organisation_id: string;
@@ -717,7 +722,31 @@ const getTemplateForOrganisation = async (
 		)
 		.eq('organisation_id', organisationId)
 		.maybeSingle();
-	return (data as TemplateRow | null) ?? null;
+
+	if (data) {
+		return data as TemplateRow;
+	}
+
+	const { data: organisationData } = await adminClient
+		.from('organisations')
+		.select('homepage_url, brand_settings')
+		.eq('id', organisationId)
+		.maybeSingle();
+
+	if (!organisationData) {
+		return null;
+	}
+
+	return {
+		organisation_id: organisationId,
+		template_key: null,
+		template_json: null,
+		template_version: null,
+		main_logotype_path: null,
+		accent_logo_path: null,
+		end_logo_path: null,
+		organisations: organisationData as OrganisationBrandingRow
+	};
 };
 
 const mapTemplateContext = (
@@ -766,6 +795,21 @@ const buildDefaultTemplateContext = (): ResolvedTemplateContext => {
 		mainFontCssStack: mainFont.cssStack,
 		mainFontFaceCss: null
 	};
+};
+
+export const resolveOrganisationTemplateContext = async (
+	adminClient: SupabaseClient | null,
+	organisationId: string | null,
+	options?: {
+		source?: ResolvedTemplateContext['source'];
+	}
+): Promise<ResolvedTemplateContext> => {
+	if (!adminClient || !organisationId) {
+		return buildDefaultTemplateContext();
+	}
+
+	const row = await getTemplateForOrganisation(adminClient, organisationId);
+	return mapTemplateContext(adminClient, options?.source ?? 'source_org', row, organisationId);
 };
 
 export const resolvePrintTemplateContext = async (

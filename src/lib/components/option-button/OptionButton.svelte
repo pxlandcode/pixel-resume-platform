@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Check from 'lucide-svelte/icons/check';
+	import Loader2 from 'lucide-svelte/icons/loader-2';
 	import { ripple } from '$lib/utils/ripple';
 	import type { Icon as IconType } from 'lucide-svelte';
 	import type { ClassNameValue } from 'tailwind-merge';
@@ -28,6 +29,7 @@
 		variant?: OptionButtonVariant;
 		size?: OptionButtonSize;
 		disabled?: boolean;
+		loadingValue?: T | null;
 		error?: string;
 		labelIcon?: typeof IconType;
 		class?: ClassNameValue;
@@ -44,6 +46,7 @@
 		variant = 'default',
 		size = 'md',
 		disabled = false,
+		loadingValue = null,
 		error = '',
 		labelIcon,
 		class: className,
@@ -129,8 +132,10 @@
 							: 'flex items-center justify-center gap-2'
 					)}
 				>
-					<span class="flex min-w-0 items-center gap-2">
-						{#if option.icon}
+						<span class="flex min-w-0 items-center gap-2">
+						{#if valuesEqual(option.value, loadingValue)}
+							<Loader2 class="size-4 shrink-0 animate-spin" />
+						{:else if option.icon}
 							{@const Icon = option.icon}
 							<Icon class="size-4 shrink-0" />
 						{:else if selected}

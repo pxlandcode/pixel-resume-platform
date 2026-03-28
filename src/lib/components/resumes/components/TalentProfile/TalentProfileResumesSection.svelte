@@ -16,6 +16,7 @@
 		downloadMenuResumeId = null,
 		downloadingResumeId = null,
 		downloadLang = 'sv',
+		downloadAnonymized = false,
 		onOpenImportDrawer,
 		onAddResume,
 		onOpenResume,
@@ -26,6 +27,7 @@
 		onDragEndResume,
 		onToggleDownloadMenu,
 		onSelectDownloadLang,
+		onSetDownloadAnonymized,
 		onDownloadResume,
 		onCopyResume,
 		onSetMainResume,
@@ -40,6 +42,7 @@
 		downloadMenuResumeId?: string | null;
 		downloadingResumeId?: string | null;
 		downloadLang?: DownloadLanguage;
+		downloadAnonymized?: boolean;
 		onOpenImportDrawer?: () => void;
 		onAddResume?: () => void;
 		onOpenResume?: (resumeId: string) => void;
@@ -50,6 +53,7 @@
 		onDragEndResume?: () => void;
 		onToggleDownloadMenu?: (resumeId: string) => void;
 		onSelectDownloadLang?: (lang: DownloadLanguage) => void;
+		onSetDownloadAnonymized?: (value: boolean) => void;
 		onDownloadResume?: (resumeId: string, type: 'pdf' | 'word', lang: DownloadLanguage) => void;
 		onCopyResume?: (resumeId: string) => void;
 		onSetMainResume?: (resumeId: string) => void;
@@ -90,6 +94,7 @@
 				isDownloadMenuOpen={downloadMenuResumeId === resume.id}
 				isDownloading={downloadingResumeId === resume.id}
 				{downloadLang}
+				{downloadAnonymized}
 				{onOpenResume}
 				{onDragStartResume}
 				{onDragOverResume}
@@ -98,6 +103,7 @@
 				{onDragEndResume}
 				{onToggleDownloadMenu}
 				{onSelectDownloadLang}
+				{onSetDownloadAnonymized}
 				{onDownloadResume}
 				{onCopyResume}
 				{onSetMainResume}

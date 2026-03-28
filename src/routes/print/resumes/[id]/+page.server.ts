@@ -14,6 +14,7 @@ import {
 import { emptyResumeData, loadResumeData } from '$lib/server/resumes/store';
 import type { Person, ResumeData } from '$lib/types/resume';
 import { ResumeService } from '$lib/services/resume';
+import { anonymizeResumeExport, parseResumeAnonymizeFlag } from '$lib/resumes/anonymize';
 
 type ResumeRow = {
 	id: string;
@@ -52,6 +53,8 @@ const hasPrimaryPrintContent = (data: ResumeData): boolean => {
 const mapTalentToPerson = (row: TalentRow): Person => ({
 	id: row.id,
 	name: [row.first_name, row.last_name].filter(Boolean).join(' ') || 'Unnamed',
+	firstName: row.first_name ?? null,
+	lastName: row.last_name ?? null,
 	title: row.title ?? '',
 	bio: row.bio ?? '',
 	portraitId: undefined,
@@ -111,6 +114,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 
 	const langParam = url.searchParams.get('lang');
 	const language = langParam === 'en' ? 'en' : 'sv';
+	const anonymize = parseResumeAnonymizeFlag(url.searchParams.get('anonymize'));
 	const templateParam = url.searchParams.get('template');
 	const templateMode: PrintTemplateMode =
 		templateParam === 'source' || templateParam === 'target' ? templateParam : 'auto';
@@ -224,14 +228,25 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 				avatar_url: talentRowData.avatar_url ?? avatarFromProfile
 			})
 		: null;
+	const anonymizedExport = anonymize
+		? anonymizeResumeExport({
+				resumeData,
+				person: resumePerson
+			})
+		: null;
+	const exportResumeData = anonymizedExport?.resumeData ?? resumeData;
+	const exportResumePerson = anonymizedExport?.person ?? resumePerson;
+	const anonymizedTitle = language === 'sv' ? 'Anonymized CV' : 'Anonymized Resume';
 	const resume = {
 		id: resumeRow.id,
 		personId: resumeRow.talent_id,
-		title: getResumeTitle(resumeData, resumeRow.version_name ?? 'Resume'),
+		title: anonymize
+			? anonymizedTitle
+			: getResumeTitle(exportResumeData, resumeRow.version_name ?? 'Resume'),
 		version: resumeRow.version_name ?? 'Main',
 		updatedAt: resumeRow.updated_at ?? resumeRow.created_at ?? new Date().toISOString(),
 		isMain: Boolean(resumeRow.is_main),
-		data: resumeData
+		data: exportResumeData
 	};
 
 	const actor = await getActorAccessContext(supabase, adminClient);
@@ -249,25 +264,27 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 
 	return {
 		resume,
-		resumePerson,
+		resumePerson: exportResumePerson,
 		templateContext,
 		language,
+		anonymized: anonymize,
 		debug: {
 			enabled: debugEnabled,
 			resumeId: resumeRow.id,
 			talentId: resumeRow.talent_id,
+			anonymized: anonymize,
 			normalizedLoadError,
 			usedResumeServiceFallback,
 			usedEmptyResumeFallback,
 			usedProfileAvatarFallback,
-			resumeSummary: summarizeResumeData(resumeData),
-			resumePersonSummary: resumePerson
+			resumeSummary: summarizeResumeData(exportResumeData),
+			resumePersonSummary: exportResumePerson
 				? {
-						id: resumePerson.id,
-						name: resumePerson.name,
-						title: resumePerson.title,
-						hasAvatar: Boolean(resumePerson.avatar_url),
-						techCategoryCount: resumePerson.techStack?.length ?? 0
+						id: exportResumePerson.id,
+						name: exportResumePerson.name,
+						title: exportResumePerson.title,
+						hasAvatar: Boolean(exportResumePerson.avatar_url),
+						techCategoryCount: exportResumePerson.techStack?.length ?? 0
 					}
 				: null,
 			templateSummary: {
@@ -279,7 +296,7 @@ export const load: PageServerLoad = async ({ params, url, cookies }) => {
 			}
 		},
 		meta: {
-			title: `Resume ${resume.title}`,
+			title: anonymize ? 'Anonymized resume print' : `Resume ${resume.title}`,
 			description: 'Printable resume',
 			noindex: true,
 			path: `/print/resumes/${resumeId}`

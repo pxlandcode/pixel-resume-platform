@@ -77,6 +77,26 @@ create table if not exists public.snake_highscores (
 
 Grant the `insert` and `select` privileges (or author the corresponding row-level security policies) for low-privilege clients if you choose not to supply a secret key.
 
+## Resume share links
+
+The resume share-link feature requires:
+
+- `RESUME_SHARE_SECRET`
+
+Use a high-entropy secret with at least 32 characters. This key is used to derive token/session hashing and token encryption keys for shared resume links.
+
+Generate one locally with:
+
+```sh
+openssl rand -base64 32
+```
+
+Then add it to your local env file:
+
+```env
+RESUME_SHARE_SECRET=your_generated_secret_here
+```
+
 ### Manual test plan
 
 1. Trigger the 404 page (e.g., visit `/this-route-does-not-exist`) and confirm the Snake board renders with the interactive background in place.

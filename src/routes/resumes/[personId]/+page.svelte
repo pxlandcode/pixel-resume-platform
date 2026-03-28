@@ -86,6 +86,7 @@
 	let downloadingResumeId = $state<string | null>(null);
 	let downloadMenuResumeId = $state<string | null>(null);
 	let downloadLang = $state<'sv' | 'en'>('sv');
+	let downloadAnonymized = $state(false);
 	let commentFeedback = $state<CommentFeedback | null>(null);
 	let archivingCommentIds = $state<Record<string, boolean>>({});
 	let expandedCommentIds = $state<Record<string, boolean>>({});
@@ -488,12 +489,22 @@
 	) => {
 		if (downloadingResumeId) return;
 		const resume = resumeList.find((r) => r.id === resumeId);
-		const baseName = resume?.version_name ?? 'resume';
+		const baseName = downloadAnonymized
+			? lang === 'sv'
+				? 'anonymized-cv'
+				: 'anonymized-resume'
+			: (resume?.version_name ?? 'resume');
 		const extension = type === 'pdf' ? 'pdf' : 'doc';
 		const filename = `${baseName}.${extension}`;
 		const label = type === 'pdf' ? 'Generating PDF...' : 'Generating Word file...';
-		const debugParam = type === 'pdf' ? '&debug=1' : '';
-		const url = `/api/resumes/${resumeId}/${type}?lang=${lang}${debugParam}`;
+		const params = new URLSearchParams({ lang });
+		if (downloadAnonymized) {
+			params.set('anonymize', '1');
+		}
+		if (type === 'pdf') {
+			params.set('debug', '1');
+		}
+		const url = `/api/resumes/${resumeId}/${type}?${params.toString()}`;
 
 		downloadingResumeId = resumeId;
 		loading(true, label);
@@ -1239,6 +1250,7 @@
 						{downloadMenuResumeId}
 						{downloadingResumeId}
 						{downloadLang}
+						{downloadAnonymized}
 						onOpenImportDrawer={openImportDrawer}
 						onAddResume={addResume}
 						onOpenResume={openResume}
@@ -1249,6 +1261,7 @@
 						onDragEndResume={handleResumeDragEnd}
 						onToggleDownloadMenu={toggleDownloadMenu}
 						onSelectDownloadLang={(lang) => (downloadLang = lang)}
+						onSetDownloadAnonymized={(value) => (downloadAnonymized = value)}
 						onDownloadResume={handleDownloadResume}
 						onCopyResume={copyResume}
 						onSetMainResume={setMainResume}

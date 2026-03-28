@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button } from '@pixelcode_/blocks/components';
+	import ResumeShareDrawer from '$lib/components/resumes/ResumeShareDrawer.svelte';
 	import { confirm } from '$lib/utils/confirm';
-	import { CheckCircle2, Copy, Download, FileText, Trash2 } from 'lucide-svelte';
+	import { CheckCircle2, Copy, Download, FileText, Share2, Trash2 } from 'lucide-svelte';
 	import { fly } from 'svelte/transition';
 	import type { TalentProfileResume } from './types';
 
@@ -16,6 +17,7 @@
 		isDownloadMenuOpen = false,
 		isDownloading = false,
 		downloadLang = 'sv',
+		downloadAnonymized = false,
 		onOpenResume,
 		onDragStartResume,
 		onDragOverResume,
@@ -24,6 +26,7 @@
 		onDragEndResume,
 		onToggleDownloadMenu,
 		onSelectDownloadLang,
+		onSetDownloadAnonymized,
 		onDownloadResume,
 		onCopyResume,
 		onSetMainResume,
@@ -37,6 +40,7 @@
 		isDownloadMenuOpen?: boolean;
 		isDownloading?: boolean;
 		downloadLang?: DownloadLanguage;
+		downloadAnonymized?: boolean;
 		onOpenResume?: (resumeId: string) => void;
 		onDragStartResume?: (resume: TalentProfileResume) => void;
 		onDragOverResume?: (event: DragEvent, index: number) => void;
@@ -45,6 +49,7 @@
 		onDragEndResume?: () => void;
 		onToggleDownloadMenu?: (resumeId: string) => void;
 		onSelectDownloadLang?: (lang: DownloadLanguage) => void;
+		onSetDownloadAnonymized?: (value: boolean) => void;
 		onDownloadResume?: (resumeId: string, type: 'pdf' | 'word', lang: DownloadLanguage) => void;
 		onCopyResume?: (resumeId: string) => void;
 		onSetMainResume?: (resumeId: string) => void;
@@ -61,6 +66,8 @@
 			day: 'numeric'
 		}).format(parsed);
 	};
+
+	let shareDrawerOpen = $state(false);
 </script>
 
 <div
@@ -149,6 +156,17 @@
 							EN
 						</button>
 					</div>
+					<label
+						class="border-border bg-card text-muted-fg flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium"
+					>
+						<input
+							type="checkbox"
+							class="accent-primary"
+							checked={downloadAnonymized}
+							onchange={(event) => onSetDownloadAnonymized?.(event.currentTarget.checked)}
+						/>
+						Anonymize
+					</label>
 					<Button
 						type="button"
 						variant="outline"
@@ -186,6 +204,21 @@
 		>
 			<Copy size={14} />
 		</Button>
+		{#if canEdit}
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				class="min-h-[36px] min-w-[36px]"
+				onclick={(event) => {
+					event.stopPropagation();
+					shareDrawerOpen = true;
+				}}
+				title="Share resume"
+			>
+				<Share2 size={14} />
+			</Button>
+		{/if}
 		{#if canEdit && !resume.is_main}
 			<Button
 				type="button"
@@ -217,3 +250,5 @@
 		{/if}
 	</div>
 </div>
+
+<ResumeShareDrawer bind:open={shareDrawerOpen} resumeId={resume.id} />
