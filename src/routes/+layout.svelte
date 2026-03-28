@@ -28,7 +28,9 @@
 	const plainRoutes = new Set(['/login', '/reset-password']);
 	const pathname = $derived($page.url.pathname);
 	const isPrintRoute = $derived(pathname.startsWith('/print'));
-	const isPlainRoute = $derived(plainRoutes.has(pathname) || pathname.startsWith('/legal/'));
+	const isPlainRoute = $derived(
+		plainRoutes.has(pathname) || pathname.startsWith('/legal/') || pathname.startsWith('/s/')
+	);
 	const useAppShell = $derived(!isPrintRoute && !isPlainRoute);
 
 	const resolvedMeta = $derived(withMetaDefaults($page.data?.meta, $page.url.pathname));

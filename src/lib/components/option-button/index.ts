@@ -21,7 +21,7 @@ export const optionButtonGroupVariants = tv({
 });
 
 export const optionButtonItemVariants = tv({
-	base: 'relative isolate inline-flex min-w-0 flex-1 select-none items-center justify-center rounded-sm px-3 font-medium transition-all active:scale-[.98] focus-visible:outline-1 outline-offset-2 outline-border disabled:cursor-not-allowed',
+	base: 'relative isolate inline-flex min-w-0 flex-1 cursor-pointer select-none items-center justify-center rounded-sm px-3 font-medium transition-all active:scale-[.98] focus-visible:outline-1 outline-offset-2 outline-border disabled:cursor-not-allowed',
 	variants: {
 		size: {
 			lg: 'min-h-11 text-sm',

@@ -9,6 +9,15 @@ import {
 import { getActorAccessContext } from '$lib/server/access';
 import { writeAuditLog } from '$lib/server/legalService';
 import {
+	extendResumeShareLink,
+	listVisibleResumeShareLinks,
+	parseResumeShareUpdateForm,
+	regenerateResumeShareLink,
+	revokeResumeShareLink,
+	ResumeShareAccessError,
+	updateResumeShareLink
+} from '$lib/server/resumeShares';
+import {
 	canManageGlobalTechCatalog,
 	canManageOrganisationTechCatalog,
 	normalizeTechCatalogKey,
@@ -739,7 +748,7 @@ const ensureTechCategoryExists = async (
 	return Boolean(data?.id);
 };
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const requestContext = locals.requestContext;
 	const supabase = requestContext.getSupabaseClient();
 	const adminClient = requestContext.getAdminClient();
@@ -759,7 +768,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const techCatalogManagementEnabled =
 		isAdmin || effectiveRoles.includes('broker') || effectiveRoles.includes('employer');
 
-	const [legalDocumentsResult, sharingData] = await Promise.all([
+	const [legalDocumentsResult, sharingData, resumeShareLinks] = await Promise.all([
 		isAdmin
 			? adminClient
 					.from('legal_documents')
@@ -773,6 +782,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 			adminClient,
 			effectiveRoles,
 			homeOrganisationId: actor.homeOrganisationId
+		}),
+		listVisibleResumeShareLinks({
+			adminClient,
+			actor,
+			origin: url.origin
 		})
 	]);
 
@@ -787,6 +801,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		canManageOrganisationTechCatalog: techCatalogManagementEnabled,
 		homeOrganisationId: actor.homeOrganisationId ?? null,
 		legalDocuments: legalDocumentsResult.data ?? [],
+		resumeShareLinks,
 		...sharingData
 	};
 };
@@ -858,6 +873,230 @@ export const actions: Actions = {
 			ok: true as const,
 			message: 'Password updated successfully.'
 		};
+	},
+
+	updateResumeShareLink: async ({ request, cookies }) => {
+		const context = await getActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'updateResumeShareLink',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const parsed = parseResumeShareUpdateForm(formData);
+		if (!parsed.shareLinkId) {
+			return fail(400, {
+				type: 'updateResumeShareLink',
+				ok: false,
+				message: 'Invalid share link.'
+			});
+		}
+
+		try {
+			await updateResumeShareLink({
+				adminClient: context.adminClient,
+				actor: context.actor,
+				shareLinkId: parsed.shareLinkId,
+				label: parsed.label,
+				isAnonymized: parsed.isAnonymized,
+				accessMode: parsed.accessMode,
+				languageMode: parsed.languageMode,
+				password: parsed.password,
+				neverExpires: parsed.neverExpires,
+				expiresInDays: parsed.expiresInDays,
+				allowDownload: parsed.allowDownload,
+				contactName: parsed.contactName,
+				contactEmail: parsed.contactEmail,
+				contactPhone: parsed.contactPhone,
+				contactNote: parsed.contactNote
+			});
+
+			return {
+				type: 'updateResumeShareLink' as const,
+				ok: true as const,
+				message: 'Share link updated.'
+			};
+		} catch (actionError) {
+			if (actionError instanceof ResumeShareAccessError) {
+				return fail(actionError.status, {
+					type: 'updateResumeShareLink',
+					ok: false,
+					message: actionError.message
+				});
+			}
+
+			return fail(500, {
+				type: 'updateResumeShareLink',
+				ok: false,
+				message:
+					actionError instanceof Error ? actionError.message : 'Could not update share link.'
+			});
+		}
+	},
+
+	revokeResumeShareLink: async ({ request, cookies }) => {
+		const context = await getActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'revokeResumeShareLink',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const shareLinkId = parseString(formData.get('share_link_id'));
+		if (!shareLinkId) {
+			return fail(400, {
+				type: 'revokeResumeShareLink',
+				ok: false,
+				message: 'Invalid share link.'
+			});
+		}
+
+		try {
+			await revokeResumeShareLink({
+				adminClient: context.adminClient,
+				actor: context.actor,
+				shareLinkId,
+				reason: parseString(formData.get('reason')) || null
+			});
+
+			return {
+				type: 'revokeResumeShareLink' as const,
+				ok: true as const,
+				message: 'Share link revoked.'
+			};
+		} catch (actionError) {
+			if (actionError instanceof ResumeShareAccessError) {
+				return fail(actionError.status, {
+					type: 'revokeResumeShareLink',
+					ok: false,
+					message: actionError.message
+				});
+			}
+
+			return fail(500, {
+				type: 'revokeResumeShareLink',
+				ok: false,
+				message:
+					actionError instanceof Error ? actionError.message : 'Could not revoke share link.'
+			});
+		}
+	},
+
+	extendResumeShareLink: async ({ request, cookies }) => {
+		const context = await getActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'extendResumeShareLink',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const shareLinkId = parseString(formData.get('share_link_id'));
+		if (!shareLinkId) {
+			return fail(400, {
+				type: 'extendResumeShareLink',
+				ok: false,
+				message: 'Invalid share link.'
+			});
+		}
+
+		const neverExpires = parseBoolean(formData.get('never_expires'));
+		const expiresInDays = parseOptionalInteger(formData.get('expires_in_days'));
+
+		try {
+			await extendResumeShareLink({
+				adminClient: context.adminClient,
+				actor: context.actor,
+				shareLinkId,
+				neverExpires,
+				expiresInDays
+			});
+
+			return {
+				type: 'extendResumeShareLink' as const,
+				ok: true as const,
+				message: 'Share link expiration updated.'
+			};
+		} catch (actionError) {
+			if (actionError instanceof ResumeShareAccessError) {
+				return fail(actionError.status, {
+					type: 'extendResumeShareLink',
+					ok: false,
+					message: actionError.message
+				});
+			}
+
+			return fail(500, {
+				type: 'extendResumeShareLink',
+				ok: false,
+				message:
+					actionError instanceof Error
+						? actionError.message
+						: 'Could not update share link expiration.'
+			});
+		}
+	},
+
+	regenerateResumeShareLink: async ({ request, cookies, url }) => {
+		const context = await getActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'regenerateResumeShareLink',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const shareLinkId = parseString(formData.get('share_link_id'));
+		if (!shareLinkId) {
+			return fail(400, {
+				type: 'regenerateResumeShareLink',
+				ok: false,
+				message: 'Invalid share link.'
+			});
+		}
+
+		try {
+			const result = await regenerateResumeShareLink({
+				adminClient: context.adminClient,
+				actor: context.actor,
+				shareLinkId,
+				origin: url.origin
+			});
+
+			return {
+				type: 'regenerateResumeShareLink' as const,
+				ok: true as const,
+				message: 'Share link regenerated.',
+				shareUrl: result.shareUrl
+			};
+		} catch (actionError) {
+			if (actionError instanceof ResumeShareAccessError) {
+				return fail(actionError.status, {
+					type: 'regenerateResumeShareLink',
+					ok: false,
+					message: actionError.message
+				});
+			}
+
+			return fail(500, {
+				type: 'regenerateResumeShareLink',
+				ok: false,
+				message:
+					actionError instanceof Error
+						? actionError.message
+						: 'Could not regenerate share link.'
+			});
+		}
 	},
 
 	upsertOrganisationShareRule: async ({ request, cookies }) => {

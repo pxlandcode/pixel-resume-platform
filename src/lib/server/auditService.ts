@@ -4,6 +4,10 @@ import { getSupabaseAdminClient } from '$lib/server/supabase';
 export type AuditActionType =
 	| 'RESUME_VIEW'
 	| 'RESUME_EXPORT'
+	| 'RESUME_SHARE_CREATED'
+	| 'RESUME_SHARE_UPDATED'
+	| 'RESUME_SHARE_REVOKED'
+	| 'RESUME_SHARE_REGENERATED'
 	| 'SHARING_APPROVED'
 	| 'SHARE_RULE_CONFIGURED'
 	| 'SHARE_RULE_REVOKED'

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button, Card, Icon, Toaster, toast } from '@pixelcode_/blocks/components';
-	import { ArrowLeft, Download, Edit, Save, X } from 'lucide-svelte';
+	import { ArrowLeft, Download, Edit, Save, Share2, X } from 'lucide-svelte';
 	import ResumeView from '$lib/components/resumes/ResumeView.svelte';
+	import ResumeShareDrawer from '$lib/components/resumes/ResumeShareDrawer.svelte';
 	import { fly } from 'svelte/transition';
 	import { invalidateAll } from '$app/navigation';
 	import { loading } from '$lib/stores/loading';
@@ -23,6 +24,7 @@
 	let viewLanguage: 'sv' | 'en' = $state((data.language as 'sv' | 'en') ?? 'sv');
 	let downloadLanguageOverride: 'sv' | 'en' | null = $state(null);
 	let downloadAnonymized = $state(false);
+	let shareDrawerOpen = $state(false);
 	const downloadLanguage = $derived(downloadLanguageOverride ?? viewLanguage);
 	let isEditing = $state(false);
 	let saving = $state(false);
@@ -42,6 +44,7 @@
 		viewLanguage = (data.language as 'sv' | 'en') ?? 'sv';
 		downloadLanguageOverride = null;
 		downloadAnonymized = false;
+		shareDrawerOpen = false;
 		isEditing = false;
 		saving = false;
 		downloading = null;
@@ -469,6 +472,10 @@
 				<Icon icon={Download} size="sm" />
 				Download
 			</Button>
+			<Button variant="inverted" type="button" onclick={() => (shareDrawerOpen = true)}>
+				<Icon icon={Share2} size="sm" />
+				Share
+			</Button>
 			{#if canEdit}
 				<Button
 					variant="primary"
@@ -508,3 +515,5 @@
 		</div>
 	</Card>
 </div>
+
+<ResumeShareDrawer bind:open={shareDrawerOpen} resumeId={data.resume.id} />

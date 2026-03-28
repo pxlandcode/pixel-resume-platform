@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button } from '@pixelcode_/blocks/components';
+	import ResumeShareDrawer from '$lib/components/resumes/ResumeShareDrawer.svelte';
 	import { confirm } from '$lib/utils/confirm';
-	import { CheckCircle2, Copy, Download, FileText, Trash2 } from 'lucide-svelte';
+	import { CheckCircle2, Copy, Download, FileText, Share2, Trash2 } from 'lucide-svelte';
 	import { fly } from 'svelte/transition';
 	import type { TalentProfileResume } from './types';
 
@@ -65,6 +66,8 @@
 			day: 'numeric'
 		}).format(parsed);
 	};
+
+	let shareDrawerOpen = $state(false);
 </script>
 
 <div
@@ -201,6 +204,21 @@
 		>
 			<Copy size={14} />
 		</Button>
+		{#if canEdit}
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				class="min-h-[36px] min-w-[36px]"
+				onclick={(event) => {
+					event.stopPropagation();
+					shareDrawerOpen = true;
+				}}
+				title="Share resume"
+			>
+				<Share2 size={14} />
+			</Button>
+		{/if}
 		{#if canEdit && !resume.is_main}
 			<Button
 				type="button"
@@ -232,3 +250,5 @@
 		{/if}
 	</div>
 </div>
+
+<ResumeShareDrawer bind:open={shareDrawerOpen} resumeId={resume.id} />

@@ -18,6 +18,11 @@ import {
 } from '$lib/server/access';
 import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
 import { writeAuditLog } from '$lib/server/legalService';
+import {
+	createResumeShareLink,
+	parseResumeShareForm,
+	ResumeShareAccessError
+} from '$lib/server/resumeShares';
 
 const actorContextFromPermissions = (
 	permissions: Awaited<ReturnType<typeof getResumeEditPermissions>>
@@ -195,5 +200,84 @@ export const actions: Actions = {
 		}
 
 		return { ok: true };
+	},
+	createResumeShareLink: async ({ request, params, cookies, url }) => {
+		const admin = getSupabaseAdminClient();
+		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+		if (!admin || !supabase) {
+			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+
+		const resumeId = params.resumeId;
+		if (!resumeId) {
+			return fail(400, { ok: false, message: 'Invalid resume id' });
+		}
+
+		const actor = await getActorAccessContext(supabase, admin);
+		if (!actor.userId) {
+			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+
+		try {
+			await assertAcceptedForSensitiveAction({
+				adminClient: admin,
+				userId: actor.userId,
+				homeOrganisationId: actor.homeOrganisationId
+			});
+		} catch (acceptanceError) {
+			return fail(403, {
+				ok: false,
+				message:
+					acceptanceError instanceof Error
+						? acceptanceError.message
+						: 'You must accept current legal documents before sharing.'
+			});
+		}
+
+		const formData = await request.formData();
+		const parsed = parseResumeShareForm(formData);
+
+		try {
+			const result = await createResumeShareLink({
+				adminClient: admin,
+				actor,
+				resumeId,
+				label: parsed.label,
+				isAnonymized: parsed.isAnonymized,
+				accessMode: parsed.accessMode,
+				languageMode: parsed.languageMode,
+				password: parsed.password,
+				neverExpires: parsed.neverExpires,
+				expiresInDays: parsed.expiresInDays,
+				allowDownload: parsed.allowDownload,
+				contactName: parsed.contactName,
+				contactEmail: parsed.contactEmail,
+				contactPhone: parsed.contactPhone,
+				contactNote: parsed.contactNote,
+				origin: url.origin
+			});
+
+			return {
+				ok: true,
+				shareUrl: result.shareUrl,
+				linkId: result.linkId,
+				message: 'Share link created.'
+			};
+		} catch (shareError) {
+			if (shareError instanceof ResumeShareAccessError) {
+				return fail(shareError.status, {
+					ok: false,
+					message: shareError.message
+				});
+			}
+
+			return fail(500, {
+				ok: false,
+				message:
+					shareError instanceof Error
+						? shareError.message
+						: 'Could not create share link.'
+			});
+		}
 	}
 };

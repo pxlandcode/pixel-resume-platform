@@ -24,6 +24,11 @@ import {
 	listVisibleTalentComments,
 	loadActiveTalentCommentTypes
 } from '$lib/server/talentComments';
+import {
+	createResumeShareLink,
+	parseResumeShareForm,
+	ResumeShareAccessError
+} from '$lib/server/resumeShares';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 
@@ -383,6 +388,79 @@ export const actions: Actions = {
 		}
 
 		return { ok: true, type: 'updateProfile', message: 'Profile updated.' };
+	},
+	createResumeShareLink: async ({ request, cookies, url }) => {
+		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+		const adminClient = getSupabaseAdminClient();
+
+		if (!supabase || !adminClient) {
+			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+
+		const legalCheck = await ensureLegalAcceptanceForAction(supabase, adminClient);
+		if (!legalCheck.ok) {
+			return fail(legalCheck.status, {
+				ok: false,
+				message: legalCheck.message
+			});
+		}
+
+		const formData = await request.formData();
+		const resumeIdEntry = formData.get('resume_id');
+		const resumeId = typeof resumeIdEntry === 'string' ? resumeIdEntry.trim() : '';
+		if (!resumeId) {
+			return fail(400, { ok: false, message: 'Invalid resume id.' });
+		}
+
+		const actor = await getActorAccessContext(supabase, adminClient);
+		if (!actor.userId) {
+			return fail(401, { ok: false, message: 'Unauthorized' });
+		}
+
+		const parsed = parseResumeShareForm(formData);
+
+		try {
+			const result = await createResumeShareLink({
+				adminClient,
+				actor,
+				resumeId,
+				label: parsed.label,
+				isAnonymized: parsed.isAnonymized,
+				accessMode: parsed.accessMode,
+				languageMode: parsed.languageMode,
+				password: parsed.password,
+				neverExpires: parsed.neverExpires,
+				expiresInDays: parsed.expiresInDays,
+				allowDownload: parsed.allowDownload,
+				contactName: parsed.contactName,
+				contactEmail: parsed.contactEmail,
+				contactPhone: parsed.contactPhone,
+				contactNote: parsed.contactNote,
+				origin: url.origin
+			});
+
+			return {
+				ok: true,
+				shareUrl: result.shareUrl,
+				linkId: result.linkId,
+				message: 'Share link created.'
+			};
+		} catch (shareError) {
+			if (shareError instanceof ResumeShareAccessError) {
+				return fail(shareError.status, {
+					ok: false,
+					message: shareError.message
+				});
+			}
+
+			return fail(500, {
+				ok: false,
+				message:
+					shareError instanceof Error
+						? shareError.message
+						: 'Could not create share link.'
+			});
+		}
 	},
 	createComment: async ({ request, cookies, params }) => {
 		const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);

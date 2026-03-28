@@ -32,6 +32,12 @@ const buildRedactionBar = (value: string) => {
 
 const shouldMatchIndividualName = (value: string) => [...value.replace(/\s+/g, '')].length >= 3;
 
+const buildSwedishGenitive = (value: string) => {
+	const normalized = normalizeWhitespace(value);
+	if (!normalized) return '';
+	return normalized.toLowerCase().endsWith('s') ? normalized : `${normalized}s`;
+};
+
 const createNameRule = (value: string): RedactionRule | null => {
 	const normalized = normalizeWhitespace(value);
 	if (!normalized) return null;
@@ -47,23 +53,33 @@ const createNameRule = (value: string): RedactionRule | null => {
 
 const buildNameRedactionRules = ({ fullName, firstName, lastName }: NameSource): RedactionRule[] => {
 	const candidates = new Map<string, string>();
+	const addCandidate = (value: string, includeSwedishGenitive = false) => {
+		const normalized = normalizeWhitespace(value);
+		if (!normalized) return;
+		candidates.set(normalized.toLowerCase(), normalized);
+		if (!includeSwedishGenitive) return;
+		const genitive = buildSwedishGenitive(normalized);
+		if (genitive && genitive.toLowerCase() !== normalized.toLowerCase()) {
+			candidates.set(genitive.toLowerCase(), genitive);
+		}
+	};
 
 	const normalizedFullName = normalizeWhitespace(fullName);
 	const normalizedFirstName = normalizeWhitespace(firstName);
 	const normalizedLastName = normalizeWhitespace(lastName);
 
 	if (normalizedFullName) {
-		candidates.set(normalizedFullName.toLowerCase(), normalizedFullName);
+		addCandidate(normalizedFullName, true);
 	}
 	if (normalizedFirstName && shouldMatchIndividualName(normalizedFirstName)) {
-		candidates.set(normalizedFirstName.toLowerCase(), normalizedFirstName);
+		addCandidate(normalizedFirstName, true);
 	}
 	if (normalizedLastName && shouldMatchIndividualName(normalizedLastName)) {
-		candidates.set(normalizedLastName.toLowerCase(), normalizedLastName);
+		addCandidate(normalizedLastName, true);
 	}
 	if (normalizedFirstName && normalizedLastName) {
 		const reversed = `${normalizedLastName}, ${normalizedFirstName}`;
-		candidates.set(reversed.toLowerCase(), reversed);
+		addCandidate(reversed);
 	}
 
 	return [...candidates.values()]
@@ -121,15 +137,20 @@ export const anonymizeResumeExport = ({
 		firstName: fallbackFirstName,
 		lastName: fallbackLastName
 	});
+	const anonymizePortfolioLinks = (value: ResumeData['portfolio']) =>
+		value?.map((entry) => buildRedactionBar(entry)) ?? value;
 
 	if (rules.length === 0) {
+		const clonedResumeData = structuredClone(resumeData);
+		clonedResumeData.portfolio = anonymizePortfolioLinks(clonedResumeData.portfolio);
 		return {
-			resumeData: structuredClone(resumeData),
+			resumeData: clonedResumeData,
 			person: person ? { ...structuredClone(person), avatar_url: null } : null
 		};
 	}
 
 	const anonymizedResumeData = redactDeep(structuredClone(resumeData), rules);
+	anonymizedResumeData.portfolio = anonymizePortfolioLinks(anonymizedResumeData.portfolio);
 	const anonymizedPerson = person ? redactDeep(structuredClone(person), rules) : null;
 
 	if (anonymizedPerson) {
