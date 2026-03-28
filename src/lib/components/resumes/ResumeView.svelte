@@ -37,6 +37,8 @@
 		image,
 		language = $bindable('sv'),
 		isEditing = false,
+		showLanguageToggle = true,
+		showMobileProfileHeading = false,
 		person,
 		profileTechStack,
 		techCatalogOrganisationId = null,
@@ -53,6 +55,8 @@
 		image?: ImageResource | string | null;
 		language?: Language;
 		isEditing?: boolean;
+		showLanguageToggle?: boolean;
+		showMobileProfileHeading?: boolean;
 		person?: Person;
 		profileTechStack?: TechCategory[];
 		techCatalogOrganisationId?: string | null;
@@ -629,7 +633,7 @@
 	style={resumeRootStyle}
 >
 	<!-- Language Toggle -->
-	{#if !isEditing}
+	{#if !isEditing && showLanguageToggle}
 		<ResumeLanguageToggle {language} onToggle={toggleLanguage} />
 	{/if}
 
@@ -712,6 +716,17 @@
 					<!-- Profile Image -->
 					<ResumeProfileImage image={resolvedImage ?? image} name={displayName} />
 
+					{#if showMobileProfileHeading}
+						<div class="md:hidden">
+							<ResumeNameTitle
+								name={displayName}
+								bind:title={editingData.title}
+								{isEditing}
+								language={componentLanguage}
+							/>
+						</div>
+					{/if}
+
 					<!-- Example Skills -->
 					<ResumeExampleSkills
 						bind:skills={editingData.exampleSkills}
@@ -733,12 +748,14 @@
 				<!-- Right Column: Name + Summary + Highlighted Experience -->
 				<div class="space-y-6">
 					<!-- Name and Title -->
-					<ResumeNameTitle
-						name={displayName}
-						bind:title={editingData.title}
-						{isEditing}
-						language={componentLanguage}
-					/>
+					<div class:hidden={showMobileProfileHeading} class:md:block={showMobileProfileHeading}>
+						<ResumeNameTitle
+							name={displayName}
+							bind:title={editingData.title}
+							{isEditing}
+							language={componentLanguage}
+						/>
+					</div>
 
 					<!-- Summary -->
 					<ResumeSummary
