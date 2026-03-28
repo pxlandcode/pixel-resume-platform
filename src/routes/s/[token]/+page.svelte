@@ -89,25 +89,6 @@
 		}
 	};
 
-	const parseDownloadFilename = (contentDisposition: string | null) => {
-		if (!contentDisposition) return 'shared-resume.pdf';
-
-		const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
-		if (utf8Match?.[1]) {
-			try {
-				return decodeURIComponent(utf8Match[1]);
-			} catch {
-				return utf8Match[1];
-			}
-		}
-
-		const quotedMatch = contentDisposition.match(/filename="([^"]+)"/i);
-		if (quotedMatch?.[1]) return quotedMatch[1];
-
-		const plainMatch = contentDisposition.match(/filename=([^;]+)/i);
-		return plainMatch?.[1]?.trim() ?? 'shared-resume.pdf';
-	};
-
 	const switchLanguage = async (nextLanguage: 'sv' | 'en') => {
 		if (nextLanguage === language || !readyData || !canSwitchLanguage || isSwitchingLanguage) return;
 		isSwitchingLanguage = true;
@@ -136,7 +117,9 @@
 
 		isCreatingPdf = true;
 		try {
-			const response = await fetch(downloadHref, {
+			const target = new URL(downloadHref, window.location.origin);
+			target.searchParams.set('prepare', '1');
+			const response = await fetch(`${target.pathname}${target.search}`, {
 				method: 'GET',
 				credentials: 'same-origin'
 			});
@@ -144,15 +127,22 @@
 				throw new Error('Could not create the PDF.');
 			}
 
-			const blob = await response.blob();
-			const objectUrl = URL.createObjectURL(blob);
+			const payload = (await response.json()) as {
+				ok?: boolean;
+				filename?: string;
+				downloadUrl?: string;
+			};
+			if (!payload.downloadUrl) {
+				throw new Error('Could not prepare the PDF download.');
+			}
+
 			const link = document.createElement('a');
-			link.href = objectUrl;
-			link.download = parseDownloadFilename(response.headers.get('content-disposition'));
+			link.href = payload.downloadUrl;
+			link.download = payload.filename ?? 'shared-resume.pdf';
+			link.rel = 'noreferrer';
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
-			window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 		} catch (error) {
 			notifyError(error instanceof Error ? error.message : 'Could not create the PDF.');
 		} finally {
