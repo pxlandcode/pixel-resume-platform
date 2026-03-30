@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { deserialize } from '$app/forms';
-	import { Button, Card, Icon, Toaster, toast } from '@pixelcode_/blocks/components';
+	import { Button, Card, Toaster, toast } from '@pixelcode_/blocks/components';
 	import { ArrowLeft, Download, Edit, Save, Share2, X } from 'lucide-svelte';
 	import ResumeView from '$lib/components/resumes/ResumeView.svelte';
 	import ResumeShareDrawer from '$lib/components/resumes/ResumeShareDrawer.svelte';
@@ -9,6 +9,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import { loading } from '$lib/stores/loading';
 	import { resumeDownloadStore } from '$lib/stores/resumeDownloadStore';
+	import { onMount } from 'svelte';
 	import {
 		DEFAULT_ORGANISATION_BRANDING_THEME,
 		organisationBrandingThemeToInlineStyle
@@ -32,6 +33,7 @@
 	let saving = $state(false);
 	let downloading: 'pdf' | 'word' | null = $state(null);
 	let errorMessage = $state<string | null>(null);
+	let toasterHydrated = $state(false);
 	let experienceLibrary = $state<ExperienceLibraryItem[]>(data.experienceLibrary ?? []);
 	let experienceLibraryLoaded = $state(Boolean(data.experienceLibraryLoaded));
 	let loadingExperienceLibrary = $state(false);
@@ -261,6 +263,10 @@
 		void loadExperienceLibrary();
 	});
 
+	onMount(() => {
+		toasterHydrated = true;
+	});
+
 	const discardEditing = () => {
 		if (!canEdit) return;
 		window.location.reload();
@@ -427,7 +433,9 @@
 	</div>
 </div>
 
-<Toaster />
+{#if toasterHydrated}
+	<Toaster />
+{/if}
 
 <!-- Fixed Edit/Save/Download Buttons in Bottom Right -->
 <div class="fixed bottom-6 right-6 z-50 flex gap-2 print:hidden">
@@ -440,16 +448,18 @@
 				actionLabel: 'Discard changes',
 				action: discardEditing
 			}}
-		>
-			<Button variant="inverted" type="button">
-				<Icon icon={X} size="sm" />
-				Cancel
+			>
+				<Button variant="inverted" type="button" left={X}>Cancel</Button>
+			</span>
+			<Button
+				variant="primary"
+				onclick={handleSave}
+				loading={saving}
+				loading-text="Saving…"
+				left={Save}
+			>
+				Save
 			</Button>
-		</span>
-		<Button variant="primary" onclick={handleSave} loading={saving} loading-text="Saving…">
-			<Icon icon={Save} size="sm" />
-			Save
-		</Button>
 	{:else}
 		<div class="relative flex items-center gap-2">
 			{#if showDownloadOptions}
@@ -510,31 +520,33 @@
 							type="button"
 							loading={downloading === 'pdf'}
 							loading-text="Generating..."
+							left={Download}
 							onclick={() => downloadFile('pdf')}
 						>
-							<Icon icon={Download} size="sm" />
 							PDF
 						</Button>
 					</div>
 				</div>
 			{/if}
 
-			<Button variant="inverted" onclick={() => (showDownloadOptions = !showDownloadOptions)}>
-				<Icon icon={Download} size="sm" />
-				Download
-			</Button>
-			<Button variant="inverted" type="button" onclick={() => (shareDrawerOpen = true)}>
-				<Icon icon={Share2} size="sm" />
-				Share
-			</Button>
-			{#if canEdit}
+				<Button
+					variant="inverted"
+					left={Download}
+					onclick={() => (showDownloadOptions = !showDownloadOptions)}
+				>
+					Download
+				</Button>
+				<Button variant="inverted" type="button" left={Share2} onclick={() => (shareDrawerOpen = true)}>
+					Share
+				</Button>
+				{#if canEdit}
 				<Button
 					variant="primary"
+					left={Edit}
 					onclick={() => {
 						isEditing = true;
 					}}
 				>
-					<Icon icon={Edit} size="sm" />
 					Edit
 				</Button>
 			{/if}

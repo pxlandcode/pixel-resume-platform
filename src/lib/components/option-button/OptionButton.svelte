@@ -19,6 +19,8 @@
 		return twMerge(clsx(inputs));
 	}
 
+	const fallbackId = $props.id();
+
 	type Props<T extends OptionButtonOptionValue = string> = {
 		id?: string;
 		name?: string;
@@ -37,7 +39,7 @@
 	};
 
 	let {
-		id = crypto.randomUUID(),
+		id = fallbackId,
 		name,
 		label = '',
 		hideLabel = false,

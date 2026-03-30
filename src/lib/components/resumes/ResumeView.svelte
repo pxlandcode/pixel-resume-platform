@@ -31,6 +31,7 @@
 	import andLogo from '$lib/assets/and.svg?url';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
+	type ResumeItemIdKind = 'experience' | 'highlighted';
 
 	let {
 		data,
@@ -74,6 +75,73 @@
 
 	// eslint-disable-next-line svelte/prefer-writable-derived
 	let profileCategories = $state(structuredClone(profileTechStack ?? person?.techStack ?? []));
+	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
+	const serializeLocalizedText = (value: LocalizedText | null | undefined): string => {
+		if (!value) return '';
+		if (typeof value === 'string') return normalize(value);
+		return `${normalize(value.sv)}|${normalize(value.en)}`;
+	};
+	const hashString = (value: string): string => {
+		let hash = 2166136261;
+		for (let index = 0; index < value.length; index += 1) {
+			hash ^= value.charCodeAt(index);
+			hash = Math.imul(hash, 16777619);
+		}
+		return (hash >>> 0).toString(36);
+	};
+	const buildExperienceId = (item: ExperienceItem, index: number): string =>
+		`experience-${hashString(
+			JSON.stringify({
+				index,
+				libraryId: item.libraryId ?? '',
+				startDate: normalize(item.startDate),
+				endDate: normalize(item.endDate ?? ''),
+				company: normalize(item.company),
+				location: serializeLocalizedText(item.location ?? null),
+				role: serializeLocalizedText(item.role),
+				description: serializeLocalizedText(item.description),
+				technologies: (item.technologies ?? []).map((tech) => normalize(tech)),
+				hidden: item.hidden === true
+			})
+		)}`;
+	const buildHighlightedExperienceId = (
+		item: HighlightedExperience,
+		index: number
+	): string =>
+		`highlighted-${hashString(
+			JSON.stringify({
+				index,
+				libraryId: item.libraryId ?? '',
+				company: normalize(item.company),
+				role: serializeLocalizedText(item.role),
+				description: serializeLocalizedText(item.description),
+				technologies: (item.technologies ?? []).map((tech) => normalize(tech)),
+				hidden: item.hidden === true
+			})
+		)}`;
+	const ensureExperienceIds = (items: ExperienceItem[]): ExperienceItem[] =>
+		items.map((item, index) => ({
+			...item,
+			_id: item._id ?? buildExperienceId(item, index)
+		}));
+	const ensureHighlightedExperienceIds = (
+		items: HighlightedExperience[]
+	): HighlightedExperience[] =>
+		items.map((item, index) => ({
+			...item,
+			_id: item._id ?? buildHighlightedExperienceId(item, index)
+		}));
+	const cloneResumeData = (source: ResumeData): ResumeData => {
+		const cloned = structuredClone(source);
+		cloned.experiences = ensureExperienceIds(cloned.experiences);
+		cloned.highlightedExperiences = ensureHighlightedExperienceIds(cloned.highlightedExperiences);
+		return cloned;
+	};
+	let draftIdSequence = $state(0);
+	const nextDraftId = (kind: ResumeItemIdKind): string => {
+		draftIdSequence += 1;
+		return `${kind}-draft-${draftIdSequence}`;
+	};
 	const displayName = $derived(person?.name ?? data.name ?? '');
 
 	const resolvedImage: ImageResource | string | null = $derived.by(() => {
@@ -100,24 +168,13 @@
 		profileCategories = structuredClone(profileTechStack ?? person?.techStack ?? []);
 	});
 
-	// Helper to ensure all items have unique IDs
-	const ensureIds = <T extends { _id?: string }>(items: T[]): T[] => {
-		return items.map((item) => ({
-			...item,
-			_id: item._id ?? crypto.randomUUID()
-		}));
-	};
-
 	// Local editing state
-	let editingData = $state<ResumeData>(structuredClone(data));
+	let editingData = $state<ResumeData>(cloneResumeData(data));
 
-	// Sync prop changes to local state and ensure IDs
+	// Sync prop changes to local state with stable internal IDs
 	$effect(() => {
 		if (!isEditing) {
-			const cloned = structuredClone(data);
-			cloned.experiences = ensureIds(cloned.experiences);
-			cloned.highlightedExperiences = ensureIds(cloned.highlightedExperiences);
-			editingData = cloned;
+			editingData = cloneResumeData(data);
 		}
 	});
 
@@ -134,7 +191,6 @@
 	const componentLanguage = $derived<Language>(isEditing ? 'en' : language);
 
 	const stripHtml = (value: string) => value.replace(/<[^>]*>/g, ' ');
-	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 	const clip = (value: string, maxLength = 280) => {
 		const cleaned = normalize(value);
 		if (!cleaned) return '';
@@ -157,12 +213,14 @@
 		return Number.isNaN(parsed) ? null : parsed;
 	};
 
+	const ONGOING_END_DATE_SORT_VALUE = Number.MAX_SAFE_INTEGER;
+
 	const getEndDateTimestamp = (value: string | null | undefined): number => {
 		const normalizedValue = normalize(value ?? '');
-		if (!normalizedValue) return Date.now();
+		if (!normalizedValue) return ONGOING_END_DATE_SORT_VALUE;
 		const lowered = normalizedValue.toLowerCase();
 		if (['present', 'current', 'ongoing', 'nuvarande', 'pågående'].includes(lowered)) {
-			return Date.now();
+			return ONGOING_END_DATE_SORT_VALUE;
 		}
 		return parseDateToTimestamp(normalizedValue) ?? 0;
 	};
@@ -487,7 +545,7 @@
 	// Experience management
 	const addExperience = () => {
 		const newExp: ExperienceItem = {
-			_id: crypto.randomUUID(),
+			_id: nextDraftId('experience'),
 			saveToLibrary: false,
 			startDate: '',
 			endDate: '',
@@ -504,7 +562,7 @@
 		const selected = experienceLibrary.find((entry) => entry.id === libraryId);
 		if (!selected) return;
 		const newExp: ExperienceItem = {
-			_id: crypto.randomUUID(),
+			_id: nextDraftId('experience'),
 			libraryId: selected.id,
 			saveToLibrary: true,
 			startDate: selected.startDate ?? '',
@@ -540,7 +598,7 @@
 	// Highlighted experience management
 	const addHighlightedExperience = () => {
 		const newExp: HighlightedExperience = {
-			_id: crypto.randomUUID(),
+			_id: nextDraftId('highlighted'),
 			saveToLibrary: false,
 			company: '',
 			role: { sv: '', en: '' },
@@ -554,7 +612,7 @@
 		const selected = experienceLibrary.find((entry) => entry.id === libraryId);
 		if (!selected) return;
 		const newExp: HighlightedExperience = {
-			_id: crypto.randomUUID(),
+			_id: nextDraftId('highlighted'),
 			libraryId: selected.id,
 			saveToLibrary: true,
 			company: selected.company ?? '',

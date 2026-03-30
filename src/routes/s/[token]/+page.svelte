@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { fly } from 'svelte/transition';
-	import { Button, Card, FormControl, Icon, Input, toast } from '@pixelcode_/blocks/components';
+	import { Button, Card, FormControl, Input, toast } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { OptionButton, type OptionButtonOption } from '$lib/components/option-button';
 	import ResumePrint from '$lib/components/resumes/ResumePrint.svelte';
@@ -321,9 +321,9 @@
 						onclick={() => (mobileActionsOpen = !mobileActionsOpen)}
 					>
 						{#if mobileActionsOpen}
-							<Icon icon={X} size="sm" />
+							<X class="h-4 w-4" />
 						{:else}
-							<Icon icon={MoreHorizontal} size="sm" />
+							<MoreHorizontal class="h-4 w-4" />
 						{/if}
 					</Button>
 				</div>
