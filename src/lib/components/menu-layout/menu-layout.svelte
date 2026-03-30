@@ -50,13 +50,16 @@
 	const DESKTOP_SEARCH_CONTAINER_ID = 'menu-layout-desktop-search';
 
 	const activePath = $derived($page.url.pathname);
+	let modeHydrated = $state(false);
 	const displayName = $derived(
 		profile
 			? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || userEmail || 'User'
 			: userEmail || 'User'
 	);
 	const sidebarCollapsed = $derived($userSettingsStore.settings.navigation.sidebarCollapsed);
-	const pixelcodeLogo = $derived(mode.current === 'dark' ? pixelcodeLogoLight : pixelcodeLogoDark);
+	const pixelcodeLogo = $derived(
+		modeHydrated && mode.current === 'dark' ? pixelcodeLogoLight : pixelcodeLogoDark
+	);
 	const userAvatarUrl = $derived(profile?.avatar_url ?? null);
 	const userAvatarSrc = $derived(
 		transformSupabasePublicUrl(userAvatarUrl, supabaseImagePresets.avatarList)
@@ -334,6 +337,11 @@
 		if (browser) {
 			document.body.classList.remove('overflow-hidden', CURTAIN_BODY_CLASS);
 		}
+	});
+
+	$effect(() => {
+		if (!browser) return;
+		modeHydrated = true;
 	});
 </script>
 
