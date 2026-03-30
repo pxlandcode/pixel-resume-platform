@@ -49,7 +49,8 @@
 		templateMainFontCssStack = "'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
 		templateIsPixelCode = false,
 		experienceLibrary = [],
-		onGenerateDescription
+		onGenerateDescription,
+		onEditedDataChange
 	}: {
 		data: ResumeData;
 		image?: ImageResource | string | null;
@@ -68,6 +69,7 @@
 		templateIsPixelCode?: boolean;
 		experienceLibrary?: ExperienceLibraryItem[];
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
+		onEditedDataChange?: (data: ResumeData) => void;
 	} = $props();
 
 	// eslint-disable-next-line svelte/prefer-writable-derived
@@ -123,6 +125,10 @@
 		editingData.name = displayName;
 		editingData.techniques = profileCategories.flatMap((cat) => cat.skills ?? []);
 		editingData.methods = [];
+	});
+
+	$effect(() => {
+		onEditedDataChange?.($state.snapshot(editingData));
 	});
 
 	const componentLanguage = $derived<Language>(isEditing ? 'en' : language);
@@ -623,9 +629,6 @@
 	const removeContact = (index: number) => {
 		editingData.contacts = editingData.contacts.filter((_, i) => i !== index);
 	};
-
-	// Export the edited data for the parent to save
-	export const getEditedData = () => editingData;
 </script>
 
 <div

@@ -16,6 +16,7 @@ import {
 	resolvePrintTemplateContext,
 	type ActorAccessContext
 } from '$lib/server/access';
+import { resolveHomeOrganisationId } from '$lib/server/homeOrganisation';
 import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
 import { writeAuditLog } from '$lib/server/legalService';
 import {
@@ -163,11 +164,16 @@ export const actions: Actions = {
 		if (!actor.userId) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
 		}
+		const resolvedHomeOrganisationId = await resolveHomeOrganisationId({
+			adminClient: admin,
+			homeOrganisationId: actor.homeOrganisationId,
+			talentId: actor.talentId
+		});
 		try {
 			await assertAcceptedForSensitiveAction({
 				adminClient: admin,
 				userId: actor.userId,
-				homeOrganisationId: actor.homeOrganisationId
+				homeOrganisationId: resolvedHomeOrganisationId
 			});
 		} catch (acceptanceError) {
 			return fail(403, {
@@ -199,7 +205,7 @@ export const actions: Actions = {
 			});
 		}
 
-		return { ok: true };
+		return { ok: true, message: 'Resume saved.' };
 	},
 	createResumeShareLink: async ({ request, params, cookies, url }) => {
 		const admin = getSupabaseAdminClient();
@@ -217,12 +223,17 @@ export const actions: Actions = {
 		if (!actor.userId) {
 			return fail(401, { ok: false, message: 'Unauthorized' });
 		}
+		const resolvedHomeOrganisationId = await resolveHomeOrganisationId({
+			adminClient: admin,
+			homeOrganisationId: actor.homeOrganisationId,
+			talentId: actor.talentId
+		});
 
 		try {
 			await assertAcceptedForSensitiveAction({
 				adminClient: admin,
 				userId: actor.userId,
-				homeOrganisationId: actor.homeOrganisationId
+				homeOrganisationId: resolvedHomeOrganisationId
 			});
 		} catch (acceptanceError) {
 			return fail(403, {
@@ -273,10 +284,7 @@ export const actions: Actions = {
 
 			return fail(500, {
 				ok: false,
-				message:
-					shareError instanceof Error
-						? shareError.message
-						: 'Could not create share link.'
+				message: shareError instanceof Error ? shareError.message : 'Could not create share link.'
 			});
 		}
 	}
