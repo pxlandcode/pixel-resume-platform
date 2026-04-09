@@ -483,7 +483,7 @@
 							<div class="flex flex-col gap-1 text-sm text-slate-800">
 								{#each data.education as edu}
 									<p>
-										<span class="font-semibold">{edu.label}</span>
+										<span class="font-semibold">{t(edu.label)}</span>
 										{#if t(edu.value)}<span>: {t(edu.value)}</span>{/if}
 									</p>
 								{/each}
