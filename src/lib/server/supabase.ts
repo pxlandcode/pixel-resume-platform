@@ -1,19 +1,28 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import type { Cookies } from '@sveltejs/kit';
+import { dev } from '$app/environment';
+import { env as privateEnv } from '$env/dynamic/private';
 
 export const AUTH_COOKIE_NAMES = {
 	access: 'sb-access-token',
 	refresh: 'sb-refresh-token'
 } as const;
 
-let adminClient: SupabaseClient | null = null;
+const MICROSOFT_OAUTH_STORAGE_KEY = 'sb-ms-oauth';
+const MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE = `${MICROSOFT_OAUTH_STORAGE_KEY}-code-verifier`;
 
-const runtimeEnv: Record<string, string | undefined> =
-	typeof process !== 'undefined' && process.env ? process.env : {};
+export const authCookieOptions = {
+	path: '/',
+	httpOnly: true,
+	sameSite: 'lax' as const,
+	secure: !dev
+};
+
+let adminClient: SupabaseClient | null = null;
 
 const readEnv = (...keys: string[]): string | null => {
 	for (const key of keys) {
-		const value = runtimeEnv[key]?.trim();
+		const value = privateEnv[key]?.trim() ?? process.env[key]?.trim();
 		if (value) return value;
 	}
 	return null;
@@ -55,6 +64,50 @@ export const createSupabaseServerClient = (accessToken: string | null): Supabase
 	});
 };
 
+export const createSupabaseMicrosoftOAuthClient = (cookies: Cookies): SupabaseClient | null => {
+	const supabaseUrl = getSupabaseUrl();
+	const publishableKey = getSupabasePublishableKey();
+
+	if (!supabaseUrl || !publishableKey) {
+		console.warn(
+			'[supabase] Missing SUPABASE_URL or publishable key (SUPABASE_PUBLISHABLE_KEY / legacy SUPABASE_ANON_KEY).'
+		);
+		return null;
+	}
+
+	return createClient(supabaseUrl, publishableKey, {
+		auth: {
+			persistSession: true,
+			autoRefreshToken: false,
+			detectSessionInUrl: false,
+			flowType: 'pkce',
+			storageKey: MICROSOFT_OAUTH_STORAGE_KEY,
+			storage: {
+				getItem: (key: string) => {
+					if (key !== MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE) return null;
+					const value = cookies.get(MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE);
+					try {
+						return value ? decodeURIComponent(value) : null;
+					} catch {
+						return null;
+					}
+				},
+				setItem: (key: string, value: string) => {
+					if (key !== MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE) return;
+					cookies.set(MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE, encodeURIComponent(value), {
+						...authCookieOptions,
+						maxAge: 10 * 60
+					});
+				},
+				removeItem: (key: string) => {
+					if (key !== MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE) return;
+					cookies.delete(MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE, { path: '/' });
+				}
+			}
+		}
+	});
+};
+
 export const getSupabaseAdminClient = (): SupabaseClient | null => {
 	const supabaseUrl = getSupabaseUrl();
 	const secretKey = getSupabaseSecretKey();
@@ -86,6 +139,27 @@ export const getSupabaseFromCookies = (cookies: Cookies): SupabaseClient | null 
 export const clearAuthCookies = (cookies: Cookies) => {
 	cookies.delete(AUTH_COOKIE_NAMES.access, { path: '/' });
 	cookies.delete(AUTH_COOKIE_NAMES.refresh, { path: '/' });
+};
+
+export const clearMicrosoftOAuthCookies = (cookies: Cookies) => {
+	cookies.delete(MICROSOFT_OAUTH_CODE_VERIFIER_COOKIE, { path: '/' });
+};
+
+export const setAuthCookies = (cookies: Cookies, session: Session) => {
+	const now = Math.floor(Date.now() / 1000);
+	const accessMaxAge = session.expires_at
+		? Math.max(session.expires_at - now, 120)
+		: session.expires_in;
+
+	cookies.set(AUTH_COOKIE_NAMES.access, session.access_token, {
+		...authCookieOptions,
+		maxAge: accessMaxAge
+	});
+
+	cookies.set(AUTH_COOKIE_NAMES.refresh, session.refresh_token, {
+		...authCookieOptions,
+		maxAge: 60 * 60 * 24 * 30
+	});
 };
 
 export const sbAdmin = (() => {

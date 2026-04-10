@@ -1,26 +1,15 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { createClient } from '@supabase/supabase-js';
 import {
-	AUTH_COOKIE_NAMES,
 	createSupabaseServerClient,
+	AUTH_COOKIE_NAMES,
+	createSupabaseMicrosoftOAuthClient,
 	getSupabasePublishableKey,
-	getSupabaseUrl
+	getSupabaseUrl,
+	setAuthCookies
 } from '$lib/server/supabase';
-import { dev } from '$app/environment';
+import { normalizeAppRedirect } from '$lib/server/authRedirect';
 import type { Actions, PageServerLoad } from './$types';
-
-const cookieOptions = {
-	path: '/',
-	httpOnly: true,
-	sameSite: 'lax' as const,
-	secure: !dev
-};
-
-const isAllowedAppRedirect = (value: unknown): value is string =>
-	typeof value === 'string' &&
-	/^\/(?:$|users(?:\/.*)?$|talents(?:\/.*)?$|resumes(?:\/.*)?$|organisations(?:\/.*)?$|settings(?:\/.*)?$|legal(?:\/.*)?$)/.test(
-		value
-	);
 
 export const load: PageServerLoad = async ({ cookies }) => {
 	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
@@ -38,7 +27,7 @@ export const load: PageServerLoad = async ({ cookies }) => {
 };
 
 export const actions: Actions = {
-	default: async ({ request, cookies }) => {
+	password: async ({ request, cookies }) => {
 		const formData = await request.formData();
 		const email = formData.get('email');
 		const password = formData.get('password');
@@ -74,20 +63,38 @@ export const actions: Actions = {
 			return fail(400, { message });
 		}
 
-		const { session } = data;
-
-		cookies.set(AUTH_COOKIE_NAMES.access, session.access_token, {
-			...cookieOptions,
-			maxAge: session.expires_in
-		});
-
-		cookies.set(AUTH_COOKIE_NAMES.refresh, session.refresh_token, {
-			...cookieOptions,
-			maxAge: 60 * 60 * 24 * 30
-		});
-
-		const destination = isAllowedAppRedirect(redirectTo) ? redirectTo : '/';
+		setAuthCookies(cookies, data.session);
+		const destination = normalizeAppRedirect(redirectTo, '/');
 
 		throw redirect(303, destination);
+	},
+	microsoft: async ({ request, cookies, url }) => {
+		const formData = await request.formData();
+		const destination = normalizeAppRedirect(formData.get('redirectTo'), '/');
+		const supabase = createSupabaseMicrosoftOAuthClient(cookies);
+		if (!supabase) {
+			return fail(500, {
+				message:
+					'Supabase keys are not configured (SUPABASE_PUBLISHABLE_KEY / legacy SUPABASE_ANON_KEY).'
+			});
+		}
+
+		const callbackUrl = new URL('/auth/callback', url.origin);
+		callbackUrl.searchParams.set('redirect', destination);
+
+		const { data, error } = await supabase.auth.signInWithOAuth({
+			provider: 'azure',
+			options: {
+				redirectTo: callbackUrl.toString(),
+				scopes: 'email',
+				skipBrowserRedirect: true
+			}
+		});
+
+		if (error || !data.url) {
+			return fail(400, { message: error?.message ?? 'Unable to start Microsoft sign-in.' });
+		}
+
+		throw redirect(303, data.url);
 	}
 };

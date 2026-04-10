@@ -16,6 +16,7 @@
 		name: string;
 		slug: string;
 		homepage_url: string | null;
+		email_domains: string[];
 		created_at: string | null;
 		updated_at: string | null;
 	};

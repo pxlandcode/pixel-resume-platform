@@ -11,6 +11,9 @@
 		Toaster
 	} from '@pixelcode_/blocks/components';
 	import LegalDocumentsManager from '$lib/components/admin/LegalDocumentsManager.svelte';
+	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
+	import OrganisationDetailsDrawer from '$lib/components/admin/OrganisationDetailsDrawer.svelte';
+	import OrganisationMembershipDrawer from '$lib/components/admin/OrganisationMembershipDrawer.svelte';
 	import TechCatalogManager from '$lib/components/admin/TechCatalogManager.svelte';
 	import ResumeShareLinksPanel from '$lib/components/admin/ResumeShareLinksPanel.svelte';
 	import { Dropdown } from '$lib/components/dropdown';
@@ -31,9 +34,60 @@
 
 	let { data, form }: { data: PageData; form: ActionData | null } = $props();
 
+	type Role = 'admin' | 'broker' | 'talent' | 'employer';
+
 	type OrganisationOption = {
 		id: string;
 		name: string;
+	};
+
+	type Organisation = {
+		id: string;
+		name: string;
+		slug: string;
+		homepage_url: string | null;
+		email_domains: string[];
+		brand_settings: Record<string, unknown> | null;
+		created_at: string | null;
+		updated_at: string | null;
+	};
+
+	type OrganisationContext = {
+		organisation: {
+			id: string;
+			name: string;
+			slug: string;
+			homepage_url: string | null;
+			brand_settings: Record<string, unknown> | null;
+		};
+		template: {
+			id: string;
+			organisation_id: string;
+			template_key: string;
+			template_json: Record<string, unknown> | null;
+			template_version: number;
+			main_logotype_url: string | null;
+			accent_logo_url: string | null;
+			end_logo_url: string | null;
+		} | null;
+		membershipsUsers: Array<{ user_id: string }>;
+		membershipsTalents: Array<{ talent_id: string }>;
+		users: Array<{
+			user_id: string;
+			first_name: string;
+			last_name: string;
+			email: string | null;
+			roles: Role[];
+		}>;
+		talents: Array<{
+			id: string;
+			user_id: string | null;
+			first_name: string;
+			last_name: string;
+		}>;
+		usersWithHomeOrgIds: string[];
+		talentsWithHomeOrgIds: string[];
+		generatedAt: string;
 	};
 
 	type SourceTalentOption = {
@@ -61,7 +115,14 @@
 	};
 
 	type LegalDocumentsProp = ComponentProps<typeof LegalDocumentsManager>['documents'];
-	type SettingsPanel = 'account' | 'legal' | 'tech' | 'sharing' | 'resume_links' | null;
+	type SettingsPanel =
+		| 'account'
+		| 'organisation'
+		| 'legal'
+		| 'tech'
+		| 'sharing'
+		| 'resume_links'
+		| null;
 
 	const organisationRuleAccessOptions = [
 		{ value: 'read', label: 'Read only', icon: Eye },
@@ -94,6 +155,7 @@
 	const sourceTalentOptions = $derived(
 		(data.sourceTalentOptions as SourceTalentOption[] | undefined) ?? []
 	);
+	const organisation = $derived((data.organisation as Organisation | null | undefined) ?? null);
 	const organisationShareRules = $derived(
 		(data.organisationShareRules as OrganisationShareRule[] | undefined) ?? []
 	);
@@ -142,19 +204,30 @@
 		'extendResumeShareLink',
 		'regenerateResumeShareLink'
 	]);
+	const ORGANISATION_ACTION_TYPES = new Set([
+		'updateOrganisation',
+		'updateOrganisationBranding',
+		'updateOrganisationTemplate',
+		'connectUserHome',
+		'disconnectUserHome',
+		'connectTalentHome',
+		'disconnectTalentHome'
+	]);
 
 	const initialSourceOrganisationId =
 		sourceContextFromForm ?? data.defaultSourceOrganisationId ?? '';
 	const initialExpandedPanel: SettingsPanel =
 		form?.type === 'changePassword'
 			? 'account'
-			: RESUME_SHARE_ACTION_TYPES.has(form?.type ?? '')
-				? 'resume_links'
-			: TECH_ACTION_TYPES.has(form?.type ?? '')
-				? 'tech'
-				: form?.type
-					? 'sharing'
-					: null;
+			: ORGANISATION_ACTION_TYPES.has(form?.type ?? '')
+				? 'organisation'
+				: RESUME_SHARE_ACTION_TYPES.has(form?.type ?? '')
+					? 'resume_links'
+					: TECH_ACTION_TYPES.has(form?.type ?? '')
+						? 'tech'
+						: form?.type
+							? 'sharing'
+							: null;
 	const techRefreshToken = $derived(
 		JSON.stringify({
 			type: form?.type ?? null,
@@ -176,6 +249,14 @@
 	let talentRuleAllowTargetLogoExport = $state(false);
 	let talentRuleEditingId = $state<string | null>(null);
 	let previousSourceOrganisationId = $state(initialSourceOrganisationId);
+	let isDetailsDrawerOpen = $state(false);
+	let isBrandingDrawerOpen = $state(false);
+	let isMembershipDrawerOpen = $state(false);
+	let organisationContext = $state<OrganisationContext | null>(null);
+	let contextStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	let contextError = $state<string | null>(null);
+	let contextEtag = $state<string | null>(null);
+	let contextAbortController: AbortController | null = null;
 
 	const organisationNameById = $derived(
 		Object.fromEntries(
@@ -303,6 +384,23 @@
 	const resumeShareHistoricalCount = $derived(
 		resumeShareLinks.filter((link) => link.status === 'expired' || link.status === 'revoked').length
 	);
+	const membershipUsers = $derived(organisationContext?.users ?? []);
+	const membershipTalents = $derived(organisationContext?.talents ?? []);
+	const membershipUserRows = $derived(organisationContext?.membershipsUsers ?? []);
+	const membershipTalentRows = $derived(organisationContext?.membershipsTalents ?? []);
+	const usersWithHomeOrg = $derived(new Set(organisationContext?.usersWithHomeOrgIds ?? []));
+	const talentsWithHomeOrg = $derived(new Set(organisationContext?.talentsWithHomeOrgIds ?? []));
+	const brandingOrganisation = $derived(
+		organisation
+			? {
+					id: organisation.id,
+					name: organisation.name,
+					brand_settings:
+						organisationContext?.organisation.brand_settings ?? organisation.brand_settings ?? null
+				}
+			: undefined
+	);
+	const brandingTemplate = $derived(organisationContext?.template ?? undefined);
 
 	$effect(() => {
 		if (
@@ -389,6 +487,73 @@
 
 	const brandingLabel = (allowTargetLogoExport: boolean) =>
 		allowTargetLogoExport ? 'Uses target organisation branding' : 'Uses talent owner branding';
+
+	const loadOrganisationContext = async () => {
+		if (!organisation?.id) return;
+		if (contextStatus === 'loading') return;
+		if (contextStatus === 'ready' && organisationContext) return;
+
+		contextAbortController?.abort();
+		const controller = new AbortController();
+		contextAbortController = controller;
+		contextStatus = 'loading';
+		contextError = null;
+
+		try {
+			const endpoint = `/internal/api/organisations/context?org=${encodeURIComponent(organisation.id)}`;
+			const response = await fetch(endpoint, {
+				method: 'GET',
+				credentials: 'include',
+				signal: controller.signal,
+				headers: contextEtag ? { 'If-None-Match': contextEtag } : undefined
+			});
+
+			if (response.status === 304) {
+				if (!organisationContext) {
+					throw new Error('Organisation context cache was empty after revalidation.');
+				}
+				if (controller.signal.aborted) return;
+				contextStatus = 'ready';
+				contextError = null;
+				return;
+			}
+
+			if (!response.ok) {
+				const message = await response.text().catch(() => '');
+				throw new Error(message || 'Could not load organisation context.');
+			}
+
+			const payload = (await response.json()) as OrganisationContext;
+			if (controller.signal.aborted) return;
+
+			organisationContext = payload;
+			contextEtag = response.headers.get('etag');
+			contextStatus = 'ready';
+			contextError = null;
+		} catch (err) {
+			if (controller.signal.aborted) return;
+			contextStatus = 'error';
+			contextError = err instanceof Error ? err.message : 'Could not load organisation context.';
+		} finally {
+			if (contextAbortController === controller) {
+				contextAbortController = null;
+			}
+		}
+	};
+
+	const openDetailsDrawer = () => {
+		isDetailsDrawerOpen = true;
+	};
+
+	const openBrandingDrawer = () => {
+		isBrandingDrawerOpen = true;
+		void loadOrganisationContext();
+	};
+
+	const openMembershipDrawer = () => {
+		isMembershipDrawerOpen = true;
+		void loadOrganisationContext();
+	};
 
 	function togglePanel(panel: Exclude<SettingsPanel, null>) {
 		expandedPanel = expandedPanel === panel ? null : panel;
@@ -501,6 +666,118 @@
 			</div>
 		{/if}
 	</section>
+
+	{#if data.canManageOrganisation && organisation}
+		<section
+			class={`bg-card group overflow-hidden rounded-sm border transition-colors ${
+				expandedPanel === 'organisation'
+					? 'border-primary/50'
+					: 'border-border hover:border-primary/50'
+			}`}
+		>
+			<button
+				type="button"
+				use:ripple={{ opacity: 0.14 }}
+				class="w-full text-left"
+				onclick={() => togglePanel('organisation')}
+				aria-expanded={expandedPanel === 'organisation'}
+				aria-controls="settings-organisation-panel"
+			>
+				<div
+					class="group-hover:bg-muted/50 flex items-start gap-3 px-5 py-5 transition-colors sm:px-6"
+				>
+					<div
+						class="bg-muted text-muted-fg flex h-10 w-10 shrink-0 items-center justify-center rounded-sm"
+					>
+						<Building2 class="h-5 w-5" />
+					</div>
+					<div class="min-w-0 flex-1">
+						<h2 class="text-foreground text-lg font-semibold">Organisation</h2>
+						<p class="text-muted-fg mt-1 text-sm">
+							Manage details, branding, and memberships for your organisation.
+						</p>
+					</div>
+					<div class="text-muted-fg flex shrink-0 items-center gap-2">
+						<span class="hidden text-xs font-medium uppercase tracking-[0.16em] sm:block">
+							Manage
+						</span>
+						{#if expandedPanel === 'organisation'}
+							<ChevronDown class="h-5 w-5" />
+						{:else}
+							<ChevronRight class="h-5 w-5" />
+						{/if}
+					</div>
+				</div>
+			</button>
+
+			{#if expandedPanel === 'organisation'}
+				<div
+					id="settings-organisation-panel"
+					class="border-border space-y-5 border-t px-5 py-5 sm:px-6"
+				>
+					{#if contextStatus === 'loading' && (isBrandingDrawerOpen || isMembershipDrawerOpen)}
+						<p class="text-muted-fg text-sm">Loading organisation details…</p>
+					{:else if contextError && (isBrandingDrawerOpen || isMembershipDrawerOpen)}
+						<Alert variant="destructive" size="sm">
+							<p class="text-foreground text-sm font-medium">{contextError}</p>
+						</Alert>
+					{/if}
+
+					<div class="grid gap-4 sm:grid-cols-3">
+						<button
+							type="button"
+							onclick={openDetailsDrawer}
+							class="bg-background border-border hover:border-primary/50 flex flex-col items-start gap-3 rounded-sm border p-5 text-left transition-colors"
+						>
+							<div
+								class="bg-muted text-muted-fg flex h-10 w-10 items-center justify-center rounded-sm"
+							>
+								<Building2 size={20} />
+							</div>
+							<div>
+								<h3 class="text-foreground text-base font-semibold">Details</h3>
+								<p class="text-muted-fg mt-1 text-sm">
+									Name, slug, homepage URL, and sign-in domains.
+								</p>
+							</div>
+						</button>
+
+						<button
+							type="button"
+							onclick={openBrandingDrawer}
+							class="bg-background border-border hover:border-primary/50 flex flex-col items-start gap-3 rounded-sm border p-5 text-left transition-colors"
+						>
+							<div
+								class="bg-muted text-muted-fg flex h-10 w-10 items-center justify-center rounded-sm"
+							>
+								<Pencil size={20} />
+							</div>
+							<div>
+								<h3 class="text-foreground text-base font-semibold">Branding</h3>
+								<p class="text-muted-fg mt-1 text-sm">Theme colors, fonts, and logo assets.</p>
+							</div>
+						</button>
+
+						<button
+							type="button"
+							onclick={openMembershipDrawer}
+							class="bg-background border-border hover:border-primary/50 flex flex-col items-start gap-3 rounded-sm border p-5 text-left transition-colors"
+						>
+							<div
+								class="bg-muted text-muted-fg flex h-10 w-10 items-center justify-center rounded-sm"
+							>
+								<UserRound size={20} />
+							</div>
+							<div>
+								<h3 class="text-foreground text-base font-semibold">Membership</h3>
+								<p class="text-muted-fg mt-1 text-sm">Manage home users and talents.</p>
+							</div>
+						</button>
+					</div>
+				</div>
+			{/if}
+		</section>
+	{/if}
 
 	{#if data.canManageLegalDocuments}
 		<section
@@ -1035,3 +1312,26 @@
 		{/if}
 	</section>
 </div>
+
+<OrganisationDetailsDrawer
+	bind:open={isDetailsDrawerOpen}
+	organisation={organisation ?? undefined}
+/>
+
+<OrganisationBrandingDrawer
+	bind:open={isBrandingDrawerOpen}
+	organisation={brandingOrganisation}
+	template={brandingTemplate}
+	{form}
+/>
+
+<OrganisationMembershipDrawer
+	bind:open={isMembershipDrawerOpen}
+	organisation={organisation ?? undefined}
+	users={membershipUsers}
+	talents={membershipTalents}
+	userMemberships={membershipUserRows}
+	talentMemberships={membershipTalentRows}
+	{usersWithHomeOrg}
+	{talentsWithHomeOrg}
+/>

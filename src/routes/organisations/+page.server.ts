@@ -8,6 +8,13 @@ import {
 } from '$lib/server/supabase';
 import { getActorAccessContext } from '$lib/server/access';
 import {
+	OrganisationEmailDomainError,
+	assertOrganisationEmailDomainsAvailable,
+	loadOrganisationEmailDomains,
+	parseEmailDomainList,
+	replaceOrganisationEmailDomains
+} from '$lib/server/organisationEmailDomains';
+import {
 	mergeOrganisationBrandingTheme,
 	parseOrganisationBrandingThemeFormData,
 	resolveOrganisationBrandingTheme
@@ -220,6 +227,19 @@ const parseOptionalJsonObject = (value: string | null) => {
 	return parsed as Record<string, unknown>;
 };
 
+const domainActionError = (actionType: string, domainError: unknown) => {
+	const message =
+		domainError instanceof OrganisationEmailDomainError
+			? domainError.message
+			: 'Could not update email domains.';
+	const status = domainError instanceof OrganisationEmailDomainError ? domainError.status : 500;
+	return fail(status, {
+		type: actionType,
+		ok: false,
+		message
+	});
+};
+
 const getAdminContext = async (cookies: { get(name: string): string | undefined }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 	const adminClient = getSupabaseAdminClient();
@@ -422,8 +442,27 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw error(500, organisationsResult.error.message);
 	}
 
+	const organisations = organisationsResult.data ?? [];
+	let domainsByOrganisationId = new Map<string, string[]>();
+	try {
+		domainsByOrganisationId = await loadOrganisationEmailDomains(
+			adminClient,
+			organisations.map((organisation) => organisation.id)
+		);
+	} catch (domainError) {
+		throw error(
+			domainError instanceof OrganisationEmailDomainError ? domainError.status : 500,
+			domainError instanceof OrganisationEmailDomainError
+				? domainError.message
+				: 'Could not load organisation email domains.'
+		);
+	}
+
 	return {
-		organisations: organisationsResult.data ?? []
+		organisations: organisations.map((organisation) => ({
+			...organisation,
+			email_domains: domainsByOrganisationId.get(organisation.id) ?? []
+		}))
 	};
 };
 
@@ -445,9 +484,19 @@ export const actions: Actions = {
 		const name = typeof nameRaw === 'string' ? nameRaw.trim() : '';
 		const slugInput = typeof slugRaw === 'string' ? slugRaw.trim() : '';
 		let homepageUrl: string | null = null;
+		let emailDomains: string[] = [];
 		try {
 			homepageUrl = parseOptionalHomepageUrl(formData.get('homepage_url'));
+			emailDomains = parseEmailDomainList(formData.getAll('email_domains'));
+			await assertOrganisationEmailDomainsAvailable({
+				adminClient: context.adminClient,
+				organisationId: null,
+				domains: emailDomains
+			});
 		} catch (urlError) {
+			if (urlError instanceof OrganisationEmailDomainError) {
+				return domainActionError('createOrganisation', urlError);
+			}
 			return fail(400, {
 				type: 'createOrganisation',
 				ok: false,
@@ -506,6 +555,17 @@ export const actions: Actions = {
 			{ onConflict: 'organisation_id' }
 		);
 
+		try {
+			await replaceOrganisationEmailDomains({
+				adminClient: context.adminClient,
+				organisationId: orgRow.id,
+				domains: emailDomains
+			});
+		} catch (domainError) {
+			await context.adminClient.from('organisations').delete().eq('id', orgRow.id);
+			return domainActionError('createOrganisation', domainError);
+		}
+
 		return { type: 'createOrganisation', ok: true, message: 'Organisation created.' };
 	},
 
@@ -536,9 +596,19 @@ export const actions: Actions = {
 		const name = typeof nameRaw === 'string' ? nameRaw.trim() : '';
 		const slug = normalizeSlug(typeof slugRaw === 'string' ? slugRaw : name);
 		let homepageUrl: string | null = null;
+		let emailDomains: string[] = [];
 		try {
 			homepageUrl = parseOptionalHomepageUrl(formData.get('homepage_url'));
+			emailDomains = parseEmailDomainList(formData.getAll('email_domains'));
+			await assertOrganisationEmailDomainsAvailable({
+				adminClient: context.adminClient,
+				organisationId: orgId,
+				domains: emailDomains
+			});
 		} catch (urlError) {
+			if (urlError instanceof OrganisationEmailDomainError) {
+				return domainActionError('updateOrganisation', urlError);
+			}
 			return fail(400, {
 				type: 'updateOrganisation',
 				ok: false,
@@ -578,6 +648,16 @@ export const actions: Actions = {
 
 		if (updateError) {
 			return fail(500, { type: 'updateOrganisation', ok: false, message: updateError.message });
+		}
+
+		try {
+			await replaceOrganisationEmailDomains({
+				adminClient: context.adminClient,
+				organisationId: orgId,
+				domains: emailDomains
+			});
+		} catch (domainError) {
+			return domainActionError('updateOrganisation', domainError);
 		}
 
 		return { type: 'updateOrganisation', ok: true, message: 'Organisation updated.' };
