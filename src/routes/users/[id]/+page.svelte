@@ -37,6 +37,10 @@
 	const talents = $derived(data.talents as TalentOption[]);
 	const organisations = $derived((data.organisations as OrganisationOption[] | undefined) ?? []);
 	const canEditUsers = $derived(Boolean(data.canEditUsers));
+	const canManageLinkedTalent = $derived(Boolean(data.canManageLinkedTalent));
+	const canManageOrganisationAssignment = $derived(
+		Boolean(data.canManageOrganisationAssignment)
+	);
 	const allowedEditRoles = $derived((data.allowedEditRoles as Role[] | undefined) ?? ['talent']);
 
 	const roleOptions: Array<{ value: Role; label: string; description: string }> = (
@@ -80,7 +84,7 @@
 	);
 
 	const availableTalentOptions = $derived.by(() => {
-		if (!canEditUsers) return [] as TalentOption[];
+		if (!canManageLinkedTalent) return [] as TalentOption[];
 		const filtered = talents.filter((talent) => !talent.user_id || talent.user_id === user.id);
 		if (!linkedTalentId) return filtered;
 		const selected = talents.find((talent) => talent.id === linkedTalentId);
@@ -415,38 +419,42 @@
 					/>
 				</FormControl>
 
-				<FormControl label="Linked talent" class="gap-2 text-sm">
-					<Select
-						id="linked_talent_id"
-						name="linked_talent_id"
-						bind:value={linkedTalentId}
-						class="bg-input text-foreground"
-					>
-						<option value="">No linked talent</option>
-						{#each availableTalentOptions as talent (talent.id)}
-							<option value={talent.id}>{formatTalentLabel(talent)}</option>
-						{/each}
-					</Select>
-					{#if availableTalentOptions.length === 0 && !linkedTalentId}
-						<p class="text-muted-fg text-xs">
-							No unlinked talents are available right now. Create a talent first.
-						</p>
-					{/if}
-				</FormControl>
+				{#if canManageLinkedTalent}
+					<FormControl label="Linked talent" class="gap-2 text-sm">
+						<Select
+							id="linked_talent_id"
+							name="linked_talent_id"
+							bind:value={linkedTalentId}
+							class="bg-input text-foreground"
+						>
+							<option value="">No linked talent</option>
+							{#each availableTalentOptions as talent (talent.id)}
+								<option value={talent.id}>{formatTalentLabel(talent)}</option>
+							{/each}
+						</Select>
+						{#if availableTalentOptions.length === 0 && !linkedTalentId}
+							<p class="text-muted-fg text-xs">
+								No unlinked talents are available right now. Create a talent first.
+							</p>
+						{/if}
+					</FormControl>
+				{/if}
 
-				<FormControl label="Organisation" class="gap-2 text-sm">
-					<Select
-						id="organisation_id"
-						name="organisation_id"
-						bind:value={organisationId}
-						class="bg-input text-foreground"
-					>
-						<option value="">No organisation</option>
-						{#each organisations as organisation (organisation.id)}
-							<option value={organisation.id}>{organisation.name}</option>
-						{/each}
-					</Select>
-				</FormControl>
+				{#if canManageOrganisationAssignment}
+					<FormControl label="Organisation" class="gap-2 text-sm">
+						<Select
+							id="organisation_id"
+							name="organisation_id"
+							bind:value={organisationId}
+							class="bg-input text-foreground"
+						>
+							<option value="">No organisation</option>
+							{#each organisations as organisation (organisation.id)}
+								<option value={organisation.id}>{organisation.name}</option>
+							{/each}
+						</Select>
+					</FormControl>
+				{/if}
 
 				<FormControl label="Roles" required class="gap-2 text-sm" tag="div">
 					<div class="grid gap-2 sm:grid-cols-2">

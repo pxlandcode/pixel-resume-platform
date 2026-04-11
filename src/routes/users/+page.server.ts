@@ -32,6 +32,9 @@ const getAllowedCreateRoles = (
 	return normalizeRoles(roles);
 };
 
+const canActorEditUsers = (actor: Awaited<ReturnType<typeof getActorAccessContext>>) =>
+	actor.isAdmin || ((actor.isBroker || actor.isEmployer) && Boolean(actor.homeOrganisationId));
+
 const normalizeOptionalUuid = (value: FormDataEntryValue | null) => {
 	if (typeof value !== 'string') return null;
 	const trimmed = value.trim();
@@ -123,7 +126,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	const canCreateUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
 	const canDeleteUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
-	const canEditUsers = actor.isAdmin;
+	const canEditUsers = canActorEditUsers(actor);
+	const canManageLinkedTalent = canActorEditUsers(actor);
+	const canManageOrganisationAssignment = actor.isAdmin;
 	const allowedCreateRoles = getAllowedCreateRoles(actor);
 	const allOrganisationsPromise = actor.isAdmin
 		? adminClient.from('organisations').select('id, name').order('name', { ascending: true })
@@ -306,6 +311,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 			return nameA.localeCompare(nameB);
 		});
 
+	const editableUserIds = actor.isAdmin
+		? users.map((user) => user.id)
+		: actor.homeOrganisationId
+			? users
+					.filter(
+						(user) =>
+							user.organisation_id === actor.homeOrganisationId && !user.roles.includes('admin')
+					)
+					.map((user) => user.id)
+			: [];
+
 	const toOrganisationOptions = (
 		rows: Array<{ id: string; name: string }> | null | undefined
 	): Array<{ id: string; name: string }> =>
@@ -329,6 +345,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		canCreateUsers,
 		canDeleteUsers,
 		canEditUsers,
+		canManageLinkedTalent,
+		canManageOrganisationAssignment,
+		editableUserIds,
 		allowedCreateRoles,
 		organisationOptions,
 		filterOrganisationOptions,
@@ -522,12 +541,109 @@ export const actions: Actions = {
 		}
 
 		const actor = await getActorAccessContext(supabase, adminClient);
-		if (!actor.isAdmin) {
+		if (!actor.userId || (!actor.isAdmin && !actor.isBroker && !actor.isEmployer)) {
 			return fail(403, {
 				type: 'updateUser',
 				ok: false,
-				message: 'Only admins can edit existing users.'
+				message: 'You are not authorized to edit users.'
 			});
+		}
+		if (!actor.isAdmin) {
+			const allowedRoles = new Set(getAllowedCreateRoles(actor));
+			const disallowed = roles.filter((role) => !allowedRoles.has(role));
+			if (disallowed.length > 0) {
+				return fail(403, {
+					type: 'updateUser',
+					ok: false,
+					message: `You can only assign roles: ${Array.from(allowedRoles).join(', ')}.`
+				});
+			}
+			if (!actor.homeOrganisationId) {
+				return fail(403, {
+					type: 'updateUser',
+					ok: false,
+					message: 'You must be linked to an organisation to edit users.'
+				});
+			}
+
+			const { data: targetUserResult, error: targetUserError } =
+				await adminClient.auth.admin.getUserById(userId);
+			if (targetUserError || !targetUserResult.user) {
+				return fail(404, { type: 'updateUser', ok: false, message: 'User not found.' });
+			}
+
+			const targetRoleRowsResult = await adminClient
+				.from('user_roles')
+				.select('roles(key)')
+				.eq('user_id', userId);
+			if (targetRoleRowsResult.error) {
+				return fail(500, {
+					type: 'updateUser',
+					ok: false,
+					message: targetRoleRowsResult.error.message
+				});
+			}
+
+			const targetRolesFromDb = normalizeRolesFromJoinRows(
+				(
+					(targetRoleRowsResult.data as Array<{
+						roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
+					}> | null) ?? []
+				).map((row) => ({ roles: row.roles }))
+			);
+			const targetRolesFromMetadata = normalizeRoles(
+				Array.isArray(targetUserResult.user.app_metadata?.roles)
+					? (targetUserResult.user.app_metadata.roles as string[])
+					: typeof targetUserResult.user.app_metadata?.role === 'string'
+						? [targetUserResult.user.app_metadata.role as string]
+						: []
+			);
+			const targetRoles = normalizeRoles([...targetRolesFromDb, ...targetRolesFromMetadata]);
+			if (targetRoles.includes('admin')) {
+				return fail(403, {
+					type: 'updateUser',
+					ok: false,
+					message: 'Only admins can edit admin users.'
+				});
+			}
+
+			const targetMembershipsResult = await adminClient
+				.from('organisation_users')
+				.select('organisation_id')
+				.eq('user_id', userId);
+			if (targetMembershipsResult.error) {
+				return fail(500, {
+					type: 'updateUser',
+					ok: false,
+					message: targetMembershipsResult.error.message
+				});
+			}
+
+			const targetOrgIds = (
+				(targetMembershipsResult.data as Array<{ organisation_id?: string | null }> | null) ?? []
+			)
+				.map((row) =>
+					typeof row.organisation_id === 'string' && row.organisation_id.length > 0
+						? row.organisation_id
+						: null
+				)
+				.filter((value): value is string => Boolean(value));
+
+			if (!targetOrgIds.includes(actor.homeOrganisationId)) {
+				return fail(403, {
+					type: 'updateUser',
+					ok: false,
+					message: 'You can only edit users in your home organisation.'
+				});
+			}
+
+			if (organisationRaw !== null) {
+				return fail(403, {
+					type: 'updateUser',
+					ok: false,
+					message: 'Only admins can change organisation assignments.'
+				});
+			}
 		}
 
 		const active = activeValue === 'true';
@@ -570,6 +686,32 @@ export const actions: Actions = {
 					ok: false,
 					message: 'Selected talent is already linked to another user.'
 				});
+			}
+			if (!actor.isAdmin) {
+				const { data: talentMembershipRows, error: talentMembershipError } = await adminClient
+					.from('organisation_talents')
+					.select('organisation_id')
+					.eq('talent_id', linkedTalentId);
+
+				if (talentMembershipError) {
+					return fail(500, {
+						type: 'updateUser',
+						ok: false,
+						message: talentMembershipError.message
+					});
+				}
+
+				const belongsToHomeOrganisation = (
+					(talentMembershipRows as Array<{ organisation_id?: string | null }> | null) ?? []
+				).some((row) => row.organisation_id === actor.homeOrganisationId);
+
+				if (!belongsToHomeOrganisation) {
+					return fail(403, {
+						type: 'updateUser',
+						ok: false,
+						message: 'You can only link talents from your home organisation.'
+					});
+				}
 			}
 
 			selectedTalent = data;

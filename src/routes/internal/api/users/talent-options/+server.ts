@@ -42,8 +42,11 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 	if (!adminClient || !actor.userId) {
 		return json({ message: 'Unauthorized.' }, { status: 401 });
 	}
-	if (!actor.isAdmin) {
+	if (!actor.isAdmin && !actor.isBroker && !actor.isEmployer) {
 		return json({ message: 'Forbidden.' }, { status: 403 });
+	}
+	if (!actor.isAdmin && !actor.homeOrganisationId) {
+		return json({ message: 'A home organisation is required.' }, { status: 403 });
 	}
 
 	const cacheKey = actor.userId;
@@ -53,22 +56,63 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 
 	try {
 		if (!entry) {
-			const talentsResult = await adminClient
-				.from('talents')
-				.select('id, user_id, first_name, last_name')
-				.order('last_name', { ascending: true })
-				.order('first_name', { ascending: true });
+			let items: TalentOptionItem[] = [];
 
-			if (talentsResult.error) {
-				throw new Error(talentsResult.error.message);
+			if (actor.isAdmin) {
+				const talentsResult = await adminClient
+					.from('talents')
+					.select('id, user_id, first_name, last_name')
+					.order('last_name', { ascending: true })
+					.order('first_name', { ascending: true });
+
+				if (talentsResult.error) {
+					throw new Error(talentsResult.error.message);
+				}
+
+				items = (talentsResult.data ?? []).map((talent) => ({
+					id: talent.id,
+					user_id: talent.user_id ?? null,
+					first_name: talent.first_name ?? '',
+					last_name: talent.last_name ?? ''
+				}));
+			} else {
+				const talentMembershipsResult = await adminClient
+					.from('organisation_talents')
+					.select('talent_id')
+					.eq('organisation_id', actor.homeOrganisationId ?? '');
+
+				if (talentMembershipsResult.error) {
+					throw new Error(talentMembershipsResult.error.message);
+				}
+
+				const talentIds = Array.from(
+					new Set(
+						((talentMembershipsResult.data as Array<{ talent_id?: string | null }> | null) ?? [])
+							.map((row) => (typeof row.talent_id === 'string' ? row.talent_id : null))
+							.filter((value): value is string => Boolean(value))
+					)
+				);
+
+				if (talentIds.length > 0) {
+					const talentsResult = await adminClient
+						.from('talents')
+						.select('id, user_id, first_name, last_name')
+						.in('id', talentIds)
+						.order('last_name', { ascending: true })
+						.order('first_name', { ascending: true });
+
+					if (talentsResult.error) {
+						throw new Error(talentsResult.error.message);
+					}
+
+					items = (talentsResult.data ?? []).map((talent) => ({
+						id: talent.id,
+						user_id: talent.user_id ?? null,
+						first_name: talent.first_name ?? '',
+						last_name: talent.last_name ?? ''
+					}));
+				}
 			}
-
-			const items: TalentOptionItem[] = (talentsResult.data ?? []).map((talent) => ({
-				id: talent.id,
-				user_id: talent.user_id ?? null,
-				first_name: talent.first_name ?? '',
-				last_name: talent.last_name ?? ''
-			}));
 
 			const generatedAt = new Date().toISOString();
 			const hashInput = JSON.stringify({ items, generatedAt });
