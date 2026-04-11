@@ -55,7 +55,6 @@
 		sv: summarySv ?? '',
 		en: summaryEn ?? ''
 	});
-	const debugLoggingEnabled = import.meta.env.DEV;
 
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 	const normalizeDescription = (value: string) => normalize(value.replace(/<[^>]*>/g, ' '));
@@ -255,12 +254,6 @@
 				resumeContext
 			});
 			hasGeneratedOnce = true;
-			if (debugLoggingEnabled) {
-				console.info('[resume-ai] summary:from-resume', {
-					targetLanguage,
-					descriptionLength: generated.descriptionHtml?.length ?? 0
-				});
-			}
 			setDraftFromAi(targetLanguage, generated.descriptionHtml);
 		} catch (error) {
 			const fallback = 'Could not create summary from resume right now.';

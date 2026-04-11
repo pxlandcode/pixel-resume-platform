@@ -38,23 +38,12 @@
 		onReorder?: (fromIndex: number, toIndex: number) => void;
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
 	} = $props();
-	const debugLoggingEnabled = import.meta.env.DEV;
-	let aiDescriptionRevisionByRow = $state<Record<string, number>>({});
 	let showLibraryPicker = $state(false);
 	let librarySearch = $state('');
 
 	// Collapse state - track which items are expanded
 	let expandedIds = new SvelteSet<string>();
 	let allCollapsed = $state(true);
-
-	const getRowId = (exp: HighlightedExperience, index: number) => exp._id ?? `row-${index}`;
-	const getDescriptionRevision = (rowId: string) => aiDescriptionRevisionByRow[rowId] ?? 0;
-	const bumpDescriptionRevision = (rowId: string) => {
-		aiDescriptionRevisionByRow = {
-			...aiDescriptionRevisionByRow,
-			[rowId]: (aiDescriptionRevisionByRow[rowId] ?? 0) + 1
-		};
-	};
 
 	const toggleExpanded = (id: string) => {
 		if (expandedIds.has(id)) {
@@ -144,19 +133,42 @@
 		return 'Add to library';
 	};
 
+	const mutateExperience = (
+		index: number,
+		mutator: (experience: HighlightedExperience) => void
+	) => {
+		const target = experiences[index];
+		if (!target) return;
+		mutator(target);
+	};
+
+	const patchExperience = (index: number, patch: Partial<HighlightedExperience>) => {
+		mutateExperience(index, (item) => {
+			Object.assign(item, patch);
+		});
+	};
+
+	const setExperienceRole = (index: number, lang: Language, value: string) => {
+		mutateExperience(index, (item) => {
+			item.role = setLocalizedValue(item.role, lang, value);
+		});
+	};
+
+	const setExperienceDescription = (index: number, lang: Language, value: string) => {
+		mutateExperience(index, (item) => {
+			item.description = setLocalizedValue(item.description, lang, value);
+		});
+	};
+
 	const toggleLibrarySelection = (index: number) => {
 		const target = experiences[index];
 		if (!target) return;
 		if (target.libraryId) {
-			experiences = experiences.map((item, itemIndex) =>
-				itemIndex === index ? { ...item, libraryId: null, saveToLibrary: false } : item
-			);
+			patchExperience(index, { libraryId: null, saveToLibrary: false });
 			return;
 		}
 		const nextValue = !Boolean(target.saveToLibrary);
-		experiences = experiences.map((item, itemIndex) =>
-			itemIndex === index ? { ...item, saveToLibrary: nextValue } : item
-		);
+		patchExperience(index, { saveToLibrary: nextValue });
 	};
 </script>
 
@@ -232,7 +244,6 @@
 			{/if}
 			<div class="space-y-3">
 				{#each experiences as exp, index (exp._id ?? index)}
-					{@const rowId = getRowId(exp, index)}
 					<div
 						class="rounded-xs border-border bg-card border transition-all {draggedIndex === index
 							? 'opacity-50'
@@ -359,18 +370,9 @@
 												technologies: [...payload.drafts.technologies]
 											};
 
-											experiences = experiences.map((item, itemIndex) =>
-												itemIndex === index ? nextExp : item
-											);
-											bumpDescriptionRevision(rowId);
-											if (debugLoggingEnabled) {
-												console.info('[resume-ai] apply:highlighted-row', {
-													rowId,
-													language: payload.language,
-													svLength: payload.drafts.descriptionByLanguage.sv?.length ?? 0,
-													enLength: payload.drafts.descriptionByLanguage.en?.length ?? 0
-												});
-											}
+											mutateExperience(index, (item) => {
+												Object.assign(item, nextExp);
+											});
 										}}
 									/>
 								{/if}
@@ -401,7 +403,7 @@
 								<Button
 									variant={exp.hidden ? 'outline' : 'ghost'}
 									size="sm"
-									onclick={() => (exp.hidden = !exp.hidden)}
+									onclick={() => patchExperience(index, { hidden: !exp.hidden })}
 								>
 									{exp.hidden ? 'Show' : 'Hide'}
 								</Button>
@@ -425,7 +427,7 @@
 							<div class="space-y-3 p-4">
 								<FormControl label="Company">
 									<Input
-										bind:value={exp.company}
+										bind:value={() => exp.company, (value) => patchExperience(index, { company: value })}
 										placeholder="Company"
 										class="border-border bg-card text-foreground"
 									/>
@@ -433,18 +435,14 @@
 								<div class="grid grid-cols-2 gap-4">
 									<FormControl label="Role (SV)">
 										<Input
-											value={getLocalizedValue(exp.role, 'sv')}
-											oninput={(e) =>
-												(exp.role = setLocalizedValue(exp.role, 'sv', e.currentTarget.value))}
+											bind:value={() => getLocalizedValue(exp.role, 'sv'), (value) => setExperienceRole(index, 'sv', value)}
 											placeholder="Role (SV)"
 											class="border-border bg-card text-foreground"
 										/>
 									</FormControl>
 									<FormControl label="Role (EN)">
 										<Input
-											value={getLocalizedValue(exp.role, 'en')}
-											oninput={(e) =>
-												(exp.role = setLocalizedValue(exp.role, 'en', e.currentTarget.value))}
+											bind:value={() => getLocalizedValue(exp.role, 'en'), (value) => setExperienceRole(index, 'en', value)}
 											placeholder="Role (EN)"
 											class="border-border bg-card text-foreground"
 										/>
@@ -455,14 +453,11 @@
 										>Description (SV)</label
 									>
 									<div class="rounded-xs border-border bg-card border">
-										{#key `sv-${rowId}-${getDescriptionRevision(rowId)}`}
-											<QuillEditor
-												content={getLocalizedValue(exp.description, 'sv')}
-												placeholder="Description (SV)"
-												onchange={(html) =>
-													(exp.description = setLocalizedValue(exp.description, 'sv', html))}
-											/>
-										{/key}
+										<QuillEditor
+											content={getLocalizedValue(exp.description, 'sv')}
+											placeholder="Description (SV)"
+											onchange={(value) => setExperienceDescription(index, 'sv', value)}
+										/>
 									</div>
 								</div>
 								<div>
@@ -470,14 +465,11 @@
 										>Description (EN)</label
 									>
 									<div class="rounded-xs border-border bg-card border">
-										{#key `en-${rowId}-${getDescriptionRevision(rowId)}`}
-											<QuillEditor
-												content={getLocalizedValue(exp.description, 'en')}
-												placeholder="Description (EN)"
-												onchange={(html) =>
-													(exp.description = setLocalizedValue(exp.description, 'en', html))}
-											/>
-										{/key}
+										<QuillEditor
+											content={getLocalizedValue(exp.description, 'en')}
+											placeholder="Description (EN)"
+											onchange={(value) => setExperienceDescription(index, 'en', value)}
+										/>
 									</div>
 								</div>
 								<div>
@@ -485,9 +477,8 @@
 										>Key Technologies</label
 									>
 									<TechStackSelector
-										bind:value={exp.technologies}
+										bind:value={() => exp.technologies, (value) => patchExperience(index, { technologies: value ?? [] })}
 										{organisationId}
-										onchange={(techs) => (exp.technologies = techs ?? [])}
 									/>
 								</div>
 							</div>

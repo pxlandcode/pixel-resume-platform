@@ -1,14 +1,17 @@
 import type { Cookies } from '@sveltejs/kit';
-import type { SupabaseClient, User } from '@supabase/supabase-js';
+import type { Session, SupabaseClient, User } from '@supabase/supabase-js';
 import {
 	AUTH_COOKIE_NAMES,
 	createSupabaseServerClient,
-	getSupabaseAdminClient
+	getSupabaseAdminClient,
+	refreshAuthSession
 } from '$lib/server/supabase';
 import { getActorAccessContext, type ActorAccessContext } from '$lib/server/access';
 
 export type RequestContext = {
 	accessToken: string | null;
+	refreshToken: string | null;
+	ensureSession: () => Promise<Session | null>;
 	getSupabaseClient: () => SupabaseClient | null;
 	getAdminClient: () => SupabaseClient | null;
 	getAuthenticatedUser: () => Promise<User | null>;
@@ -16,15 +19,48 @@ export type RequestContext = {
 };
 
 export const createRequestContext = (cookies: Cookies): RequestContext => {
-	const accessToken = cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
-
 	let supabaseClient: SupabaseClient | null | undefined;
+	let supabaseClientAccessToken: string | null | undefined;
 	let adminClient: SupabaseClient | null | undefined;
 	let authenticatedUserPromise: Promise<User | null> | null = null;
 	let actorContextPromise: Promise<ActorAccessContext> | null = null;
+	let sessionPromise: Promise<Session | null> | null = null;
+
+	const getAccessToken = () => cookies.get(AUTH_COOKIE_NAMES.access) ?? null;
+	const getRefreshToken = () => cookies.get(AUTH_COOKIE_NAMES.refresh) ?? null;
+
+	const resetAuthCaches = () => {
+		supabaseClient = undefined;
+		supabaseClientAccessToken = undefined;
+		authenticatedUserPromise = null;
+		actorContextPromise = null;
+	};
+
+	const ensureSession = async () => {
+		const existingAccessToken = getAccessToken();
+		if (existingAccessToken) return null;
+		if (!getRefreshToken()) return null;
+		if (sessionPromise) return sessionPromise;
+
+		sessionPromise = (async () => {
+			const session = await refreshAuthSession(cookies);
+			resetAuthCaches();
+			return session;
+		})();
+
+		try {
+			return await sessionPromise;
+		} finally {
+			sessionPromise = null;
+		}
+	};
 
 	const getSupabaseClient = () => {
-		if (supabaseClient !== undefined) return supabaseClient;
+		const accessToken = getAccessToken();
+		if (supabaseClient !== undefined && supabaseClientAccessToken === accessToken) {
+			return supabaseClient;
+		}
+		supabaseClientAccessToken = accessToken;
 		supabaseClient = createSupabaseServerClient(accessToken);
 		return supabaseClient;
 	};
@@ -38,10 +74,23 @@ export const createRequestContext = (cookies: Cookies): RequestContext => {
 	const getAuthenticatedUser = () => {
 		if (authenticatedUserPromise) return authenticatedUserPromise;
 		authenticatedUserPromise = (async () => {
-			const supabase = getSupabaseClient();
+			await ensureSession();
+
+			let supabase = getSupabaseClient();
 			if (!supabase) return null;
 
-			const { data, error } = await supabase.auth.getUser();
+			let { data, error } = await supabase.auth.getUser();
+			if (!error && data.user) return data.user;
+			if (!getRefreshToken()) return null;
+
+			const refreshedSession = await refreshAuthSession(cookies);
+			if (!refreshedSession) return null;
+
+			resetAuthCaches();
+			supabase = getSupabaseClient();
+			if (!supabase) return null;
+
+			({ data, error } = await supabase.auth.getUser());
 			if (error || !data.user) return null;
 			return data.user;
 		})();
@@ -62,7 +111,13 @@ export const createRequestContext = (cookies: Cookies): RequestContext => {
 	};
 
 	return {
-		accessToken,
+		get accessToken() {
+			return getAccessToken();
+		},
+		get refreshToken() {
+			return getRefreshToken();
+		},
+		ensureSession,
 		getSupabaseClient,
 		getAdminClient,
 		getAuthenticatedUser,

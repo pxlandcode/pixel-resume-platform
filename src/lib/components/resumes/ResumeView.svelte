@@ -7,6 +7,7 @@
 		LocalizedText,
 		ExperienceLibraryItem
 	} from '$lib/types/resume';
+	import { cloneResumeDataValue, cloneTechCategoriesValue } from '$lib/resumes/clone';
 	import { soloImages } from '$lib/images/manifest';
 	import worldclassUrl from '$lib/assets/worldclass.svg?url';
 
@@ -49,9 +50,11 @@
 		templateHomepageUrl = null,
 		templateMainFontCssStack = "'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
 		templateIsPixelCode = false,
+		editingDataSeed = null,
+		editingDataSeedKey = 0,
 		experienceLibrary = [],
 		onGenerateDescription,
-		onEditedDataChange
+		registerEditingDataGetter
 	}: {
 		data: ResumeData;
 		image?: ImageResource | string | null;
@@ -68,13 +71,15 @@
 		templateHomepageUrl?: string | null;
 		templateMainFontCssStack?: string;
 		templateIsPixelCode?: boolean;
+		editingDataSeed?: ResumeData | null;
+		editingDataSeedKey?: number;
 		experienceLibrary?: ExperienceLibraryItem[];
 		onGenerateDescription?: (params: ResumeAiGenerateParams) => Promise<ResumeAiGenerateResult>;
-		onEditedDataChange?: (data: ResumeData) => void;
+		registerEditingDataGetter?: ((getter: () => ResumeData) => void) | null;
 	} = $props();
 
 	// eslint-disable-next-line svelte/prefer-writable-derived
-	let profileCategories = $state(structuredClone(profileTechStack ?? person?.techStack ?? []));
+	let profileCategories = $state(cloneTechCategoriesValue(profileTechStack ?? person?.techStack));
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 	const serializeLocalizedText = (value: LocalizedText | null | undefined): string => {
 		if (!value) return '';
@@ -132,7 +137,7 @@
 			_id: item._id ?? buildHighlightedExperienceId(item, index)
 		}));
 	const cloneResumeData = (source: ResumeData): ResumeData => {
-		const cloned = structuredClone(source);
+		const cloned = cloneResumeDataValue(source);
 		cloned.experiences = ensureExperienceIds(cloned.experiences);
 		cloned.highlightedExperiences = ensureHighlightedExperienceIds(cloned.highlightedExperiences);
 		return cloned;
@@ -165,27 +170,45 @@
 	);
 
 	$effect(() => {
-		profileCategories = structuredClone(profileTechStack ?? person?.techStack ?? []);
+		profileCategories = cloneTechCategoriesValue(profileTechStack ?? person?.techStack);
 	});
 
 	// Local editing state
 	let editingData = $state<ResumeData>(cloneResumeData(data));
+	let appliedEditingSeedKey: number | null = null;
 
 	// Sync prop changes to local state with stable internal IDs
 	$effect(() => {
 		if (!isEditing) {
 			editingData = cloneResumeData(data);
+			appliedEditingSeedKey = null;
 		}
 	});
 
 	$effect(() => {
-		editingData.name = displayName;
-		editingData.techniques = profileCategories.flatMap((cat) => cat.skills ?? []);
-		editingData.methods = [];
+		if (!isEditing || !editingDataSeed || editingDataSeedKey === appliedEditingSeedKey) return;
+		editingData = cloneResumeData(editingDataSeed);
+		appliedEditingSeedKey = editingDataSeedKey;
 	});
 
+	const buildEmittedEditingData = (): ResumeData => {
+		const snapshot = $state.snapshot(editingData);
+		return {
+			...snapshot,
+			name: displayName,
+			techniques: profileCategories.flatMap((cat) => cat.skills ?? []),
+			methods: []
+		};
+	};
+
+	const getEditingDataSnapshot = (): ResumeData => {
+		const snapshot = buildEmittedEditingData();
+		return snapshot;
+	};
+
 	$effect(() => {
-		onEditedDataChange?.($state.snapshot(editingData));
+		if (!registerEditingDataGetter) return;
+		registerEditingDataGetter(getEditingDataSnapshot);
 	});
 
 	const componentLanguage = $derived<Language>(isEditing ? 'en' : language);
@@ -475,7 +498,8 @@
 			lines.push(...profileCategoryLines);
 		}
 
-		const techniques = (editingData.techniques ?? [])
+		const techniques = profileCategories
+			.flatMap((category) => category.skills ?? [])
 			.map((skill) => normalize(skill))
 			.filter(Boolean);
 		if (techniques.length > 0) {
@@ -483,7 +507,7 @@
 			lines.push(`Flattened techniques list: ${techniques.slice(0, 80).join(', ')}`);
 		}
 
-		const methods = (editingData.methods ?? []).map((skill) => normalize(skill)).filter(Boolean);
+		const methods: string[] = [];
 		if (methods.length > 0) {
 			for (const method of methods.slice(0, 80)) addSignal(method, 'profile', 2);
 			lines.push(`Methods list: ${methods.slice(0, 60).join(', ')}`);
