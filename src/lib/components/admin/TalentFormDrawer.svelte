@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button, FormControl, Input } from '@pixelcode_/blocks/components';
+	import { Dropdown, type DropdownOption } from '$lib/components/dropdown';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import {
 		applyImageFallbackOnce,
@@ -10,9 +11,34 @@
 	} from '$lib/images/supabaseImage';
 
 	let { open = $bindable(false) } = $props();
+	type LawfulBasisType = 'consent_obtained' | 'contract' | 'legitimate_interest' | 'other';
+
+	const lawfulBasisOptions = [
+		{ label: 'Consent obtained', value: 'consent_obtained' },
+		{ label: 'Contract', value: 'contract' },
+		{ label: 'Legitimate interest', value: 'legitimate_interest' },
+		{ label: 'Other', value: 'other' }
+	] satisfies DropdownOption<LawfulBasisType>[];
+
+	const lawfulBasisDescriptions: Record<LawfulBasisType, string> = {
+		consent_obtained:
+			'The person has clearly agreed to this specific use of their profile data and can withdraw that consent later.',
+		contract:
+			'The profile is genuinely necessary to prepare, enter into, or perform an agreement with the person.',
+		legitimate_interest:
+			"The organisation has a documented business need for the profile, and that need does not override the person's rights and expectations.",
+		other:
+			'Use this only when relying on another lawful basis and record the basis and reference details below.'
+	};
+
 	let avatarUrl = $state('');
 	let avatarUploadError = $state<string | null>(null);
 	let avatarUploading = $state(false);
+	let lawfulBasisType = $state<LawfulBasisType | ''>('');
+	let lawfulBasisError = $state('');
+	const selectedLawfulBasisDescription = $derived(
+		lawfulBasisType ? lawfulBasisDescriptions[lawfulBasisType] : ''
+	);
 	const avatarPreviewSrc = (url: string | null | undefined) =>
 		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
 	const avatarPreviewSrcSet = (url: string | null | undefined) =>
@@ -28,8 +54,25 @@
 			avatarUrl = '';
 			avatarUploadError = null;
 			avatarUploading = false;
+			lawfulBasisType = '';
+			lawfulBasisError = '';
 		}
 	});
+
+	const handleLawfulBasisChange = (value: string) => {
+		lawfulBasisType = value in lawfulBasisDescriptions ? (value as LawfulBasisType) : '';
+		lawfulBasisError = '';
+	};
+
+	const handleSubmit = (event: SubmitEvent) => {
+		if (lawfulBasisType) {
+			lawfulBasisError = '';
+			return;
+		}
+
+		event.preventDefault();
+		lawfulBasisError = 'Select the lawful basis used for this profile.';
+	};
 
 	const handleAvatarUpload = async (
 		event: Event & { currentTarget: EventTarget & HTMLInputElement }
@@ -87,7 +130,12 @@
 	class="mr-0 w-full max-w-2xl"
 	dismissable
 >
-	<form method="POST" action="?/createTalent" class="flex flex-col gap-5 overflow-y-auto pb-16">
+	<form
+		method="POST"
+		action="?/createTalent"
+		class="flex flex-col gap-5 overflow-y-auto pb-16"
+		onsubmit={handleSubmit}
+	>
 		<input type="hidden" name="avatar_url" value={avatarUrl} />
 
 		<div class="grid gap-4 sm:grid-cols-2">
@@ -121,22 +169,24 @@
 		<div class="border-border bg-card rounded-lg border p-4">
 			<p class="text-foreground text-sm font-semibold">Employer lawful basis</p>
 			<p class="text-muted-fg mt-1 text-xs">
-				Required when creating a talent profile without a linked user account.
+				Required when creating a talent profile without a linked user account. Choose the lawful
+				basis your organisation has already validated for storing this person's profile data.
 			</p>
 
 			<div class="mt-3 grid gap-4">
 				<FormControl label="Lawful basis type" class="gap-2 text-sm">
-					<select
+					<Dropdown
 						id="lawful_basis_type"
 						name="lawful_basis_type"
-						required
-						class="border-border bg-input text-foreground h-10 rounded border px-3 text-sm"
-					>
-						<option value="consent_obtained">Consent obtained</option>
-						<option value="contract">Contract</option>
-						<option value="legitimate_interest">Legitimate interest</option>
-						<option value="other">Other</option>
-					</select>
+						bind:value={lawfulBasisType}
+						options={lawfulBasisOptions}
+						placeholder="Choose lawful basis"
+						error={lawfulBasisError}
+						onchange={handleLawfulBasisChange}
+					/>
+					{#if selectedLawfulBasisDescription}
+						<p class="text-muted-fg text-xs">{selectedLawfulBasisDescription}</p>
+					{/if}
 				</FormControl>
 
 				<FormControl label="Details (optional)" class="gap-2 text-sm" tag="div">
@@ -145,7 +195,7 @@
 						name="lawful_basis_details"
 						rows="3"
 						class="border-border bg-input text-foreground w-full rounded border p-3 text-sm"
-						placeholder="Add context or reference details"
+						placeholder="Add why this basis applies, plus any ticket, policy, or reference details"
 					></textarea>
 				</FormControl>
 
