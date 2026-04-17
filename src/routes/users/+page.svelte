@@ -105,6 +105,13 @@
 	const canCreateUsers = $derived(Boolean(data.canCreateUsers));
 	const canDeleteUsers = $derived(Boolean(data.canDeleteUsers));
 	const canEditUsers = $derived(Boolean(data.canEditUsers));
+	const canManageLinkedTalent = $derived(Boolean(data.canManageLinkedTalent));
+	const canManageOrganisationAssignment = $derived(
+		Boolean(data.canManageOrganisationAssignment)
+	);
+	const editableUserIds = $derived(
+		new Set(((data.editableUserIds as string[] | undefined) ?? []).filter(Boolean))
+	);
 	const currentUserId = $derived(
 		typeof data.currentUserId === 'string' && data.currentUserId.length > 0
 			? data.currentUserId
@@ -209,7 +216,7 @@
 	};
 
 	const loadTalentOptions = async () => {
-		if (!canEditUsers) return;
+		if (!canManageLinkedTalent) return;
 		if (talentOptionsStatus === 'loading') return;
 		if (talentOptionsStatus === 'ready' && talentOptions.length > 0) return;
 
@@ -284,6 +291,8 @@
 
 	const canDeleteRow = (user: { id: string } | null | undefined) =>
 		Boolean(canDeleteUsers && user?.id && user.id !== currentUserId);
+	const canEditUser = (user: { id: string } | null | undefined) =>
+		Boolean(canEditUsers && user?.id && editableUserIds.has(user.id));
 
 	const handleDeleteUserById = async (userId: string) => {
 		const user = users.find((candidate) => candidate.id === userId);
@@ -350,6 +359,7 @@
 	};
 
 	const openEditUserModal = (user: LoadUser) => {
+		if (!canEditUser(user)) return;
 		feedback = null;
 		editMode = 'edit';
 		editUser = toEditableUser(user);
@@ -367,7 +377,7 @@
 	});
 
 	$effect(() => {
-		if (!isModalOpen || !canEditUsers) return;
+		if (!isModalOpen || !canManageLinkedTalent) return;
 		void loadTalentOptions();
 	});
 
@@ -796,7 +806,7 @@
 									</p>
 								</div>
 
-								{#if canEditUsers}
+								{#if canEditUser(row.source)}
 									<Button
 										variant="outline"
 										size="sm"
@@ -866,7 +876,7 @@
 						{/if}
 					</Cell.Value>
 					<Cell.Value width={6} class="mobile-action-cell">
-						{#if canEditUsers}
+						{#if canEditUser(row.source)}
 							<div class="flex justify-end gap-2 pl-2">
 								<Button
 									variant="outline"
@@ -898,6 +908,8 @@
 	{organisationOptions}
 	allowedRoles={allowedCreateRoles}
 	{canEditUsers}
+	{canManageLinkedTalent}
+	{canManageOrganisationAssignment}
 	initial={editUser ?? undefined}
 	canDelete={Boolean(editUser && canDeleteRow(editUser))}
 	on:success={handleUserSaved}
@@ -971,7 +983,7 @@
 				</div>
 			</div>
 
-			{#if canEditUsers}
+			{#if canEditUser(selectedUserForDetail?.source)}
 				<div class="border-border border-t pt-4">
 					<div class="flex gap-2">
 						<Button

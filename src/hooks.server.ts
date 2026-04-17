@@ -19,6 +19,11 @@ import type { AppRole } from '$lib/server/access';
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.requestContext = createRequestContext(event.cookies);
 	const requestContext = event.locals.requestContext;
+
+	if (!event.url.pathname.startsWith('/auth/')) {
+		await requestContext.ensureSession();
+	}
+
 	const policyPathname = normalizePolicyPathname(event.url.pathname);
 
 	if (!isManagedAppPath(policyPathname)) {

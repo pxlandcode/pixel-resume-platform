@@ -12,19 +12,6 @@ export const menuNavSections: MenuNavSection[] = [
 				allowed: ['admin', 'broker', 'talent', 'employer'],
 				match: 'exact',
 				icon: House
-			}
-		]
-	},
-	{
-		id: 'talent',
-		label: 'Talent',
-		items: [
-			{
-				label: 'Talents',
-				href: '/talents',
-				allowed: ['admin', 'broker', 'employer', 'talent'],
-				match: 'prefix',
-				icon: Briefcase
 			},
 			{
 				label: 'Resumes',
@@ -45,6 +32,13 @@ export const menuNavSections: MenuNavSection[] = [
 				allowed: ['admin', 'broker', 'employer'],
 				match: 'prefix',
 				icon: Users
+			},
+			{
+				label: 'Talents',
+				href: '/talents',
+				allowed: ['admin', 'broker', 'employer', 'talent'],
+				match: 'prefix',
+				icon: Briefcase
 			},
 			{
 				label: 'Organisations',

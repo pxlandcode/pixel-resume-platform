@@ -1,12 +1,16 @@
 <script lang="ts">
 	import { deserialize } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import { Button, Card, Toaster, toast } from '@pixelcode_/blocks/components';
-	import { ArrowLeft, Download, Edit, Save, Share2, X } from 'lucide-svelte';
+	import { AlertCircle, ArrowLeft, Download, Edit, RotateCcw, Save, Share2, X } from 'lucide-svelte';
 	import ResumeView from '$lib/components/resumes/ResumeView.svelte';
 	import ResumeShareDrawer from '$lib/components/resumes/ResumeShareDrawer.svelte';
+	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { confirm } from '$lib/utils/confirm';
 	import { fly } from 'svelte/transition';
 	import { invalidateAll } from '$app/navigation';
+	import { page } from '$app/stores';
+	import { browser } from '$app/environment';
 	import { loading } from '$lib/stores/loading';
 	import { resumeDownloadStore } from '$lib/stores/resumeDownloadStore';
 	import { onMount } from 'svelte';
@@ -14,7 +18,15 @@
 		DEFAULT_ORGANISATION_BRANDING_THEME,
 		organisationBrandingThemeToInlineStyle
 	} from '$lib/branding/theme';
-	import type { ExperienceLibraryItem } from '$lib/types/resume';
+	import type { ExperienceLibraryItem, ResumeData } from '$lib/types/resume';
+	import {
+		type ResumeDraftRecord,
+		clearResumeDraft,
+		normalizeResumeDraftData,
+		readResumeDraft,
+		writeResumeDraft
+	} from '$lib/resumes/drafts';
+	import { cloneResumeDataValue } from '$lib/resumes/clone';
 	import type {
 		ResumeAiGenerateParams,
 		ResumeAiGenerateResult
@@ -37,8 +49,23 @@
 	let experienceLibrary = $state<ExperienceLibraryItem[]>(data.experienceLibrary ?? []);
 	let experienceLibraryLoaded = $state(Boolean(data.experienceLibraryLoaded));
 	let loadingExperienceLibrary = $state(false);
-	let previousResumeId = $state<string | null>(null);
-	let editedResumeData = $state(structuredClone(data.resume.data));
+	let previousResumeId: string | null = null;
+	let latestEditedResumeData: ResumeData = structuredClone(data.resume.data);
+	let resumeViewEditingDataGetter: (() => ResumeData) | null = null;
+	let resumeEditorSeed = $state<typeof data.resume.data | null>(null);
+	let draftRestoreHandledForResumeId: string | null = null;
+	let editingDataSeedKey = $state(0);
+	let lastPersistedDraftSignature: string | null = null;
+	type DraftRestorePromptState = {
+		draft: ResumeDraftRecord;
+		savedAtLabel: string | null;
+		sourceChanged: boolean;
+	};
+	let draftRestorePrompt = $state<DraftRestorePromptState | null>(null);
+	let draftRestoreDrawerOpen = $state(false);
+	const registerEditingDataGetter = (getter: () => ResumeData) => {
+		resumeViewEditingDataGetter = getter;
+	};
 
 	$effect(() => {
 		const nextResumeId = data.resume.id;
@@ -56,7 +83,13 @@
 		experienceLibrary = data.experienceLibrary ?? [];
 		experienceLibraryLoaded = Boolean(data.experienceLibraryLoaded);
 		loadingExperienceLibrary = false;
-		editedResumeData = structuredClone(data.resume.data);
+		latestEditedResumeData = structuredClone(data.resume.data);
+		resumeEditorSeed = null;
+		draftRestoreHandledForResumeId = null;
+		editingDataSeedKey = 0;
+		lastPersistedDraftSignature = null;
+		draftRestorePrompt = null;
+		draftRestoreDrawerOpen = false;
 	});
 
 	$effect(() => {
@@ -65,7 +98,17 @@
 		}
 	});
 
+	const navigationOrigin = $derived.by<'resumes' | 'talents'>(() =>
+		$page.url.searchParams.get('from') === 'talents' ? 'talents' : 'resumes'
+	);
 	const personName = $derived(data.resumePerson?.name ?? 'Resume');
+	const talentProfileHref = $derived.by(() => {
+		const target = resolve('/resumes/[personId]', { personId: data.resume.personId });
+		return navigationOrigin === 'talents' ? `${target}?from=talents` : target;
+	});
+	const authenticatedUserId = $derived(
+		typeof $page.data.user?.id === 'string' ? $page.data.user.id : null
+	);
 	const avatarImage = $derived(data.avatarUrl ?? data.resumePerson?.avatar_url ?? null);
 	const resumeTemplateBrandingStyle = $derived.by(() => {
 		const theme = data.templateContext?.brandingTheme ?? DEFAULT_ORGANISATION_BRANDING_THEME;
@@ -80,6 +123,63 @@
 		const kind = downloadLanguage === 'sv' ? 'CV' : 'Resume';
 		return `${name} - Pixel&Code - ${kind}`;
 	});
+	const serializeDraft = (value: ResumeData) => JSON.stringify(normalizeResumeDraftData(value));
+	const savedResumeSignature = $derived(serializeDraft(data.resume.data));
+	const clearCurrentDraft = () => clearResumeDraft(data.resume.id, authenticatedUserId);
+	const getCurrentEditedResumeData = (): ResumeData => {
+		const snapshot = resumeViewEditingDataGetter?.();
+		if (snapshot) {
+			latestEditedResumeData = snapshot;
+		}
+		return latestEditedResumeData;
+	};
+	const closeDraftRestoreDrawer = () => {
+		draftRestoreDrawerOpen = false;
+		draftRestorePrompt = null;
+	};
+	const discardStoredDraft = () => {
+		clearCurrentDraft();
+		closeDraftRestoreDrawer();
+	};
+	const restoreStoredDraft = () => {
+		if (!draftRestorePrompt) return;
+		const restoredDraft = cloneResumeDataValue(draftRestorePrompt.draft.data);
+		latestEditedResumeData = restoredDraft;
+		resumeEditorSeed = restoredDraft;
+		editingDataSeedKey += 1;
+		lastPersistedDraftSignature = serializeDraft(restoredDraft);
+		isEditing = true;
+		errorMessage = null;
+		closeDraftRestoreDrawer();
+		if (typeof toast.success === 'function') {
+			toast.success('Restored unsaved resume draft.');
+		} else {
+			toast('Restored unsaved resume draft.');
+		}
+	};
+	const persistCurrentDraft = () => {
+		if (!canEdit || !isEditing) {
+			clearCurrentDraft();
+			lastPersistedDraftSignature = null;
+			return;
+		}
+
+		const currentEditedResumeData = getCurrentEditedResumeData();
+		const currentSignature = serializeDraft(currentEditedResumeData);
+		if (currentSignature === savedResumeSignature) {
+			clearCurrentDraft();
+			lastPersistedDraftSignature = currentSignature;
+			return;
+		}
+
+		writeResumeDraft(
+			data.resume.id,
+			authenticatedUserId,
+			currentEditedResumeData,
+			data.resume.updatedAt ?? null
+		);
+		lastPersistedDraftSignature = currentSignature;
+	};
 
 	const getErrorMessage = (payload: unknown, fallback: string) => {
 		if (!payload || typeof payload !== 'object') return fallback;
@@ -263,13 +363,98 @@
 		void loadExperienceLibrary();
 	});
 
+	$effect(() => {
+		if (!browser || !canEdit) return;
+		const resumeId = data.resume.id;
+		if (!resumeId || draftRestoreHandledForResumeId === resumeId) return;
+
+		draftRestoreHandledForResumeId = resumeId;
+
+		const draft = readResumeDraft(resumeId, authenticatedUserId);
+		if (!draft) return;
+
+		const draftSignature = serializeDraft(draft.data);
+		if (draftSignature === savedResumeSignature) {
+			clearCurrentDraft();
+			return;
+		}
+
+		const savedAtLabel = draft.savedAt ? new Date(draft.savedAt).toLocaleString() : null;
+		const sourceChanged =
+			draft.sourceUpdatedAt !== null && draft.sourceUpdatedAt !== (data.resume.updatedAt ?? null);
+		draftRestorePrompt = {
+			draft,
+			savedAtLabel,
+			sourceChanged
+		};
+		draftRestoreDrawerOpen = true;
+	});
+
+	$effect(() => {
+		if (!browser || !canEdit) return;
+		const resumeId = data.resume.id;
+		const userId = authenticatedUserId;
+		const isRestorePending =
+			draftRestoreHandledForResumeId !== resumeId || draftRestorePrompt !== null;
+
+		if (!resumeId) return;
+		if (!isEditing) {
+			if (!isRestorePending) {
+				clearResumeDraft(resumeId, userId);
+			}
+			lastPersistedDraftSignature = null;
+			return;
+		}
+
+		const intervalId = window.setInterval(() => {
+			const currentEditedResumeData = getCurrentEditedResumeData();
+			const currentSignature = serializeDraft(currentEditedResumeData);
+			const dirty = currentSignature !== savedResumeSignature;
+
+			if (!dirty) {
+				if (!isRestorePending) {
+					clearResumeDraft(resumeId, userId);
+				}
+				lastPersistedDraftSignature = currentSignature;
+				return;
+			}
+
+			if (currentSignature === lastPersistedDraftSignature) {
+				return;
+			}
+
+			writeResumeDraft(resumeId, userId, currentEditedResumeData, data.resume.updatedAt ?? null);
+			lastPersistedDraftSignature = currentSignature;
+		}, 700);
+
+		return () => {
+			window.clearInterval(intervalId);
+		};
+	});
+
 	onMount(() => {
 		toasterHydrated = true;
 	});
 
+	const seedEditorFromSavedResume = () => {
+		const savedResume = cloneResumeDataValue(data.resume.data);
+		latestEditedResumeData = savedResume;
+		resumeEditorSeed = savedResume;
+		editingDataSeedKey += 1;
+		errorMessage = null;
+	};
+
+	const startEditing = () => {
+		if (!canEdit) return;
+		seedEditorFromSavedResume();
+		isEditing = true;
+	};
+
 	const discardEditing = () => {
 		if (!canEdit) return;
-		window.location.reload();
+		clearCurrentDraft();
+		seedEditorFromSavedResume();
+		isEditing = false;
 	};
 
 	const handleSave = async () => {
@@ -278,8 +463,11 @@
 		errorMessage = null;
 		loading(true, 'Saving resume...');
 		try {
+			const currentEditedResumeData = getCurrentEditedResumeData();
+			latestEditedResumeData = currentEditedResumeData;
+			persistCurrentDraft();
 			const formData = new FormData();
-			formData.set('content', JSON.stringify(editedResumeData));
+			formData.set('content', JSON.stringify(currentEditedResumeData));
 			const response = await fetch('?/saveResume', {
 				method: 'POST',
 				body: formData
@@ -293,6 +481,7 @@
 				throw new Error(result.message);
 			}
 			isEditing = false;
+			clearCurrentDraft();
 			if (typeof toast.success === 'function') {
 				toast.success('Resume saved!');
 			} else {
@@ -311,10 +500,6 @@
 			saving = false;
 			loading(false);
 		}
-	};
-
-	const handleEditedDataChange = (nextData: typeof editedResumeData) => {
-		editedResumeData = nextData;
 	};
 
 	const downloadFile = async (type: 'pdf' | 'word') => {
@@ -422,9 +607,13 @@
 
 <div class="flex items-center justify-between">
 	<div>
-		<Button variant="ghost" href="/resumes" class=" hover:text-primary pl-0 hover:bg-transparent">
+		<Button
+			variant="ghost"
+			href={talentProfileHref}
+			class=" hover:text-primary pl-0 hover:bg-transparent"
+		>
 			<ArrowLeft size={16} class="mr-2" />
-			Back to resumes
+			Back to talent profile
 		</Button>
 
 		{#if errorMessage}
@@ -543,9 +732,7 @@
 				<Button
 					variant="primary"
 					left={Edit}
-					onclick={() => {
-						isEditing = true;
-					}}
+					onclick={startEditing}
 				>
 					Edit
 				</Button>
@@ -570,13 +757,80 @@
 				templateHomepageUrl={data.templateContext?.homepageUrl}
 				templateMainFontCssStack={data.templateContext?.mainFontCssStack}
 				templateIsPixelCode={data.templateContext?.isPixelCode}
+				editingDataSeed={resumeEditorSeed}
+				{editingDataSeedKey}
 				{experienceLibrary}
 				onGenerateDescription={generateDescription}
-				onEditedDataChange={handleEditedDataChange}
+				{registerEditingDataGetter}
 				{isEditing}
 			/>
 		</div>
 	</Card>
 </div>
+
+<Drawer
+	variant="modal"
+	bind:open={draftRestoreDrawerOpen}
+	title="Unsaved draft found"
+	subtitle="A local copy of this resume was saved on this device."
+	class="w-full max-w-xl"
+	dismissable={false}
+	beforeClose={() => false}
+>
+	<div class="space-y-5">
+		<div class="border-border bg-card rounded-sm border px-5 py-5 shadow-sm">
+			<div class="flex items-start gap-4">
+				<div class="bg-primary/10 text-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-full">
+					<RotateCcw size={18} />
+				</div>
+				<div class="min-w-0 flex-1 space-y-2">
+					<div class="flex flex-wrap items-center gap-2">
+						<p class="text-foreground text-base font-semibold">Restore local draft</p>
+						{#if draftRestorePrompt?.savedAtLabel}
+							<span
+								class="border-border bg-background text-muted-fg rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em]"
+							>
+								{draftRestorePrompt.savedAtLabel}
+							</span>
+						{/if}
+					</div>
+					<p class="text-muted-fg text-sm leading-6">
+						Restore the unsaved local draft to continue where you left off, or discard it and
+						keep the current saved resume.
+					</p>
+				</div>
+			</div>
+		</div>
+
+		{#if draftRestorePrompt?.sourceChanged}
+			<div class="rounded-sm border border-amber-200 bg-amber-50 px-4 py-3">
+				<div class="flex items-start gap-3">
+					<AlertCircle size={18} class="mt-0.5 shrink-0 text-amber-700" />
+					<div class="space-y-1">
+						<p class="text-sm font-semibold text-amber-900">Saved resume changed</p>
+						<p class="text-sm leading-6 text-amber-800">
+							This draft was created from an older saved version. Restoring it may overwrite
+							newer saved changes when you save next time.
+						</p>
+					</div>
+				</div>
+			</div>
+		{/if}
+
+		<div class="flex flex-wrap justify-end gap-3">
+			<Button
+				type="button"
+				variant="outline"
+				class="border-rose-200 text-rose-700 hover:bg-rose-50"
+				onclick={discardStoredDraft}
+			>
+				Discard local draft
+			</Button>
+			<Button type="button" variant="primary" onclick={restoreStoredDraft}>
+				Restore draft
+			</Button>
+		</div>
+	</div>
+</Drawer>
 
 <ResumeShareDrawer bind:open={shareDrawerOpen} resumeId={data.resume.id} />

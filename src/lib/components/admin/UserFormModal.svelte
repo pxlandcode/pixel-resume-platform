@@ -3,7 +3,8 @@
 </script>
 
 <script lang="ts">
-	import { Alert, Button, FormControl, Input, Select } from '@pixelcode_/blocks/components';
+	import { Alert, Button, FormControl, Input } from '@pixelcode_/blocks/components';
+	import { Dropdown, type DropdownOption } from '$lib/components/dropdown';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { createEventDispatcher, onDestroy, tick } from 'svelte';
 	import Uppy from '@uppy/core';
@@ -68,6 +69,8 @@
 		organisationOptions = $bindable<OrganisationOption[]>([]),
 		allowedRoles = $bindable<UserRole[]>(['admin', 'broker', 'talent', 'employer']),
 		canEditUsers = $bindable(true),
+		canManageLinkedTalent = $bindable(true),
+		canManageOrganisationAssignment = $bindable(true),
 		canDelete = $bindable(false),
 		initial = $bindable<InitialUser>({
 			id: '',
@@ -119,7 +122,7 @@
 		});
 	const previewImageFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
 	const availableTalentOptions = $derived.by(() => {
-		if (!canEditUsers) return [] as TalentOption[];
+		if (!canManageLinkedTalent) return [] as TalentOption[];
 
 		const filtered = talentOptions.filter(
 			(talent) => !talent.user_id || talent.user_id === initial.id
@@ -150,6 +153,20 @@
 			)
 			.sort((a, b) => a.name.localeCompare(b.name))
 	);
+	const linkedTalentDropdownOptions = $derived<DropdownOption<string>[]>([
+		{ label: 'No linked talent', value: '' },
+		...availableTalentOptions.map((talent) => ({
+			label: formatTalentLabel(talent),
+			value: talent.id
+		}))
+	]);
+	const organisationDropdownOptions = $derived<DropdownOption<string>[]>([
+		{ label: 'No organisation', value: '' },
+		...availableOrganisationOptions.map((organisation) => ({
+			label: organisation.name,
+			value: organisation.id
+		}))
+	]);
 
 	const allowedRoleSet = $derived(new Set(allowedRoles));
 	const visibleRoleOptions = $derived(
@@ -403,8 +420,10 @@
 		formData.delete('roles');
 		selectedRoles.forEach((role) => formData.append('roles', role));
 		formData.set('avatar_url', avatarUrl);
-		if (canEditUsers) {
+		if (canManageLinkedTalent) {
 			formData.set('linked_talent_id', linkedTalentId);
+		}
+		if (canManageOrganisationAssignment) {
 			formData.set('organisation_id', organisationId);
 		}
 
@@ -418,8 +437,8 @@
 						...payload,
 						roles: selectedRoles,
 						avatar_url: avatarUrl,
-						linked_talent_id: canEditUsers ? linkedTalentId : undefined,
-						organisation_id: canEditUsers ? organisationId : undefined
+						linked_talent_id: canManageLinkedTalent ? linkedTalentId : undefined,
+						organisation_id: canManageOrganisationAssignment ? organisationId : undefined
 					})
 				});
 
@@ -505,23 +524,20 @@
 			/>
 		</FormControl>
 
-		{#if canEditUsers}
+		{#if canManageLinkedTalent}
 			<FormControl
 				label="Linked talent"
 				class="gap-2 text-sm"
 				bl="Link this user to one talent profile. Unlinked talents are available."
 			>
-				<Select
+				<Dropdown
 					id="linked_talent_id"
 					name="linked_talent_id"
 					bind:value={linkedTalentId}
-					class="bg-input text-foreground"
-				>
-					<option value="">No linked talent</option>
-					{#each availableTalentOptions as talent (talent.id)}
-						<option value={talent.id}>{formatTalentLabel(talent)}</option>
-					{/each}
-				</Select>
+					options={linkedTalentDropdownOptions}
+					search={availableTalentOptions.length > 5}
+					searchPlaceholder="Search talents"
+				/>
 				{#if availableTalentOptions.length === 0 && !linkedTalentId}
 					<p class="text-muted-fg text-xs">
 						No unlinked talents are available right now. Create a talent first.
@@ -529,22 +545,22 @@
 				{/if}
 			</FormControl>
 
+		{/if}
+
+		{#if canManageOrganisationAssignment}
 			<FormControl
 				label="Organisation"
 				class="gap-2 text-sm"
 				bl="Set the user's home organisation. Leave empty to keep the user unassigned."
 			>
-				<Select
+				<Dropdown
 					id="organisation_id"
 					name="organisation_id"
 					bind:value={organisationId}
-					class="bg-input text-foreground"
-				>
-					<option value="">No organisation</option>
-					{#each availableOrganisationOptions as organisation (organisation.id)}
-						<option value={organisation.id}>{organisation.name}</option>
-					{/each}
-				</Select>
+					options={organisationDropdownOptions}
+					search={availableOrganisationOptions.length > 5}
+					searchPlaceholder="Search organisations"
+				/>
 				{#if availableOrganisationOptions.length === 0}
 					<p class="text-muted-fg text-xs">No organisations are available.</p>
 				{/if}

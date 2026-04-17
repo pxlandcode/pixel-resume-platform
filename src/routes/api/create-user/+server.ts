@@ -122,9 +122,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	if (requestedOrganisationId === '__invalid__') {
 		throw error(400, 'Organisation selection must be a valid UUID or empty.');
 	}
-	if (!actor.isAdmin && linkedTalentId) {
-		throw error(403, 'Only admins can link talents while creating users.');
-	}
 	if (!actor.isAdmin && requestedOrganisationId && requestedOrganisationId !== actor.homeOrganisationId) {
 		throw error(403, 'You can only assign users to your own organisation.');
 	}
@@ -162,6 +159,24 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 
 		if (selectedTalentData.user_id) {
 			throw error(409, 'Selected talent is already linked to another user.');
+		}
+		if (!actor.isAdmin) {
+			const { data: talentMembershipRows, error: talentMembershipError } = await admin
+				.from('organisation_talents')
+				.select('organisation_id')
+				.eq('talent_id', linkedTalentId);
+
+			if (talentMembershipError) {
+				throw error(500, talentMembershipError.message);
+			}
+
+			const belongsToHomeOrganisation = (
+				(talentMembershipRows as Array<{ organisation_id?: string | null }> | null) ?? []
+			).some((row) => row.organisation_id === actor.homeOrganisationId);
+
+			if (!belongsToHomeOrganisation) {
+				throw error(403, 'You can only link talents from your own organisation.');
+			}
 		}
 
 		selectedTalent = selectedTalentData;

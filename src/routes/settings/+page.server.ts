@@ -25,6 +25,20 @@ import {
 	resolveUniqueTechCatalogSlug,
 	resolveUniqueTechCategoryId
 } from '$lib/server/techCatalog';
+import {
+	loadOrganisationEmailDomains,
+	OrganisationEmailDomainError
+} from '$lib/server/organisationEmailDomains';
+import {
+	ensureOrgManagerContext,
+	handleUpdateOrganisation,
+	handleUpdateOrganisationBranding,
+	handleUpdateOrganisationTemplate,
+	handleConnectUserHome,
+	handleDisconnectUserHome,
+	handleConnectTalentHome,
+	handleDisconnectTalentHome
+} from '$lib/server/organisationActions';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORGANISATION_ACCESS_LEVELS = new Set<ShareAccessLevel>(['read', 'write']);
@@ -349,6 +363,47 @@ const loadSharingData = async (payload: {
 	};
 };
 
+const loadManagedOrganisation = async (payload: {
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
+	canManageOrganisation: boolean;
+	homeOrganisationId: string | null;
+}) => {
+	if (!payload.canManageOrganisation || !payload.homeOrganisationId) {
+		return null;
+	}
+
+	const { data: organisation, error: organisationError } = await payload.adminClient
+		.from('organisations')
+		.select('id, name, slug, homepage_url, brand_settings, created_at, updated_at')
+		.eq('id', payload.homeOrganisationId)
+		.maybeSingle();
+
+	if (organisationError) {
+		throw error(500, organisationError.message);
+	}
+	if (!organisation) {
+		throw error(404, 'Organisation not found.');
+	}
+
+	try {
+		const emailDomainsByOrganisationId = await loadOrganisationEmailDomains(payload.adminClient, [
+			payload.homeOrganisationId
+		]);
+
+		return {
+			...organisation,
+			email_domains: emailDomainsByOrganisationId.get(payload.homeOrganisationId) ?? []
+		};
+	} catch (domainError) {
+		throw error(
+			domainError instanceof OrganisationEmailDomainError ? domainError.status : 500,
+			domainError instanceof OrganisationEmailDomainError
+				? domainError.message
+				: 'Could not load email domains.'
+		);
+	}
+};
+
 const getActionContext = async (cookies: { get(name: string): string | undefined }) => {
 	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
 	const adminClient = getSupabaseAdminClient();
@@ -392,6 +447,15 @@ const ensureSharingActionContext = async (cookies: { get(name: string): string |
 		};
 	}
 	return context;
+};
+
+const ensureOrgManager = async (
+	cookies: { get(name: string): string | undefined },
+	formData: FormData
+) => {
+	const orgId = formData.get('organisation_id');
+	const targetOrgId = typeof orgId === 'string' ? orgId : undefined;
+	return ensureOrgManagerContext(cookies, targetOrgId);
 };
 
 const ensureAllowedSourceOrganisation = (
@@ -767,8 +831,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const sharingEnabled = canManageSharing(effectiveRoles);
 	const techCatalogManagementEnabled =
 		isAdmin || effectiveRoles.includes('broker') || effectiveRoles.includes('employer');
+	const canManageOrganisation =
+		(isAdmin || effectiveRoles.includes('broker') || effectiveRoles.includes('employer')) &&
+		Boolean(actor.homeOrganisationId);
 
-	const [legalDocumentsResult, sharingData, resumeShareLinks] = await Promise.all([
+	const [legalDocumentsResult, sharingData, resumeShareLinks, organisation] = await Promise.all([
 		isAdmin
 			? adminClient
 					.from('legal_documents')
@@ -787,6 +854,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			adminClient,
 			actor,
 			origin: url.origin
+		}),
+		loadManagedOrganisation({
+			adminClient,
+			canManageOrganisation,
+			homeOrganisationId: actor.homeOrganisationId
 		})
 	]);
 
@@ -799,7 +871,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		canManageSharing: sharingEnabled,
 		canManageGlobalTechCatalog: canManageGlobalTechCatalog(actor),
 		canManageOrganisationTechCatalog: techCatalogManagementEnabled,
+		canManageOrganisation,
 		homeOrganisationId: actor.homeOrganisationId ?? null,
+		organisation,
 		legalDocuments: legalDocumentsResult.data ?? [],
 		resumeShareLinks,
 		...sharingData
@@ -875,6 +949,97 @@ export const actions: Actions = {
 		};
 	},
 
+	updateOrganisation: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'updateOrganisation',
+				ok: false,
+				message: context.message
+			});
+		}
+		return handleUpdateOrganisation(formData, context);
+	},
+
+	updateOrganisationBranding: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: context.message
+			});
+		}
+		return handleUpdateOrganisationBranding(formData, context);
+	},
+
+	updateOrganisationTemplate: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'updateOrganisationTemplate',
+				ok: false,
+				message: context.message
+			});
+		}
+		return handleUpdateOrganisationTemplate(formData, context);
+	},
+
+	connectUserHome: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'connectUserHome',
+				ok: false,
+				message: context.message
+			});
+		}
+		return handleConnectUserHome(formData, context);
+	},
+
+	disconnectUserHome: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'disconnectUserHome',
+				ok: false,
+				message: context.message
+			});
+		}
+		return handleDisconnectUserHome(formData, context);
+	},
+
+	connectTalentHome: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'connectTalentHome',
+				ok: false,
+				message: context.message
+			});
+		}
+		return handleConnectTalentHome(formData, context);
+	},
+
+	disconnectTalentHome: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'disconnectTalentHome',
+				ok: false,
+				message: context.message
+			});
+		}
+		return handleDisconnectTalentHome(formData, context);
+	},
+
 	updateResumeShareLink: async ({ request, cookies }) => {
 		const context = await getActionContext(cookies);
 		if (!context.ok) {
@@ -931,8 +1096,7 @@ export const actions: Actions = {
 			return fail(500, {
 				type: 'updateResumeShareLink',
 				ok: false,
-				message:
-					actionError instanceof Error ? actionError.message : 'Could not update share link.'
+				message: actionError instanceof Error ? actionError.message : 'Could not update share link.'
 			});
 		}
 	},
@@ -982,8 +1146,7 @@ export const actions: Actions = {
 			return fail(500, {
 				type: 'revokeResumeShareLink',
 				ok: false,
-				message:
-					actionError instanceof Error ? actionError.message : 'Could not revoke share link.'
+				message: actionError instanceof Error ? actionError.message : 'Could not revoke share link.'
 			});
 		}
 	},
@@ -1092,9 +1255,7 @@ export const actions: Actions = {
 				type: 'regenerateResumeShareLink',
 				ok: false,
 				message:
-					actionError instanceof Error
-						? actionError.message
-						: 'Could not regenerate share link.'
+					actionError instanceof Error ? actionError.message : 'Could not regenerate share link.'
 			});
 		}
 	},

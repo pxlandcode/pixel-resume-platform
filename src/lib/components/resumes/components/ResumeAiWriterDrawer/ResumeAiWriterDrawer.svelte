@@ -55,7 +55,6 @@
 		startDate: false,
 		endDate: false
 	});
-	const debugLoggingEnabled = import.meta.env.DEV;
 
 	let {
 		rowTitle,
@@ -383,14 +382,6 @@
 
 		generating = true;
 		errorMessage = '';
-		if (debugLoggingEnabled) {
-			console.info('[resume-ai] generate:start', {
-				targetLanguage,
-				sectionType,
-				unlockedFields,
-				currentTextLength: draftByLanguage[targetLanguage]?.length ?? 0
-			});
-		}
 
 		try {
 			const generated = await onGenerateDescription({
@@ -406,15 +397,6 @@
 				unlockedFields,
 				currentText: draftByLanguage[targetLanguage]
 			});
-			if (debugLoggingEnabled) {
-				console.info('[resume-ai] generate:result', {
-					targetLanguage,
-					descriptionLength: generated.descriptionHtml?.length ?? 0,
-					hasRole: typeof generated.role === 'string' && generated.role.trim().length > 0,
-					hasLocation:
-						typeof generated.location === 'string' && generated.location.trim().length > 0
-				});
-			}
 			hasGeneratedOnce = true;
 
 			if (!descriptionLocked) {
@@ -496,17 +478,6 @@
 
 		translating = true;
 		errorMessage = '';
-		if (debugLoggingEnabled) {
-			console.info('[resume-ai] translate:start', {
-				sourceLanguage: sourceLanguageForRequest,
-				targetLanguage,
-				sectionType,
-				shouldTranslateDescription,
-				shouldTranslateRole,
-				shouldTranslateLocation,
-				sourceDescriptionLength: sourceDescriptionHtml?.length ?? 0
-			});
-		}
 
 		try {
 			const generated = await onGenerateDescription({
@@ -529,16 +500,6 @@
 					? sourceDescriptionHtml
 					: draftByLanguage[targetLanguage] || 'Placeholder context.'
 			});
-			if (debugLoggingEnabled) {
-				console.info('[resume-ai] translate:result', {
-					sourceLanguage: sourceLanguageForRequest,
-					targetLanguage,
-					descriptionLength: generated.descriptionHtml?.length ?? 0,
-					hasRole: typeof generated.role === 'string' && generated.role.trim().length > 0,
-					hasLocation:
-						typeof generated.location === 'string' && generated.location.trim().length > 0
-				});
-			}
 			hasGeneratedOnce = true;
 
 			if (shouldTranslateDescription && !descriptionLocked) {
@@ -559,15 +520,6 @@
 	};
 
 	const accept = () => {
-		if (debugLoggingEnabled) {
-			console.info('[resume-ai] apply', {
-				activeLanguage,
-				sectionType,
-				descriptionLength: draftByLanguage[activeLanguage]?.length ?? 0,
-				svLength: draftByLanguage.sv?.length ?? 0,
-				enLength: draftByLanguage.en?.length ?? 0
-			});
-		}
 		const drafts = {
 			descriptionByLanguage: {
 				sv: draftByLanguage.sv,

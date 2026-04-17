@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { Button, FormControl, Input } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import EmailDomainInput from './EmailDomainInput.svelte';
 
 	let { open = $bindable(false) }: { open: boolean } = $props();
 
+	let emailDomains = $state<string[]>([]);
+
 	$effect(() => {
 		if (!open) {
-			// Reset any local state when drawer closes if needed
+			emailDomains = [];
 		}
 	});
 </script>
@@ -51,6 +54,10 @@
 				placeholder="https://example.com"
 				class="bg-input text-foreground"
 			/>
+		</FormControl>
+
+		<FormControl label="Microsoft sign-in domains" class="gap-2 text-sm" tag="div">
+			<EmailDomainInput bind:domains={emailDomains} />
 		</FormControl>
 
 		<div class="sticky bottom-0 flex flex-wrap justify-end gap-3 bg-transparent pt-4">

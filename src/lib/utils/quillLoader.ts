@@ -6,6 +6,10 @@ export type QuillInstance = {
 	root: HTMLElement;
 	clipboard: { dangerouslyPasteHTML: (value: string) => void };
 	on: (event: string, handler: (...args: unknown[]) => void) => void;
+	focus?: () => void;
+	getLength?: () => number;
+	getSelection?: () => { index: number; length: number } | null;
+	setSelection?: (index: number, length?: number, source?: string) => void;
 	setContents?: (delta: unknown) => void;
 	setText?: (text: string) => void;
 };

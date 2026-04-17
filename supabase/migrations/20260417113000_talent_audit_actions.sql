@@ -1,0 +1,2 @@
+ALTER TYPE public.audit_action_type ADD VALUE IF NOT EXISTS 'TALENT_UPDATED';
+ALTER TYPE public.audit_action_type ADD VALUE IF NOT EXISTS 'TALENT_DELETED';

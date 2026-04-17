@@ -6,7 +6,11 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import { siteMeta } from '$lib/seo';
-import { getActorAccessContext, getAccessibleTalentIds } from '$lib/server/access';
+import {
+	getActorAccessContext,
+	getAccessibleTalentAccess,
+	getTalentAccess
+} from '$lib/server/access';
 import {
 	extractRequestMetadata,
 	recordEmployerAssertion,
@@ -49,6 +53,14 @@ const resolveStoragePublicUrl = (
 	return data.publicUrl ?? null;
 };
 
+const parseCheckedValue = (value: FormDataEntryValue | null) =>
+	value === 'on' || value === 'true' || value === '1';
+
+const parseTalentId = (formData: FormData) => {
+	const value = formData.get('talent_id');
+	return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+};
+
 export const load: PageServerLoad = async ({ locals }) => {
 	const requestContext = locals.requestContext;
 	const supabase = requestContext.getSupabaseClient();
@@ -74,7 +86,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	}
 
-	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
+	const accessibleTalentAccess = await getAccessibleTalentAccess(adminClient, actor);
+	const accessibleTalentIds =
+		accessibleTalentAccess === null ? null : accessibleTalentAccess.map((entry) => entry.talentId);
+	const accessLevelByTalentId =
+		accessibleTalentAccess === null
+			? null
+			: new Map(
+					accessibleTalentAccess.map((entry) => [entry.talentId, entry.accessLevel] as const)
+				);
 
 	const talentsResult =
 		accessibleTalentIds === null
@@ -109,22 +129,35 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const talentRows = talentsResult.data ?? [];
 	const talentIds = talentRows.map((t) => t.id);
 
-	// Fetch organisation memberships for talents
-	const orgMembershipsResult =
+	const [orgMembershipsResult, resumeRowsResult] =
 		talentIds.length === 0
-			? { data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
-			: await adminClient
-					.from('organisation_talents')
-					.select('talent_id, organisation_id')
-					.in('talent_id', talentIds);
+			? [
+					{ data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null },
+					{ data: [] as Array<{ talent_id: string }>, error: null }
+				]
+			: await Promise.all([
+					adminClient
+						.from('organisation_talents')
+						.select('talent_id, organisation_id')
+						.in('talent_id', talentIds),
+					adminClient.from('resumes').select('talent_id').in('talent_id', talentIds)
+				]);
 
 	if (orgMembershipsResult.error) {
 		console.warn('[talents index] organisation_talents error', orgMembershipsResult.error);
+	}
+	if (resumeRowsResult.error) {
+		console.warn('[talents index] resumes error', resumeRowsResult.error);
 	}
 
 	const orgIdByTalentId = new Map<string, string>();
 	for (const row of orgMembershipsResult.data ?? []) {
 		orgIdByTalentId.set(row.talent_id, row.organisation_id);
+	}
+	const resumeCountByTalentId = new Map<string, number>();
+	for (const row of resumeRowsResult.data ?? []) {
+		const nextCount = (resumeCountByTalentId.get(row.talent_id) ?? 0) + 1;
+		resumeCountByTalentId.set(row.talent_id, nextCount);
 	}
 
 	const orgIds = Array.from(new Set(orgIdByTalentId.values()));
@@ -175,6 +208,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 			last_name: talent.last_name ?? '',
 			avatar_url: talent.avatar_url ?? null,
 			title: talent.title ?? '',
+			resume_count: resumeCountByTalentId.get(talent.id) ?? 0,
+			can_edit:
+				accessLevelByTalentId === null ? true : accessLevelByTalentId.get(talent.id) === 'write',
 			organisation_id: orgId ?? null,
 			organisation_name: org?.name ?? null,
 			organisation_logo_url: org?.logoUrl ?? null
@@ -276,10 +312,7 @@ export const actions: Actions = {
 			typeof lawfulBasisDetailsRaw === 'string' && lawfulBasisDetailsRaw.trim().length > 0
 				? lawfulBasisDetailsRaw.trim()
 				: null;
-		const lawfulBasisConfirmed =
-			lawfulBasisConfirmedRaw === 'on' ||
-			lawfulBasisConfirmedRaw === 'true' ||
-			lawfulBasisConfirmedRaw === '1';
+		const lawfulBasisConfirmed = parseCheckedValue(lawfulBasisConfirmedRaw);
 
 		if (!first_name && !last_name) {
 			return fail(400, {
@@ -393,6 +426,273 @@ export const actions: Actions = {
 			type: 'createTalent',
 			ok: true,
 			message: 'Talent created successfully.'
+		};
+	},
+
+	updateTalent: async ({ request, cookies }) => {
+		const { adminClient, actor } = await getActorContext(cookies);
+		if (!adminClient || !actor.userId) {
+			return fail(401, { type: 'updateTalent', ok: false, message: 'You are not authenticated.' });
+		}
+		if (!canManageTalents(actor)) {
+			return fail(403, {
+				type: 'updateTalent',
+				ok: false,
+				message: 'Not authorized to manage talents.'
+			});
+		}
+
+		try {
+			await assertAcceptedForSensitiveAction({
+				adminClient,
+				userId: actor.userId,
+				homeOrganisationId: actor.homeOrganisationId
+			});
+		} catch (acceptanceError) {
+			return fail(403, {
+				type: 'updateTalent',
+				ok: false,
+				message:
+					acceptanceError instanceof Error
+						? acceptanceError.message
+						: 'You must accept current legal documents before updating talents.'
+			});
+		}
+
+		const formData = await request.formData();
+		const talentId = parseTalentId(formData);
+		const firstNameRaw = formData.get('first_name');
+		const lastNameRaw = formData.get('last_name');
+		const titleRaw = formData.get('title');
+		const avatarRaw = formData.get('avatar_url');
+
+		if (!talentId) {
+			return fail(400, { type: 'updateTalent', ok: false, message: 'Talent ID is required.' });
+		}
+
+		const access = await getTalentAccess(adminClient, actor, talentId);
+		if (!access.exists) {
+			return fail(404, { type: 'updateTalent', ok: false, message: 'Talent not found.' });
+		}
+		if (!access.canEdit) {
+			return fail(403, {
+				type: 'updateTalent',
+				ok: false,
+				message: 'Not authorized to edit this talent.'
+			});
+		}
+
+		const first_name = typeof firstNameRaw === 'string' ? firstNameRaw.trim() : '';
+		const last_name = typeof lastNameRaw === 'string' ? lastNameRaw.trim() : '';
+		const title = typeof titleRaw === 'string' ? titleRaw.trim() : '';
+		const avatar_url =
+			typeof avatarRaw === 'string' && avatarRaw.trim().length > 0 ? avatarRaw.trim() : null;
+
+		if (!first_name && !last_name) {
+			return fail(400, {
+				type: 'updateTalent',
+				ok: false,
+				message: 'Provide at least first name or last name.'
+			});
+		}
+
+		const { data: updatedTalent, error: updateError } = await adminClient
+			.from('talents')
+			.update({
+				first_name,
+				last_name,
+				title,
+				avatar_url,
+				updated_at: new Date().toISOString()
+			})
+			.eq('id', talentId)
+			.select('id, user_id')
+			.maybeSingle();
+
+		if (updateError) {
+			return fail(500, { type: 'updateTalent', ok: false, message: updateError.message });
+		}
+		if (!updatedTalent?.id) {
+			return fail(404, { type: 'updateTalent', ok: false, message: 'Talent not found.' });
+		}
+
+		if (updatedTalent.user_id) {
+			const { error: linkedUserProfileError } = await adminClient.from('user_profiles').upsert(
+				{
+					user_id: updatedTalent.user_id,
+					avatar_url
+				},
+				{ onConflict: 'user_id' }
+			);
+
+			if (linkedUserProfileError) {
+				return fail(500, {
+					type: 'updateTalent',
+					ok: false,
+					message: linkedUserProfileError.message
+				});
+			}
+		}
+
+		const auditOrganisationId = access.talentOrganisationId ?? actor.homeOrganisationId;
+		if (auditOrganisationId) {
+			await writeAuditLog({
+				actorUserId: actor.userId,
+				organisationId: auditOrganisationId,
+				actionType: 'TALENT_UPDATED',
+				resourceType: 'talent',
+				resourceId: talentId,
+				metadata: {
+					talent_id: talentId,
+					linked_user_id: updatedTalent.user_id ?? null,
+					avatar_url
+				}
+			});
+		}
+
+		return {
+			type: 'updateTalent',
+			ok: true,
+			message: 'Talent updated successfully.'
+		};
+	},
+
+	deleteTalent: async ({ request, cookies }) => {
+		const { adminClient, actor } = await getActorContext(cookies);
+		if (!adminClient || !actor.userId) {
+			return fail(401, { type: 'deleteTalent', ok: false, message: 'You are not authenticated.' });
+		}
+		if (!canManageTalents(actor)) {
+			return fail(403, {
+				type: 'deleteTalent',
+				ok: false,
+				message: 'Not authorized to manage talents.'
+			});
+		}
+
+		try {
+			await assertAcceptedForSensitiveAction({
+				adminClient,
+				userId: actor.userId,
+				homeOrganisationId: actor.homeOrganisationId
+			});
+		} catch (acceptanceError) {
+			return fail(403, {
+				type: 'deleteTalent',
+				ok: false,
+				message:
+					acceptanceError instanceof Error
+						? acceptanceError.message
+						: 'You must accept current legal documents before deleting talents.'
+			});
+		}
+
+		const formData = await request.formData();
+		const talentId = parseTalentId(formData);
+		if (!talentId) {
+			return fail(400, { type: 'deleteTalent', ok: false, message: 'Talent ID is required.' });
+		}
+
+		const access = await getTalentAccess(adminClient, actor, talentId);
+		if (!access.exists) {
+			return fail(404, { type: 'deleteTalent', ok: false, message: 'Talent not found.' });
+		}
+		if (!access.canEdit) {
+			return fail(403, {
+				type: 'deleteTalent',
+				ok: false,
+				message: 'Not authorized to delete this talent.'
+			});
+		}
+
+		const [talentRowResult, resumeCountResult] = await Promise.all([
+			adminClient.from('talents').select('id, user_id').eq('id', talentId).maybeSingle(),
+			adminClient
+				.from('resumes')
+				.select('id', { count: 'exact', head: true })
+				.eq('talent_id', talentId)
+		]);
+
+		if (talentRowResult.error) {
+			return fail(500, {
+				type: 'deleteTalent',
+				ok: false,
+				message: talentRowResult.error.message
+			});
+		}
+		if (resumeCountResult.error) {
+			return fail(500, {
+				type: 'deleteTalent',
+				ok: false,
+				message: resumeCountResult.error.message
+			});
+		}
+		if (!talentRowResult.data?.id) {
+			return fail(404, { type: 'deleteTalent', ok: false, message: 'Talent not found.' });
+		}
+
+		const linkedUserId = talentRowResult.data.user_id ?? null;
+		const resumeCount = Number(resumeCountResult.count ?? 0);
+		const confirmedDeleteResumes = parseCheckedValue(formData.get('confirm_delete_resumes'));
+		const confirmedUnlinkUser = parseCheckedValue(formData.get('confirm_unlink_user'));
+
+		if (resumeCount > 0 && !confirmedDeleteResumes) {
+			return fail(400, {
+				type: 'deleteTalent',
+				ok: false,
+				message: 'Confirm that you want to delete this talent and all linked resumes.'
+			});
+		}
+		if (linkedUserId && !confirmedUnlinkUser) {
+			return fail(400, {
+				type: 'deleteTalent',
+				ok: false,
+				message: 'Confirm that you want to unlink the linked user account.'
+			});
+		}
+
+		if (resumeCount > 0) {
+			const { error: clearMainResumeError } = await adminClient
+				.from('resumes')
+				.update({ is_main: false })
+				.eq('talent_id', talentId)
+				.eq('is_main', true);
+
+			if (clearMainResumeError) {
+				return fail(500, {
+					type: 'deleteTalent',
+					ok: false,
+					message: clearMainResumeError.message
+				});
+			}
+		}
+
+		const { error: deleteError } = await adminClient.from('talents').delete().eq('id', talentId);
+		if (deleteError) {
+			return fail(500, { type: 'deleteTalent', ok: false, message: deleteError.message });
+		}
+
+		const auditOrganisationId = access.talentOrganisationId ?? actor.homeOrganisationId;
+		if (auditOrganisationId) {
+			await writeAuditLog({
+				actorUserId: actor.userId,
+				organisationId: auditOrganisationId,
+				actionType: 'TALENT_DELETED',
+				resourceType: 'talent',
+				resourceId: talentId,
+				metadata: {
+					talent_id: talentId,
+					linked_user_id: linkedUserId,
+					linked_user_was_unlinked: Boolean(linkedUserId),
+					deleted_resume_count: resumeCount
+				}
+			});
+		}
+
+		return {
+			type: 'deleteTalent',
+			ok: true,
+			message: 'Talent deleted successfully.'
 		};
 	}
 };
