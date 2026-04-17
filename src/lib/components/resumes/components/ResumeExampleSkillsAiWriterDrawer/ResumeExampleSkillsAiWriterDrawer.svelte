@@ -3,11 +3,25 @@
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { TechStackSelector } from '$lib/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import ResumeAiRevisionPanel from '../ResumeAiRevisionPanel.svelte';
 	import { confirm } from '$lib/utils/confirm';
+	import {
+		type ResumeAiDiffField,
+		type ResumeAiRevisionState,
+		createResumeAiRevisionState,
+		getResumeAiRevisionSnapshot,
+		nextResumeAiRevisionLabel,
+		pushResumeAiRevisionSnapshot,
+		replaceCurrentResumeAiRevisionSnapshot
+	} from '../aiRevisions';
 	import type { Language, ResumeAiGenerateParams, ResumeAiGenerateResult } from '../utils';
 
 	type AcceptPayload = {
 		generated: ResumeAiGenerateResult;
+		skills: string[];
+	};
+
+	type SkillsSnapshot = {
 		skills: string[];
 	};
 
@@ -42,6 +56,8 @@
 	let creatingFromResume = $state(false);
 	let draftSkills = $state<string[]>(Array.isArray(skills) ? [...skills] : []);
 	let closeConfirmTrigger = $state<HTMLButtonElement | null>(null);
+	let revisionState = $state<ResumeAiRevisionState<SkillsSnapshot> | null>(null);
+	let applyingRevisionSnapshot = false;
 
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 	const normalizeSkillArray = (items: string[]) =>
@@ -67,6 +83,51 @@
 		targetLanguage === 'sv'
 			? resumeContextSv || resumeContextEn
 			: resumeContextEn || resumeContextSv;
+	const createSourceSnapshot = (): SkillsSnapshot => ({
+		skills: Array.isArray(skills) ? [...skills] : []
+	});
+	const createDraftSnapshot = (): SkillsSnapshot => ({
+		skills: [...draftSkills]
+	});
+	const applyDraftSnapshot = (snapshot: SkillsSnapshot) => {
+		draftSkills = [...snapshot.skills];
+	};
+	const serializeDraftSnapshot = (snapshot: SkillsSnapshot): string =>
+		normalizeSkillArray(snapshot.skills);
+	const resetRevisionState = (snapshot: SkillsSnapshot = createDraftSnapshot()) => {
+		revisionState = createResumeAiRevisionState(snapshot);
+	};
+	const commitRevision = (baseLabel: string, beforeSnapshot: SkillsSnapshot) => {
+		const afterSnapshot = createDraftSnapshot();
+		if (serializeDraftSnapshot(beforeSnapshot) === serializeDraftSnapshot(afterSnapshot)) {
+			errorMessage = 'AI did not change the draft skills.';
+			return false;
+		}
+
+		const currentState = revisionState ?? createResumeAiRevisionState(beforeSnapshot);
+		const syncedState = replaceCurrentResumeAiRevisionSnapshot(currentState, beforeSnapshot);
+		revisionState = pushResumeAiRevisionSnapshot(
+			syncedState,
+			afterSnapshot,
+			nextResumeAiRevisionLabel(syncedState, baseLabel)
+		);
+		return true;
+	};
+	const restoreRevision = (nextIndex: number) => {
+		if (!revisionState) return;
+		const snapshot = getResumeAiRevisionSnapshot(revisionState, nextIndex);
+		if (!snapshot) return;
+		applyingRevisionSnapshot = true;
+		applyDraftSnapshot(snapshot);
+		revisionState = {
+			...revisionState,
+			index: nextIndex
+		};
+		errorMessage = '';
+		queueMicrotask(() => {
+			applyingRevisionSnapshot = false;
+		});
+	};
 
 	const sourceSkills = $derived<string[]>(Array.isArray(skills) ? [...skills] : []);
 	const hasUnappliedChanges = $derived(
@@ -74,9 +135,26 @@
 			normalizeSkillArray(draftSkills) !== normalizeSkillArray(sourceSkills)
 	);
 	const isBusy = $derived(generatingFromPrompt || creatingFromResume);
+	const revisionDiffFields = $derived.by<ResumeAiDiffField[]>(() => {
+		if (!revisionState || revisionState.index === 0) return [];
+		const currentSnapshot = revisionState.entries[revisionState.index]?.snapshot;
+		const previousSnapshot = revisionState.entries[revisionState.index - 1]?.snapshot;
+		if (!currentSnapshot || !previousSnapshot) return [];
+		return [
+			{
+				key: 'skills',
+				label: 'Example skills',
+				mode: 'list',
+				before: previousSnapshot.skills,
+				after: currentSnapshot.skills
+			}
+		];
+	});
 
 	const syncDraftFromSource = () => {
-		draftSkills = Array.isArray(skills) ? [...skills] : [];
+		const sourceSnapshot = createSourceSnapshot();
+		applyDraftSnapshot(sourceSnapshot);
+		resetRevisionState(sourceSnapshot);
 	};
 
 	const openDrawer = () => {
@@ -157,7 +235,9 @@
 				currentText: draftSkills.join(', '),
 				resumeContext
 			});
+			const beforeSnapshot = createDraftSnapshot();
 			applyGeneratedSkills(generated);
+			commitRevision(mode === 'resume' ? 'Fill from Resume' : 'Generate from Prompt', beforeSnapshot);
 		} catch (error) {
 			const fallback =
 				mode === 'resume'
@@ -193,6 +273,18 @@
 			syncDraftFromSource();
 		}
 	});
+
+	$effect(() => {
+		if (!open || !revisionState || applyingRevisionSnapshot) return;
+		const currentSnapshot = createDraftSnapshot();
+		if (
+			serializeDraftSnapshot(currentSnapshot) ===
+			serializeDraftSnapshot(revisionState.entries[revisionState.index].snapshot)
+		) {
+			return;
+		}
+		revisionState = replaceCurrentResumeAiRevisionSnapshot(revisionState, currentSnapshot);
+	});
 </script>
 
 <Button
@@ -225,7 +317,7 @@
 				actionLabel: 'Close',
 				action: discardAndClose
 			}}
-		/>
+		></button>
 
 		<div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1">
 			<div class="flex items-center justify-between gap-3">
@@ -309,6 +401,15 @@
 			{#if errorMessage}
 				<p class="text-sm text-red-600">{errorMessage}</p>
 			{/if}
+
+			<ResumeAiRevisionPanel
+				{revisionState}
+				fields={revisionDiffFields}
+				busy={isBusy}
+				helperText="AI revisions stay local until you click Apply skills."
+				onUndo={() => revisionState && restoreRevision(revisionState.index - 1)}
+				onRedo={() => revisionState && restoreRevision(revisionState.index + 1)}
+			/>
 
 			<div class="rounded-xs border-border bg-muted border p-4">
 				<div class="mb-2 flex items-center justify-between gap-2">

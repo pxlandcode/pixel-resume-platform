@@ -77,8 +77,8 @@
 	let avatarUploadError = $state<string | null>(null);
 	let avatarUploading = $state(false);
 	let editingTechStack = $state(structuredClone(techStack));
-	let editingHasAssignment = $state(true);
 	let availabilityStatus = $state<'available-now' | 'on-assignment'>('on-assignment');
+	const editingHasAssignment = $derived(availabilityStatus === 'on-assignment');
 	let editingUseCustomAvailabilityPercentages = $state(false);
 	let editingOpenToSwitchEarly = $state(false);
 	let editingAvailabilityNowPercent = $state('');
@@ -146,7 +146,6 @@
 		const hasFutureTiming = noticePeriodDays !== null || Boolean(plannedFromDate);
 		const hasAssignment = !(nowPercent === 100 && noticePeriodDays === null && !plannedFromDate);
 
-		editingHasAssignment = hasAssignment;
 		availabilityStatus = hasAssignment ? 'on-assignment' : 'available-now';
 		editingOpenToSwitchEarly = noticePeriodDays !== null;
 		editingAvailabilityNowPercent = nowPercent === null ? '' : String(nowPercent);
@@ -232,10 +231,6 @@
 			inputEl.value = '';
 		}
 	};
-
-	$effect(() => {
-		editingHasAssignment = availabilityStatus === 'on-assignment';
-	});
 
 	const cancelProfileEdit = () => {
 		resetProfileEditor();

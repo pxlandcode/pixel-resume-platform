@@ -2,7 +2,16 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getAccessibleTalentIds, type ActorAccessContext } from '$lib/server/access';
 import { buildResumeTechIndex } from '$lib/server/resumes/techIndex';
-import type { QuickSearchResponse, QuickSearchResult } from '$lib/types/quickSearch';
+import {
+	PROFILE_AVAILABILITY_SELECT,
+	normalizeAvailabilityRow,
+	type ConsultantAvailability
+} from '$lib/server/consultantAvailability';
+import type {
+	QuickSearchResponse,
+	QuickSearchResult,
+	QuickSearchResultAvailability
+} from '$lib/types/quickSearch';
 
 const CACHE_TTL_MS = 60_000;
 const MAX_QUERY_LENGTH = 120;
@@ -20,6 +29,7 @@ type SearchIndexProfileDocument = {
 	techs: string[];
 	techSearch: string[];
 	searchText: string;
+	availability: QuickSearchResultAvailability | null;
 };
 
 type SearchIndexResumeDocument = {
@@ -188,6 +198,22 @@ const buildSearchIndex = async (adminClient: SupabaseClient, actor: ActorAccessC
 		(profilesResult.data ?? []).map((row) => [row.user_id, row.email ?? null])
 	);
 
+	const availabilityResult = await adminClient
+		.from('profile_availability')
+		.select(PROFILE_AVAILABILITY_SELECT)
+		.in('profile_id', talentIds);
+
+	if (availabilityResult.error) {
+		throw new Error(availabilityResult.error.message);
+	}
+
+	const availabilityByTalentId = new Map<string, ConsultantAvailability>(
+		(availabilityResult.data ?? []).map((row) => {
+			const profileId = normalizeId((row as { profile_id: unknown }).profile_id);
+			return [profileId ?? '', normalizeAvailabilityRow(row)] as const;
+		})
+	);
+
 	const resumesResult = await adminClient
 		.from('resumes')
 		.select('id, talent_id, version_name, is_main')
@@ -282,7 +308,8 @@ const buildSearchIndex = async (adminClient: SupabaseClient, actor: ActorAccessC
 			avatarUrl: row.avatar_url ?? null,
 			techs,
 			techSearch,
-			searchText: [nameSearch, titleSearch, emailSearch, ...techSearch].filter(Boolean).join(' ')
+			searchText: [nameSearch, titleSearch, emailSearch, ...techSearch].filter(Boolean).join(' '),
+			availability: availabilityByTalentId.get(row.id) ?? null
 		};
 	});
 
@@ -411,7 +438,8 @@ const rankProfile = (profile: SearchIndexProfileDocument, query: string, tokens:
 			href: `/resumes/${encodeURIComponent(profile.id)}`,
 			title: profile.name,
 			description: [profile.title, profile.email].filter(Boolean).join(' · ') || null,
-			matchedTechs
+			matchedTechs,
+			availability: profile.availability
 		}
 	};
 };

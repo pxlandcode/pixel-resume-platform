@@ -1,26 +1,14 @@
 <script lang="ts">
-	import { Card } from '@pixelcode_/blocks/components';
 	import { onMount } from 'svelte';
-	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
-	import {
-		applyImageFallbackOnce,
-		getOriginalImageUrl,
-		supabaseImagePresets,
-		transformSupabasePublicUrl,
-		transformSupabasePublicUrlSrcSet
-	} from '$lib/images/supabaseImage';
-	import {
-		FileText,
-		Users,
-		Upload,
-		ArrowRight,
-		Sparkles,
-		BookOpen,
-		Clock,
-		CalendarCheck,
-		User
-	} from 'lucide-svelte';
-	import { resolve } from '$app/paths';
+	import DashboardHeader from '$lib/components/dashboard/DashboardHeader.svelte';
+	import DashboardSearch from '$lib/components/dashboard/DashboardSearch.svelte';
+	import DashboardStats from '$lib/components/dashboard/DashboardStats.svelte';
+	import RecentResumes from '$lib/components/dashboard/RecentResumes.svelte';
+	import AvailableNow from '$lib/components/dashboard/AvailableNow.svelte';
+	import AvailableSoon from '$lib/components/dashboard/AvailableSoon.svelte';
+	import DashboardTips from '$lib/components/dashboard/DashboardTips.svelte';
+	import type { RecentResume } from '$lib/components/dashboard/RecentResumes.svelte';
+	import type { AvailableConsultant } from '$lib/components/dashboard/AvailableSoon.svelte';
 
 	const { data } = $props();
 	const effectiveRoles = $derived.by(() => {
@@ -43,34 +31,12 @@
 		return 'there';
 	});
 
-	const stats = $derived(data.stats ?? { totalTalents: 0, totalResumes: 0, availableNow: 0 });
-	let recentResumes = $state<
-		Array<{
-			id: string;
-			talentId: string;
-			versionName: string | null;
-			updatedAt: string | null;
-			talentName: string;
-			talentAvatarUrl: string | null;
-		}>
-	>([]);
-	let availableSoon = $state<
-		Array<{
-			id: string;
-			name: string;
-			avatarUrl: string | null;
-			availability: {
-				nowPercent: number | null;
-				futurePercent: number | null;
-				noticePeriodDays: number | null;
-				switchFromDate: string | null;
-				plannedFromDate: string | null;
-				hasData: boolean;
-			};
-			organisationName: string | null;
-			organisationLogoUrl: string | null;
-		}>
-	>([]);
+	const stats = $derived(
+		data.stats ?? { totalTalents: 0, totalResumes: 0, availableNow: 0, availableSoon: 0 }
+	);
+	let recentResumes = $state<RecentResume[]>([]);
+	let availableNow = $state<AvailableConsultant[]>([]);
+	let availableSoon = $state<AvailableConsultant[]>([]);
 	let panelsStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let panelsError = $state<string | null>(null);
 	let panelsEtag = $state<string | null>(null);
@@ -100,32 +66,13 @@
 			}
 
 			const payload = (await response.json()) as {
-				recentResumes?: Array<{
-					id: string;
-					talentId: string;
-					versionName: string | null;
-					updatedAt: string | null;
-					talentName: string;
-					talentAvatarUrl: string | null;
-				}>;
-				availableSoon?: Array<{
-					id: string;
-					name: string;
-					avatarUrl: string | null;
-					availability: {
-						nowPercent: number | null;
-						futurePercent: number | null;
-						noticePeriodDays: number | null;
-						switchFromDate: string | null;
-						plannedFromDate: string | null;
-						hasData: boolean;
-					};
-					organisationName: string | null;
-					organisationLogoUrl: string | null;
-				}>;
+				recentResumes?: RecentResume[];
+				availableNow?: AvailableConsultant[];
+				availableSoon?: AvailableConsultant[];
 			};
 
 			recentResumes = Array.isArray(payload.recentResumes) ? payload.recentResumes : [];
+			availableNow = Array.isArray(payload.availableNow) ? payload.availableNow : [];
 			availableSoon = Array.isArray(payload.availableSoon) ? payload.availableSoon : [];
 			panelsEtag = response.headers.get('etag');
 			panelsStatus = 'ready';
@@ -141,260 +88,31 @@
 		if (panelsStatus !== 'idle') return;
 		void loadDashboardPanels();
 	});
-	const listAvatarSrc = (url: string | null | undefined) =>
-		transformSupabasePublicUrl(url, supabaseImagePresets.avatarList);
-	const listAvatarSrcSet = (url: string | null | undefined) =>
-		transformSupabasePublicUrlSrcSet(url, [36, 72], {
-			height: supabaseImagePresets.avatarList.height,
-			quality: supabaseImagePresets.avatarList.quality,
-			resize: supabaseImagePresets.avatarList.resize
-		});
-	const listAvatarFallbackSrc = (url: string | null | undefined) => getOriginalImageUrl(url);
-
-	const tips = [
-		{
-			title: 'Import from PDF',
-			description:
-				'Save time by uploading an existing PDF resume. Our AI will extract and structure the content automatically.',
-			icon: Upload
-		},
-		{
-			title: 'Keep it updated',
-			description:
-				'Regular updates help match consultants with the right projects. Add new skills and experiences as they happen.',
-			icon: Sparkles
-		},
-		{
-			title: 'Tech stack matters',
-			description:
-				'Add relevant technologies to make consultants discoverable. Clients often search by specific tech skills.',
-			icon: BookOpen
-		}
-	];
-
-	const formatDate = (dateStr: string | null) => {
-		if (!dateStr) return '—';
-		const date = new Date(dateStr);
-		return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
-	};
-
-	const formatRelativeDate = (dateStr: string | null) => {
-		if (!dateStr) return '—';
-		const date = new Date(dateStr);
-		const now = new Date();
-		const diffMs = date.getTime() - now.getTime();
-		const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-
-		if (diffDays <= 0) return 'Now';
-		if (diffDays === 1) return 'Tomorrow';
-		if (diffDays <= 7) return `In ${diffDays} days`;
-		return formatDate(dateStr);
-	};
 </script>
 
 <section class="space-y-8">
-	<header>
-		<h1 class="text-foreground text-2xl font-bold">Hello, {signedInUserName}</h1>
-		<p class="text-muted-fg mt-1">
-			Create and manage professional consultant resumes for your team.
-		</p>
-	</header>
-
 	{#if !isTalentOnly}
-		<!-- Stats -->
-		<div class="grid gap-4 sm:grid-cols-3">
-			<a href={resolve('/talents')}>
-				<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
-					<div class="flex items-start gap-4">
-						<div
-							class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-blue-500 text-white"
-						>
-							<Users size={24} />
-						</div>
-						<div>
-							<p class="text-muted-fg text-sm">Total Talents</p>
-							<p class="text-foreground text-2xl font-bold">{stats.totalTalents}</p>
-						</div>
-					</div>
-					<ArrowRight
-						size={20}
-						class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
-					/>
-				</Card>
-			</a>
-			<a href={resolve('/resumes')}>
-				<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
-					<div class="flex items-start gap-4">
-						<div
-							class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-emerald-500 text-white"
-						>
-							<FileText size={24} />
-						</div>
-						<div>
-							<p class="text-muted-fg text-sm">Total Resumes</p>
-							<p class="text-foreground text-2xl font-bold">{stats.totalResumes}</p>
-						</div>
-					</div>
-					<ArrowRight
-						size={20}
-						class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
-					/>
-				</Card>
-			</a>
-			<a href={resolve('/resumes')}>
-				<Card class="group relative rounded-sm p-5 transition-all hover:shadow-md">
-					<div class="flex items-start gap-4">
-						<div
-							class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-sm bg-amber-500 text-white"
-						>
-							<CalendarCheck size={24} />
-						</div>
-						<div>
-							<p class="text-muted-fg text-sm">Available Now</p>
-							<p class="text-foreground text-2xl font-bold">{stats.availableNow}</p>
-						</div>
-					</div>
-					<ArrowRight
-						size={20}
-						class="text-muted-fg group-hover:text-primary absolute right-4 top-4 transition-all duration-200 group-hover:translate-x-1"
-					/>
-				</Card>
-			</a>
+		<!-- Hero: greeting + search -->
+		<div class="space-y-5 pt-2">
+			<div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
+				<DashboardHeader userName={signedInUserName} />
+				<DashboardStats {stats} />
+			</div>
+			<DashboardSearch />
 		</div>
 
-		<!-- Recent Resumes & Available Soon -->
-		<div class="grid gap-6 lg:grid-cols-2">
-			<!-- Recent Resumes -->
-			<Card class="min-w-0 rounded-sm p-5">
-				<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-					<h2 class="text-foreground flex items-center gap-2 font-semibold">
-						<Clock size={18} class="text-muted-fg" />
-						Recently Updated
-					</h2>
-					<a href={resolve('/resumes')} class="text-primary text-sm hover:underline">View all</a>
-				</div>
-				{#if panelsStatus === 'loading'}
-					<p class="text-muted-fg text-sm">Loading recent resumes...</p>
-				{:else if panelsError}
-					<p class="text-muted-fg text-sm">{panelsError}</p>
-				{:else if recentResumes.length === 0}
-					<p class="text-muted-fg text-sm">No resumes yet.</p>
-				{:else}
-					<div class="space-y-3">
-						{#each recentResumes as resume (resume.id)}
-							<a
-								href={resolve('/resumes/[personId]', { personId: resume.talentId })}
-								class="hover:bg-muted -mx-2 grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-sm px-2 py-2 transition-colors sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center"
-							>
-								<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
-									{#if resume.talentAvatarUrl}
-										<img
-											src={listAvatarSrc(resume.talentAvatarUrl)}
-											srcset={listAvatarSrcSet(resume.talentAvatarUrl)}
-											sizes="36px"
-											alt={resume.talentName}
-											class="h-9 w-9 rounded-sm object-cover"
-											loading="lazy"
-											decoding="async"
-											onerror={(event) =>
-												applyImageFallbackOnce(
-													event,
-													listAvatarFallbackSrc(resume.talentAvatarUrl)
-												)}
-										/>
-									{:else}
-										<User size={18} class="text-muted-fg" />
-									{/if}
-								</div>
-								<div class="min-w-0 flex-1">
-									<p class="text-foreground truncate text-sm font-medium">{resume.talentName}</p>
-									<p class="text-muted-fg truncate text-xs">
-										{resume.versionName || 'Main resume'}
-									</p>
-								</div>
-								<span class="text-muted-fg col-start-2 text-xs sm:col-auto sm:justify-self-end">
-									{formatDate(resume.updatedAt)}
-								</span>
-							</a>
-						{/each}
-					</div>
-				{/if}
-			</Card>
-
-			<!-- Available Soon -->
-			<Card class="min-w-0 rounded-sm p-5">
-				<div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-					<h2 class="text-foreground flex items-center gap-2 font-semibold">
-						<CalendarCheck size={18} class="text-muted-fg" />
-						Available Soon
-					</h2>
-					<a href={resolve('/resumes')} class="text-primary text-sm hover:underline">Search</a>
-				</div>
-				{#if panelsStatus === 'loading'}
-					<p class="text-muted-fg text-sm">Loading upcoming availability...</p>
-				{:else if panelsError}
-					<p class="text-muted-fg text-sm">{panelsError}</p>
-				{:else if availableSoon.length === 0}
-					<p class="text-muted-fg text-sm">No consultants becoming available within 30 days.</p>
-				{:else}
-					<div class="space-y-3">
-						{#each availableSoon as consultant (consultant.id)}
-							<a
-								href={resolve('/resumes/[personId]', { personId: consultant.id })}
-								class="hover:bg-muted -mx-2 grid grid-cols-[2.25rem_minmax(0,1fr)] items-start gap-x-3 gap-y-2 rounded-sm px-2 py-2 transition-colors sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-center"
-							>
-								<div class="bg-muted flex h-9 w-9 items-center justify-center rounded-sm">
-									{#if consultant.avatarUrl}
-										<img
-											src={listAvatarSrc(consultant.avatarUrl)}
-											srcset={listAvatarSrcSet(consultant.avatarUrl)}
-											sizes="36px"
-											alt={consultant.name}
-											class="h-9 w-9 rounded-sm object-cover"
-											loading="lazy"
-											decoding="async"
-											onerror={(event) =>
-												applyImageFallbackOnce(event, listAvatarFallbackSrc(consultant.avatarUrl))}
-										/>
-									{:else}
-										<User size={18} class="text-muted-fg" />
-									{/if}
-								</div>
-								<div class="min-w-0 flex-1">
-									<p class="text-foreground truncate text-sm font-medium">{consultant.name}</p>
-									<ConsultantAvailabilityPills compact availability={consultant.availability} />
-								</div>
-								<span
-									class="col-start-2 w-fit rounded-sm bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 sm:col-auto sm:justify-self-end"
-								>
-									{formatRelativeDate(
-										consultant.availability.switchFromDate ??
-											consultant.availability.plannedFromDate
-									)}
-								</span>
-							</a>
-						{/each}
-					</div>
-				{/if}
-			</Card>
+		<!-- Panels grid -->
+		<div class="grid gap-6 lg:grid-cols-3">
+			<RecentResumes resumes={recentResumes} status={panelsStatus} error={panelsError} />
+			<AvailableNow consultants={availableNow} status={panelsStatus} error={panelsError} />
+			<AvailableSoon consultants={availableSoon} status={panelsStatus} error={panelsError} />
+		</div>
+	{:else}
+		<div class="pt-2">
+			<DashboardHeader userName={signedInUserName} />
 		</div>
 	{/if}
 
-	<!-- Tips Section -->
-	<div>
-		<h2 class="text-foreground mb-4 text-lg font-semibold">Tips for better resumes</h2>
-		<div class="grid gap-4 sm:grid-cols-3">
-			{#each tips as tip (tip.title)}
-				<div class="border-border bg-muted rounded-sm border p-4">
-					<div
-						class="bg-card text-primary mb-3 flex h-10 w-10 items-center justify-center rounded-sm shadow-sm"
-					>
-						<tip.icon size={20} />
-					</div>
-					<h3 class="text-foreground font-medium">{tip.title}</h3>
-					<p class="text-muted-fg mt-1 text-sm">{tip.description}</p>
-				</div>
-			{/each}
-		</div>
-	</div>
+	<!-- Tips -->
+	<DashboardTips />
 </section>

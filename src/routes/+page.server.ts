@@ -4,14 +4,30 @@ import {
 	PROFILE_AVAILABILITY_SELECT,
 	normalizeAvailabilityRow
 } from '$lib/server/consultantAvailability';
+import { getEarliestAvailabilityDate } from '$lib/utils/availability';
 
-const emptyStats = { totalTalents: 0, totalResumes: 0, availableNow: 0 };
+const AVAILABLE_SOON_DAYS = 30;
+
+const emptyStats = { totalTalents: 0, totalResumes: 0, availableNow: 0, availableSoon: 0 };
 
 const countAvailableNow = (rows: Array<unknown> | null | undefined) =>
 	(rows ?? []).reduce<number>((count, row) => {
 		const availability = normalizeAvailabilityRow(row);
 		return availability.nowPercent && availability.nowPercent > 0 ? count + 1 : count;
 	}, 0);
+
+const countAvailableSoon = (rows: Array<unknown> | null | undefined) => {
+	const now = Date.now();
+	const cutoff = AVAILABLE_SOON_DAYS * 24 * 60 * 60 * 1000;
+	return (rows ?? []).reduce<number>((count, row) => {
+		const availability = normalizeAvailabilityRow(row);
+		if (availability.nowPercent != null && availability.nowPercent >= 50) return count;
+		const earliest = getEarliestAvailabilityDate(availability);
+		if (!earliest) return count;
+		const daysMs = new Date(earliest).getTime() - now;
+		return daysMs >= 0 && daysMs <= cutoff ? count + 1 : count;
+	}, 0);
+};
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const requestContext = locals.requestContext;
@@ -32,14 +48,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 	let totalTalents = 0;
 	let totalResumes = 0;
 	let availableNow = 0;
+	let availableSoon = 0;
 
 	if (accessibleTalentIds === null) {
 		const [talentsCountResult, resumesCountResult, availabilityCountResult] = await Promise.all([
 			adminClient.from('talents').select('id', { count: 'exact', head: true }),
 			adminClient.from('resumes').select('id', { count: 'exact', head: true }),
-			adminClient
-				.from('profile_availability')
-				.select(PROFILE_AVAILABILITY_SELECT)
+			adminClient.from('profile_availability').select(PROFILE_AVAILABILITY_SELECT)
 		]);
 
 		if (talentsCountResult.error) {
@@ -55,6 +70,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		totalTalents = Number(talentsCountResult.count ?? 0);
 		totalResumes = Number(resumesCountResult.count ?? 0);
 		availableNow = countAvailableNow(availabilityCountResult.data);
+		availableSoon = countAvailableSoon(availabilityCountResult.data);
 	} else {
 		totalTalents = accessibleTalentIds.length;
 
@@ -79,6 +95,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 			totalResumes = Number(resumesCountResult.count ?? 0);
 			availableNow = countAvailableNow(availabilityCountResult.data);
+			availableSoon = countAvailableSoon(availabilityCountResult.data);
 		}
 	}
 
@@ -86,7 +103,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		stats: {
 			totalTalents,
 			totalResumes,
-			availableNow
+			availableNow,
+			availableSoon
 		}
 	};
 };

@@ -3,7 +3,17 @@
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import { QuillEditor } from '$lib/components';
+	import ResumeAiRevisionPanel from '../ResumeAiRevisionPanel.svelte';
 	import { confirm } from '$lib/utils/confirm';
+	import {
+		type ResumeAiDiffField,
+		type ResumeAiRevisionState,
+		createResumeAiRevisionState,
+		getResumeAiRevisionSnapshot,
+		nextResumeAiRevisionLabel,
+		pushResumeAiRevisionSnapshot,
+		replaceCurrentResumeAiRevisionSnapshot
+	} from '../aiRevisions';
 	import type { Language, ResumeAiGenerateParams, ResumeAiGenerateResult } from '../utils';
 
 	type AcceptPayload = {
@@ -55,11 +65,66 @@
 		sv: summarySv ?? '',
 		en: summaryEn ?? ''
 	});
+	let revisionState = $state<ResumeAiRevisionState<LocalizedDraft> | null>(null);
+	let applyingRevisionSnapshot = false;
 
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 	const normalizeDescription = (value: string) => normalize(value.replace(/<[^>]*>/g, ' '));
 	const oppositeLanguage = (value: Language): Language => (value === 'sv' ? 'en' : 'sv');
 	const languageName = (value: Language): string => (value === 'sv' ? 'Swedish' : 'English');
+	const createSourceSnapshot = (): LocalizedDraft => ({
+		sv: sourceByLanguage.sv,
+		en: sourceByLanguage.en
+	});
+	const createDraftSnapshot = (): LocalizedDraft => ({
+		sv: draftByLanguage.sv,
+		en: draftByLanguage.en
+	});
+	const applyDraftSnapshot = (snapshot: LocalizedDraft) => {
+		draftByLanguage = {
+			sv: snapshot.sv,
+			en: snapshot.en
+		};
+	};
+	const serializeDraftSnapshot = (snapshot: LocalizedDraft): string =>
+		JSON.stringify({
+			sv: normalizeDescription(snapshot.sv),
+			en: normalizeDescription(snapshot.en)
+		});
+	const resetRevisionState = (snapshot: LocalizedDraft = createDraftSnapshot()) => {
+		revisionState = createResumeAiRevisionState(snapshot);
+	};
+	const commitRevision = (baseLabel: string, beforeSnapshot: LocalizedDraft) => {
+		const afterSnapshot = createDraftSnapshot();
+		if (serializeDraftSnapshot(beforeSnapshot) === serializeDraftSnapshot(afterSnapshot)) {
+			errorMessage = 'AI did not change the summary draft.';
+			return false;
+		}
+
+		const currentState = revisionState ?? createResumeAiRevisionState(beforeSnapshot);
+		const syncedState = replaceCurrentResumeAiRevisionSnapshot(currentState, beforeSnapshot);
+		revisionState = pushResumeAiRevisionSnapshot(
+			syncedState,
+			afterSnapshot,
+			nextResumeAiRevisionLabel(syncedState, baseLabel)
+		);
+		return true;
+	};
+	const restoreRevision = (nextIndex: number) => {
+		if (!revisionState) return;
+		const snapshot = getResumeAiRevisionSnapshot(revisionState, nextIndex);
+		if (!snapshot) return;
+		applyingRevisionSnapshot = true;
+		applyDraftSnapshot(snapshot);
+		revisionState = {
+			...revisionState,
+			index: nextIndex
+		};
+		errorMessage = '';
+		queueMicrotask(() => {
+			applyingRevisionSnapshot = false;
+		});
+	};
 
 	const sourceByLanguage = $derived<LocalizedDraft>({
 		sv: summarySv ?? '',
@@ -78,6 +143,28 @@
 			normalize(draftByLanguage.sv) !== normalize(sourceByLanguage.sv) ||
 			normalize(draftByLanguage.en) !== normalize(sourceByLanguage.en)
 	);
+	const revisionDiffFields = $derived.by<ResumeAiDiffField[]>(() => {
+		if (!revisionState || revisionState.index === 0) return [];
+		const currentSnapshot = revisionState.entries[revisionState.index]?.snapshot;
+		const previousSnapshot = revisionState.entries[revisionState.index - 1]?.snapshot;
+		if (!currentSnapshot || !previousSnapshot) return [];
+		return [
+			{
+				key: 'summary-sv',
+				label: 'Summary (SV)',
+				mode: 'html',
+				before: previousSnapshot.sv,
+				after: currentSnapshot.sv
+			},
+			{
+				key: 'summary-en',
+				label: 'Summary (EN)',
+				mode: 'html',
+				before: previousSnapshot.en,
+				after: currentSnapshot.en
+			}
+		];
+	});
 
 	const resetDrawerScroll = () => {
 		if (!scrollContainer) return;
@@ -96,12 +183,11 @@
 	};
 
 	const syncDraftFromSource = () => {
-		draftByLanguage = {
-			sv: sourceByLanguage.sv,
-			en: sourceByLanguage.en
-		};
+		const sourceSnapshot = createSourceSnapshot();
+		applyDraftSnapshot(sourceSnapshot);
 		descriptionRevisionByLanguage = { sv: 0, en: 0 };
 		hasGeneratedOnce = false;
+		resetRevisionState(sourceSnapshot);
 	};
 
 	const openDrawer = () => {
@@ -180,8 +266,10 @@
 				currentText: draftByLanguage[targetLanguage],
 				resumeContext: currentResumeContext(targetLanguage)
 			});
+			const beforeSnapshot = createDraftSnapshot();
 			hasGeneratedOnce = true;
 			setDraftFromAi(targetLanguage, generated.descriptionHtml);
+			commitRevision('AI write', beforeSnapshot);
 		} catch (error) {
 			const fallback = 'Could not generate summary right now.';
 			errorMessage = error instanceof Error && error.message ? error.message : fallback;
@@ -218,8 +306,10 @@
 				currentText: sourceText,
 				resumeContext: currentResumeContext(targetLanguage)
 			});
+			const beforeSnapshot = createDraftSnapshot();
 			hasGeneratedOnce = true;
 			setDraftFromAi(targetLanguage, generated.descriptionHtml);
+			commitRevision('Translation', beforeSnapshot);
 		} catch (error) {
 			const fallback = 'Could not translate summary right now.';
 			errorMessage = error instanceof Error && error.message ? error.message : fallback;
@@ -253,8 +343,10 @@
 				currentText: draftByLanguage[targetLanguage],
 				resumeContext
 			});
+			const beforeSnapshot = createDraftSnapshot();
 			hasGeneratedOnce = true;
 			setDraftFromAi(targetLanguage, generated.descriptionHtml);
+			commitRevision('Create from Resume', beforeSnapshot);
 		} catch (error) {
 			const fallback = 'Could not create summary from resume right now.';
 			errorMessage = error instanceof Error && error.message ? error.message : fallback;
@@ -305,6 +397,18 @@
 		}
 		scheduleResetDrawerScroll();
 	});
+
+	$effect(() => {
+		if (!open || !revisionState || applyingRevisionSnapshot) return;
+		const currentSnapshot = createDraftSnapshot();
+		if (
+			serializeDraftSnapshot(currentSnapshot) ===
+			serializeDraftSnapshot(revisionState.entries[revisionState.index].snapshot)
+		) {
+			return;
+		}
+		revisionState = replaceCurrentResumeAiRevisionSnapshot(revisionState, currentSnapshot);
+	});
 </script>
 
 <Button
@@ -331,7 +435,7 @@
 				actionLabel: 'Close',
 				action: discardAndClose
 			}}
-		/>
+		></button>
 
 		<div
 			class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1"
@@ -427,11 +531,18 @@
 				<p class="text-sm text-red-600">{errorMessage}</p>
 			{/if}
 
+			<ResumeAiRevisionPanel
+				{revisionState}
+				fields={revisionDiffFields}
+				busy={generating || translating || creatingFromResume}
+				helperText="AI revisions stay local until you click Apply changes."
+				onUndo={() => revisionState && restoreRevision(revisionState.index - 1)}
+				onRedo={() => revisionState && restoreRevision(revisionState.index + 1)}
+			/>
+
 			{#if showSummaryPanel}
 				<div class="space-y-1">
-					<label class="text-xs font-medium text-secondary-text"
-						>Summary ({activeLanguage.toUpperCase()})</label
-					>
+					<p class="text-xs font-medium text-secondary-text">Summary ({activeLanguage.toUpperCase()})</p>
 					<div class="rounded-xs border border-border bg-card">
 						{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}`}
 							<QuillEditor

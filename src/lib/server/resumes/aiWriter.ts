@@ -313,7 +313,7 @@ const escapeHtml = (value: string) =>
 const splitIntoParagraphs = (line: string): string[] => {
 	const compact = normalize(line);
 	if (!compact) return [];
-	if (compact.length <= 220) return [compact];
+	if (compact.length <= 320) return [compact];
 
 	const sentences =
 		compact.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g)?.map((part) => normalize(part)) ?? [];
@@ -322,24 +322,42 @@ const splitIntoParagraphs = (line: string): string[] => {
 	}
 
 	const paragraphs: string[] = [];
-	let current = '';
+	let currentSentences: string[] = [];
 
 	for (const sentence of sentences) {
 		if (!sentence) continue;
-		const candidate = current ? `${current} ${sentence}` : sentence;
-		if (candidate.length <= 260) {
-			current = candidate;
+		const candidateSentences = [...currentSentences, sentence];
+		const candidate = candidateSentences.join(' ');
+		const shouldStartNewParagraph =
+			currentSentences.length >= 2 && candidate.length > 380;
+
+		if (!shouldStartNewParagraph) {
+			currentSentences = candidateSentences;
 			continue;
 		}
 
-		if (current) {
-			paragraphs.push(current);
+		if (currentSentences.length > 0) {
+			paragraphs.push(currentSentences.join(' '));
 		}
-		current = sentence;
+		currentSentences = [sentence];
 	}
 
-	if (current) {
-		paragraphs.push(current);
+	if (currentSentences.length > 0) {
+		paragraphs.push(currentSentences.join(' '));
+	}
+
+	if (paragraphs.length > 1) {
+		const tail = paragraphs[paragraphs.length - 1] ?? '';
+		const previous = paragraphs[paragraphs.length - 2] ?? '';
+		const tailSentenceCount =
+			tail.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g)?.filter(Boolean).length ?? 0;
+		if (
+			tailSentenceCount === 1 &&
+			previous &&
+			`${previous} ${tail}`.length <= 460
+		) {
+			paragraphs.splice(paragraphs.length - 2, 2, `${previous} ${tail}`);
+		}
 	}
 
 	return paragraphs.length > 0 ? paragraphs : [compact];
@@ -348,17 +366,32 @@ const splitIntoParagraphs = (line: string): string[] => {
 const toQuillHtml = (rawText: string): string => {
 	const cleaned = stripTags(rawText)
 		.split(/\r?\n/)
-		.map((line) => normalize(line))
-		.filter(Boolean);
+		.map((line) => normalize(line));
 
-	if (cleaned.length === 0) {
+	if (cleaned.every((line) => !line)) {
 		return '';
 	}
 
 	const blocks: string[] = [];
+	let proseLines: string[] = [];
+
+	const flushProseLines = () => {
+		if (proseLines.length === 0) return;
+		const proseText = proseLines.map((line) => normalize(line)).filter(Boolean).join(' ');
+		for (const paragraph of splitIntoParagraphs(proseText)) {
+			blocks.push(`<p>${escapeHtml(paragraph)}</p>`);
+		}
+		proseLines = [];
+	};
+
 	for (let i = 0; i < cleaned.length; i += 1) {
 		const line = cleaned[i]!;
+		if (!line) {
+			continue;
+		}
+
 		if (/^[-*•]\s+/.test(line)) {
+			flushProseLines();
 			const items: string[] = [];
 			let j = i;
 			while (j < cleaned.length && /^[-*•]\s+/.test(cleaned[j]!)) {
@@ -375,11 +408,10 @@ const toQuillHtml = (rawText: string): string => {
 			continue;
 		}
 
-		const paragraphs = splitIntoParagraphs(line);
-		for (const paragraph of paragraphs) {
-			blocks.push(`<p>${escapeHtml(paragraph)}</p>`);
-		}
+		proseLines.push(line);
 	}
+
+	flushProseLines();
 
 	return blocks.join('<p><br></p>');
 };
@@ -413,6 +445,8 @@ const outputRequirementsInstruction = (sectionType: ResumeAiSectionType) =>
 - Keep company/role/location/technologies/startDate/endDate empty for summary.
 - Keep description as plain text (2-4 short paragraphs, optional bullets).
 - Use a blank line between paragraphs.
+- Do not put each sentence in its own paragraph.
+- Each paragraph should usually contain 2-4 sentences.
 - Always write in third person.
 - Use consultant name references naturally: introduce with first name when needed, then vary with pronouns/the consultant to avoid repeating the name every sentence.
 - Prioritize recent experiences first and treat older roles as background context.`
@@ -445,6 +479,8 @@ const outputRequirementsInstruction = (sectionType: ResumeAiSectionType) =>
 - Keep technologies as short skill names.
 - Keep description as plain text (2-4 short paragraphs, optional bullets).
 - Use a blank line between paragraphs.
+- Do not put each sentence in its own paragraph.
+- Each paragraph should usually contain 2-4 sentences.
 - Always write in third person.
 - Use consultant name references naturally: introduce with first name when needed, then vary with pronouns/the consultant to avoid repeating the name every sentence.
 - You may update structured fields only if they are listed as editable.

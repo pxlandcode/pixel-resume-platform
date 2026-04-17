@@ -5,7 +5,17 @@
 	import Sparkles from 'lucide-svelte/icons/sparkles';
 	import { QuillEditor, TechStackSelector } from '$lib/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
+	import ResumeAiRevisionPanel from '../ResumeAiRevisionPanel.svelte';
 	import { confirm } from '$lib/utils/confirm';
+	import {
+		type ResumeAiDiffField,
+		type ResumeAiRevisionState,
+		createResumeAiRevisionState,
+		getResumeAiRevisionSnapshot,
+		nextResumeAiRevisionLabel,
+		pushResumeAiRevisionSnapshot,
+		replaceCurrentResumeAiRevisionSnapshot
+	} from '../aiRevisions';
 	import type {
 		Language,
 		ResumeAiFieldKey,
@@ -39,6 +49,8 @@
 		startDate: string;
 		endDate: string | null;
 	};
+
+	type DraftSnapshot = AcceptPayload['drafts'];
 
 	type RevisionByLanguage = {
 		sv: number;
@@ -122,6 +134,8 @@
 		startDate: startDate ?? '',
 		endDate: typeof endDate === 'string' ? endDate : null
 	});
+	let revisionState = $state<ResumeAiRevisionState<DraftSnapshot> | null>(null);
+	let applyingRevisionSnapshot = false;
 
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 	const normalizeNullable = (value: string | null | undefined) => normalize(value ?? '');
@@ -200,6 +214,193 @@
 		startDate: startDate ?? '',
 		endDate: typeof endDate === 'string' ? endDate : null
 	});
+	const createSourceSnapshot = (): DraftSnapshot => ({
+		descriptionByLanguage: {
+			sv: sourceByLanguage.sv,
+			en: sourceByLanguage.en
+		},
+		roleByLanguage: {
+			sv: sourceRoleByLanguage.sv,
+			en: sourceRoleByLanguage.en
+		},
+		locationByLanguage: {
+			sv: sourceLocationByLanguage.sv,
+			en: sourceLocationByLanguage.en
+		},
+		company: sourceSharedDraft.company,
+		technologies: [...sourceSharedDraft.technologies],
+		startDate: sourceSharedDraft.startDate,
+		endDate: sourceSharedDraft.endDate
+	});
+
+	const createDraftSnapshot = (): DraftSnapshot => ({
+		descriptionByLanguage: {
+			sv: draftByLanguage.sv,
+			en: draftByLanguage.en
+		},
+		roleByLanguage: {
+			sv: roleByLanguage.sv,
+			en: roleByLanguage.en
+		},
+		locationByLanguage: {
+			sv: locationByLanguage.sv,
+			en: locationByLanguage.en
+		},
+		company: sharedDraft.company,
+		technologies: [...sharedDraft.technologies],
+		startDate: sharedDraft.startDate,
+		endDate: sharedDraft.endDate
+	});
+
+	const applyDraftSnapshot = (snapshot: DraftSnapshot) => {
+		draftByLanguage = {
+			sv: snapshot.descriptionByLanguage.sv,
+			en: snapshot.descriptionByLanguage.en
+		};
+		roleByLanguage = {
+			sv: snapshot.roleByLanguage.sv,
+			en: snapshot.roleByLanguage.en
+		};
+		locationByLanguage = {
+			sv: snapshot.locationByLanguage.sv,
+			en: snapshot.locationByLanguage.en
+		};
+		sharedDraft = {
+			company: snapshot.company,
+			technologies: [...snapshot.technologies],
+			startDate: snapshot.startDate,
+			endDate: snapshot.endDate
+		};
+	};
+
+	const serializeDraftSnapshot = (snapshot: DraftSnapshot): string =>
+		JSON.stringify({
+			descriptionByLanguage: {
+				sv: normalizeDescription(snapshot.descriptionByLanguage.sv),
+				en: normalizeDescription(snapshot.descriptionByLanguage.en)
+			},
+			roleByLanguage: {
+				sv: normalize(snapshot.roleByLanguage.sv),
+				en: normalize(snapshot.roleByLanguage.en)
+			},
+			locationByLanguage: {
+				sv: normalize(snapshot.locationByLanguage.sv),
+				en: normalize(snapshot.locationByLanguage.en)
+			},
+			company: normalize(snapshot.company),
+			technologies: snapshot.technologies.map((item) => normalize(item)).filter(Boolean),
+			startDate: normalize(snapshot.startDate),
+			endDate: normalizeNullable(snapshot.endDate)
+		});
+
+	const resetRevisionState = (snapshot: DraftSnapshot = createDraftSnapshot()) => {
+		revisionState = createResumeAiRevisionState(snapshot);
+	};
+
+	const commitRevision = (baseLabel: string, beforeSnapshot: DraftSnapshot) => {
+		const afterSnapshot = createDraftSnapshot();
+		if (serializeDraftSnapshot(beforeSnapshot) === serializeDraftSnapshot(afterSnapshot)) {
+			errorMessage = 'AI did not change any draft content.';
+			return false;
+		}
+
+		const currentState = revisionState ?? createResumeAiRevisionState(beforeSnapshot);
+		const syncedState = replaceCurrentResumeAiRevisionSnapshot(currentState, beforeSnapshot);
+		revisionState = pushResumeAiRevisionSnapshot(
+			syncedState,
+			afterSnapshot,
+			nextResumeAiRevisionLabel(syncedState, baseLabel)
+		);
+		return true;
+	};
+
+	const restoreRevision = (nextIndex: number) => {
+		if (!revisionState) return;
+		const snapshot = getResumeAiRevisionSnapshot(revisionState, nextIndex);
+		if (!snapshot) return;
+		applyingRevisionSnapshot = true;
+		applyDraftSnapshot(snapshot);
+		revisionState = {
+			...revisionState,
+			index: nextIndex
+		};
+		errorMessage = '';
+		queueMicrotask(() => {
+			applyingRevisionSnapshot = false;
+		});
+	};
+
+	const revisionDiffFields = $derived.by<ResumeAiDiffField[]>(() => {
+		if (!revisionState || revisionState.index === 0) return [];
+		const currentSnapshot = revisionState.entries[revisionState.index]?.snapshot;
+		const previousSnapshot = revisionState.entries[revisionState.index - 1]?.snapshot;
+		if (!currentSnapshot || !previousSnapshot) return [];
+		return [
+			{
+				key: 'company',
+				label: 'Company',
+				before: previousSnapshot.company,
+				after: currentSnapshot.company
+			},
+			{
+				key: 'role-sv',
+				label: 'Role (SV)',
+				before: previousSnapshot.roleByLanguage.sv,
+				after: currentSnapshot.roleByLanguage.sv
+			},
+			{
+				key: 'role-en',
+				label: 'Role (EN)',
+				before: previousSnapshot.roleByLanguage.en,
+				after: currentSnapshot.roleByLanguage.en
+			},
+			{
+				key: 'location-sv',
+				label: 'Location (SV)',
+				before: previousSnapshot.locationByLanguage.sv,
+				after: currentSnapshot.locationByLanguage.sv
+			},
+			{
+				key: 'location-en',
+				label: 'Location (EN)',
+				before: previousSnapshot.locationByLanguage.en,
+				after: currentSnapshot.locationByLanguage.en
+			},
+			{
+				key: 'start-date',
+				label: 'Start date',
+				before: previousSnapshot.startDate,
+				after: currentSnapshot.startDate
+			},
+			{
+				key: 'end-date',
+				label: 'End date',
+				before: previousSnapshot.endDate ?? '',
+				after: currentSnapshot.endDate ?? ''
+			},
+			{
+				key: 'technologies',
+				label: 'Technologies',
+				mode: 'list',
+				before: previousSnapshot.technologies,
+				after: currentSnapshot.technologies
+			},
+			{
+				key: 'description-sv',
+				label: 'Description (SV)',
+				mode: 'html',
+				before: previousSnapshot.descriptionByLanguage.sv,
+				after: currentSnapshot.descriptionByLanguage.sv
+			},
+			{
+				key: 'description-en',
+				label: 'Description (EN)',
+				mode: 'html',
+				before: previousSnapshot.descriptionByLanguage.en,
+				after: currentSnapshot.descriptionByLanguage.en
+			}
+		];
+	});
 
 	const hasUnappliedStructuredChanges = () => {
 		if (normalize(sharedDraft.company) !== normalize(sourceSharedDraft.company)) return true;
@@ -229,28 +430,13 @@
 	);
 
 	const syncDraftFromSource = () => {
-		draftByLanguage = {
-			sv: sourceByLanguage.sv,
-			en: sourceByLanguage.en
-		};
-		roleByLanguage = {
-			sv: sourceRoleByLanguage.sv,
-			en: sourceRoleByLanguage.en
-		};
-		locationByLanguage = {
-			sv: sourceLocationByLanguage.sv,
-			en: sourceLocationByLanguage.en
-		};
-		sharedDraft = {
-			company: sourceSharedDraft.company,
-			technologies: [...sourceSharedDraft.technologies],
-			startDate: sourceSharedDraft.startDate,
-			endDate: sourceSharedDraft.endDate
-		};
+		const sourceSnapshot = createSourceSnapshot();
+		applyDraftSnapshot(sourceSnapshot);
 		hasGeneratedOnce = false;
 		descriptionLocked = false;
 		descriptionRevisionByLanguage = { sv: 0, en: 0 };
 		lockByField = createDefaultLocks();
+		resetRevisionState(sourceSnapshot);
 	};
 
 	const openDrawer = () => {
@@ -397,6 +583,7 @@
 				unlockedFields,
 				currentText: draftByLanguage[targetLanguage]
 			});
+			const beforeSnapshot = createDraftSnapshot();
 			hasGeneratedOnce = true;
 
 			if (!descriptionLocked) {
@@ -429,6 +616,7 @@
 			if (sectionType === 'experience' && !isLocked('endDate') && generated.endDate !== undefined) {
 				sharedDraft = { ...sharedDraft, endDate: generated.endDate };
 			}
+			commitRevision('AI write', beforeSnapshot);
 		} catch (error) {
 			const fallback = 'Could not generate text right now.';
 			errorMessage = error instanceof Error && error.message ? error.message : fallback;
@@ -500,6 +688,7 @@
 					? sourceDescriptionHtml
 					: draftByLanguage[targetLanguage] || 'Placeholder context.'
 			});
+			const beforeSnapshot = createDraftSnapshot();
 			hasGeneratedOnce = true;
 
 			if (shouldTranslateDescription && !descriptionLocked) {
@@ -511,6 +700,7 @@
 			if (shouldTranslateLocation && generated.location !== undefined) {
 				setLocation(targetLanguage, generated.location);
 			}
+			commitRevision('Translation', beforeSnapshot);
 		} catch (error) {
 			const fallback = 'Could not translate fields right now.';
 			errorMessage = error instanceof Error && error.message ? error.message : fallback;
@@ -570,6 +760,18 @@
 		}
 		scheduleResetDrawerScroll();
 	});
+
+	$effect(() => {
+		if (!open || !revisionState || applyingRevisionSnapshot) return;
+		const currentSnapshot = createDraftSnapshot();
+		if (
+			serializeDraftSnapshot(currentSnapshot) ===
+			serializeDraftSnapshot(revisionState.entries[revisionState.index].snapshot)
+		) {
+			return;
+		}
+		revisionState = replaceCurrentResumeAiRevisionSnapshot(revisionState, currentSnapshot);
+	});
 </script>
 
 <Button
@@ -596,7 +798,7 @@
 				actionLabel: 'Close',
 				action: discardAndClose
 			}}
-		/>
+		></button>
 
 		<div
 			class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1"
@@ -686,6 +888,15 @@
 			{#if errorMessage}
 				<p class="text-sm text-red-600">{errorMessage}</p>
 			{/if}
+
+			<ResumeAiRevisionPanel
+				{revisionState}
+				fields={revisionDiffFields}
+				busy={generating || translating}
+				helperText="AI revisions stay local until you click Apply changes."
+				onUndo={() => revisionState && restoreRevision(revisionState.index - 1)}
+				onRedo={() => revisionState && restoreRevision(revisionState.index + 1)}
+			/>
 
 			{#if showFieldPanel}
 				<div class="rounded-xs border-border bg-muted grid gap-3 border p-3">
