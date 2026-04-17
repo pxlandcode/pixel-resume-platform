@@ -11,6 +11,15 @@ import { getAccessibleTalentIds } from '$lib/server/access';
 const CACHE_TTL_MS = 60_000;
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 
+type AvailableTalent = {
+	id: string;
+	name: string;
+	avatarUrl: string | null;
+	availability: ReturnType<typeof normalizeAvailabilityRow>;
+	organisationName: string | null;
+	organisationLogoUrl: string | null;
+};
+
 type DashboardPanelsResponse = {
 	recentResumes: Array<{
 		id: string;
@@ -20,14 +29,8 @@ type DashboardPanelsResponse = {
 		talentName: string;
 		talentAvatarUrl: string | null;
 	}>;
-	availableSoon: Array<{
-		id: string;
-		name: string;
-		avatarUrl: string | null;
-		availability: ReturnType<typeof normalizeAvailabilityRow>;
-		organisationName: string | null;
-		organisationLogoUrl: string | null;
-	}>;
+	availableNow: AvailableTalent[];
+	availableSoon: AvailableTalent[];
 	generatedAt: string;
 };
 
@@ -216,12 +219,28 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 			const nowUtc = new Date();
 			const thirtyDaysFromNow = new Date(nowUtc.getTime() + 30 * 24 * 60 * 60 * 1000);
 			const thirtyDaysIso = thirtyDaysFromNow.toISOString().slice(0, 10);
-			const availableSoon: DashboardPanelsResponse['availableSoon'] = [];
+			const availableNow: AvailableTalent[] = [];
+			const availableSoon: AvailableTalent[] = [];
 
 			for (const talent of talentRows) {
 				const availability = availabilityByTalentId.get(talent.id);
 				if (!availability?.hasData) continue;
-				if (availability.nowPercent && availability.nowPercent >= 50) continue;
+
+				const orgId = orgIdByTalentId.get(talent.id);
+				const org = orgId ? orgById.get(orgId) : null;
+				const entry: AvailableTalent = {
+					id: talent.id,
+					name: [talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed',
+					avatarUrl: talent.avatar_url ?? null,
+					availability,
+					organisationName: org?.name ?? null,
+					organisationLogoUrl: org?.logoUrl ?? null
+				};
+
+				if (availability.nowPercent && availability.nowPercent >= 50) {
+					availableNow.push(entry);
+					continue;
+				}
 
 				const relevantDate = getEarliestAvailabilityDate(availability);
 				if (!relevantDate || relevantDate > thirtyDaysIso) continue;
@@ -229,17 +248,14 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 				const futurePercent = availability.futurePercent ?? 100;
 				if (futurePercent <= 0) continue;
 
-				const orgId = orgIdByTalentId.get(talent.id);
-				const org = orgId ? orgById.get(orgId) : null;
-				availableSoon.push({
-					id: talent.id,
-					name: [talent.first_name, talent.last_name].filter(Boolean).join(' ') || 'Unnamed',
-					avatarUrl: talent.avatar_url ?? null,
-					availability,
-					organisationName: org?.name ?? null,
-					organisationLogoUrl: org?.logoUrl ?? null
-				});
+				availableSoon.push(entry);
 			}
+
+			availableNow.sort((left, right) => {
+				const leftPct = left.availability.nowPercent ?? 0;
+				const rightPct = right.availability.nowPercent ?? 0;
+				return rightPct - leftPct;
+			});
 
 			availableSoon.sort((left, right) => {
 				const leftDate = getEarliestAvailabilityDate(left.availability) ?? '';
@@ -249,6 +265,7 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 
 			const payload: DashboardPanelsResponse = {
 				recentResumes: recentResumes.slice(0, 5),
+				availableNow: availableNow.slice(0, 5),
 				availableSoon: availableSoon.slice(0, 5),
 				generatedAt: new Date().toISOString()
 			};

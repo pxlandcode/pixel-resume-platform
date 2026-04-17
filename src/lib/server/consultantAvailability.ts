@@ -139,10 +139,14 @@ export const normalizeAvailabilityRow = (row: unknown): ConsultantAvailability =
 	const switchFromDate = computeSwitchFromDate(noticePeriodDays);
 	const plannedFromDate = normalizeDateString(data.availability_planned_from_date);
 	const hasFutureDate = noticePeriodDays !== null || plannedFromDate !== null;
+	const rawNowPercent = normalizePercentValue(data.availability_now_percent);
 	const rawFuturePercent = normalizePercentValue(data.availability_future_percent);
+	const normalizedNowPercent =
+		hasFutureDate && rawNowPercent === 100 ? null : rawNowPercent;
 
 	const availabilityBase = normalizeElapsedFutureAvailability({
-		nowPercent: normalizePercentValue(data.availability_now_percent),
+		// A future assignment date takes precedence over contradictory "100% now" values.
+		nowPercent: normalizedNowPercent,
 		futurePercent: rawFuturePercent ?? (hasFutureDate ? 100 : null),
 		noticePeriodDays,
 		switchFromDate,
@@ -244,10 +248,12 @@ export const validateAvailability = (
 	}
 
 	const hasFutureDate = noticePeriodDays.value !== null || plannedFromDate.value !== null;
+	const normalizedNowPercent =
+		hasFutureDate && nowPercent.value === 100 ? null : nowPercent.value;
 	const normalizedFuturePercent = futurePercent.value ?? (hasFutureDate ? 100 : null);
 
 	const availabilityBase = {
-		nowPercent: nowPercent.value,
+		nowPercent: normalizedNowPercent,
 		futurePercent: normalizedFuturePercent,
 		noticePeriodDays: noticePeriodDays.value,
 		switchFromDate,
