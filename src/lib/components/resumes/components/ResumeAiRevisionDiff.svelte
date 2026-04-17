@@ -1,8 +1,5 @@
 <script lang="ts">
-	import type {
-		ResumeAiDiffField,
-		ResumeAiTextDiffOperation
-	} from './aiRevisions';
+	import type { ResumeAiDiffField, ResumeAiTextDiffOperation } from './aiRevisions';
 	import {
 		buildResumeAiTextDiffOperations,
 		hasResumeAiDiffFieldChanges,
@@ -34,8 +31,8 @@
 
 	let {
 		fields = [],
-		previousLabel = 'Previous',
-		currentLabel = 'Current'
+		previousLabel = 'Before',
+		currentLabel = 'After'
 	}: {
 		fields?: ResumeAiDiffField[];
 		previousLabel?: string;
@@ -91,23 +88,11 @@
 </script>
 
 {#if changedFields.length > 0}
-	<div class="rounded-xs border border-border bg-card p-4">
-		<div class="mb-4 flex items-center justify-between gap-3">
-			<div>
-				<p class="text-secondary-text text-xs font-semibold uppercase tracking-wide">Diff</p>
-				<p class="text-muted-fg text-xs">Comparing {currentLabel} against {previousLabel}</p>
-			</div>
-			<span
-				class="border-border bg-muted text-secondary-text rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em]"
-			>
-				{changedFields.length} changed
-			</span>
-		</div>
-
+	<div class="rounded-xs border-border bg-card border p-4">
 		<div class="space-y-3">
 			{#each changedFields as field (field.key)}
-				<div class="rounded-xs border border-border bg-muted/40 p-3">
-					<p class="mb-2 text-sm font-medium text-foreground">{field.label}</p>
+				<div class="rounded-xs border-border bg-muted/40 border p-3">
+					<p class="text-foreground mb-2 text-sm font-medium">{field.label}</p>
 
 					{#if field.kind === 'list'}
 						<div class="grid gap-3 md:grid-cols-2">
@@ -156,14 +141,14 @@
 									{previousLabel}
 								</p>
 								<div
-									class="rounded-xs border border-border bg-card px-3 py-2 text-sm whitespace-pre-wrap text-secondary-text"
+									class="rounded-xs border-border bg-card text-secondary-text whitespace-pre-wrap border px-3 py-2 text-sm"
 								>
 									{#if field.beforeText}
 										{#each field.beforeSegments as segment}
 											<span class={getTextSegmentClass(segment.type)}>{segment.value}</span>
 										{/each}
 									{:else}
-										<span class="italic text-muted-fg">No previous content.</span>
+										<span class="text-muted-fg italic">No previous content.</span>
 									{/if}
 								</div>
 							</div>
@@ -173,14 +158,14 @@
 									{currentLabel}
 								</p>
 								<div
-									class="rounded-xs border border-border bg-card px-3 py-2 text-sm whitespace-pre-wrap text-secondary-text"
+									class="rounded-xs border-border bg-card text-secondary-text whitespace-pre-wrap border px-3 py-2 text-sm"
 								>
 									{#if field.afterText}
 										{#each field.afterSegments as segment}
 											<span class={getTextSegmentClass(segment.type)}>{segment.value}</span>
 										{/each}
 									{:else}
-										<span class="italic text-muted-fg">No current content.</span>
+										<span class="text-muted-fg italic">No current content.</span>
 									{/if}
 								</div>
 							</div>

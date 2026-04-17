@@ -203,24 +203,24 @@
 {/if}
 
 <style>
-	.user-table .flex.justify-center.p-2.text-sm.font-semibold {
+	:global(.user-table + .flex.justify-center.p-2.text-sm.font-semibold) {
 		display: none;
 	}
 
-	.user-table :global(tr) {
+	:global(.user-table tr) {
 		border-bottom: 1px solid var(--color-border);
 		transition: background-color 0.15s ease;
 	}
 
-	.user-table :global(tr:last-child) {
+	:global(.user-table tr:last-child) {
 		border-bottom: none;
 	}
 
-	.user-table :global(tr:hover) {
+	:global(.user-table tr:hover) {
 		background-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
 	}
 
-	.user-table :global(td) {
+	:global(.user-table td) {
 		padding-top: 1rem;
 		padding-bottom: 1rem;
 	}

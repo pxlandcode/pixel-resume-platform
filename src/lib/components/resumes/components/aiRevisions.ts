@@ -25,7 +25,25 @@ export type ResumeAiTextDiffOperation = {
 	value: string;
 };
 
-const cloneSnapshot = <T>(snapshot: T): T => structuredClone(snapshot);
+export const RESUME_AI_REVISION_LABEL = 'Change';
+export const RESUME_AI_HUMAN_REVISION_DEBOUNCE_MS = 700;
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+	Boolean(value) && Object.prototype.toString.call(value) === '[object Object]';
+
+const toPlainSnapshotValue = (value: unknown): unknown => {
+	if (Array.isArray(value)) {
+		return value.map((entry) => toPlainSnapshotValue(entry));
+	}
+	if (isPlainObject(value)) {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, entry]) => [key, toPlainSnapshotValue(entry)])
+		);
+	}
+	return value;
+};
+
+const cloneSnapshot = <T>(snapshot: T): T => toPlainSnapshotValue(snapshot) as T;
 
 const collapseWhitespace = (value: string): string => value.replace(/\s+/g, ' ').trim();
 

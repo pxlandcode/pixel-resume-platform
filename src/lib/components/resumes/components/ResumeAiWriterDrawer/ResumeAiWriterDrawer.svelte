@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy, tick } from 'svelte';
 	import { Button, FormControl, Input } from '@pixelcode_/blocks/components';
 	import Lock from 'lucide-svelte/icons/lock';
 	import LockOpen from 'lucide-svelte/icons/lock-open';
@@ -10,11 +11,12 @@
 	import {
 		type ResumeAiDiffField,
 		type ResumeAiRevisionState,
+		RESUME_AI_HUMAN_REVISION_DEBOUNCE_MS,
+		RESUME_AI_REVISION_LABEL,
 		createResumeAiRevisionState,
 		getResumeAiRevisionSnapshot,
 		nextResumeAiRevisionLabel,
-		pushResumeAiRevisionSnapshot,
-		replaceCurrentResumeAiRevisionSnapshot
+		pushResumeAiRevisionSnapshot
 	} from '../aiRevisions';
 	import type {
 		Language,
@@ -115,6 +117,7 @@
 	let hasGeneratedOnce = $state(false);
 	let descriptionLocked = $state(false);
 	let descriptionRevisionByLanguage = $state<RevisionByLanguage>({ sv: 0, en: 0 });
+	let revisionRenderNonce = $state(0);
 	let lockByField = $state<FieldLockState>(createDefaultLocks());
 	let draftByLanguage = $state<LocalizedDraft>({
 		sv: descriptionSv ?? '',
@@ -136,6 +139,7 @@
 	});
 	let revisionState = $state<ResumeAiRevisionState<DraftSnapshot> | null>(null);
 	let applyingRevisionSnapshot = false;
+	let manualRevisionTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
 	const normalizeNullable = (value: string | null | undefined) => normalize(value ?? '');
@@ -296,20 +300,50 @@
 	const resetRevisionState = (snapshot: DraftSnapshot = createDraftSnapshot()) => {
 		revisionState = createResumeAiRevisionState(snapshot);
 	};
+	const clearManualRevisionTimer = () => {
+		if (manualRevisionTimer === null) return;
+		clearTimeout(manualRevisionTimer);
+		manualRevisionTimer = null;
+	};
+	const commitHumanRevision = (snapshot: DraftSnapshot = createDraftSnapshot()) => {
+		if (!revisionState) return false;
+		const currentEntry = revisionState.entries[revisionState.index];
+		if (!currentEntry) return false;
+		if (serializeDraftSnapshot(snapshot) === serializeDraftSnapshot(currentEntry.snapshot)) {
+			return false;
+		}
+		revisionState = pushResumeAiRevisionSnapshot(
+			revisionState,
+			snapshot,
+			nextResumeAiRevisionLabel(revisionState, RESUME_AI_REVISION_LABEL)
+		);
+		return true;
+	};
 
-	const commitRevision = (baseLabel: string, beforeSnapshot: DraftSnapshot) => {
+	const commitRevision = (beforeSnapshot: DraftSnapshot) => {
+		clearManualRevisionTimer();
 		const afterSnapshot = createDraftSnapshot();
 		if (serializeDraftSnapshot(beforeSnapshot) === serializeDraftSnapshot(afterSnapshot)) {
 			errorMessage = 'AI did not change any draft content.';
 			return false;
 		}
 
-		const currentState = revisionState ?? createResumeAiRevisionState(beforeSnapshot);
-		const syncedState = replaceCurrentResumeAiRevisionSnapshot(currentState, beforeSnapshot);
+		let currentState = revisionState ?? createResumeAiRevisionState(beforeSnapshot);
+		const currentEntry = currentState.entries[currentState.index];
+		if (
+			currentEntry &&
+			serializeDraftSnapshot(beforeSnapshot) !== serializeDraftSnapshot(currentEntry.snapshot)
+		) {
+			currentState = pushResumeAiRevisionSnapshot(
+				currentState,
+				beforeSnapshot,
+				nextResumeAiRevisionLabel(currentState, RESUME_AI_REVISION_LABEL)
+			);
+		}
 		revisionState = pushResumeAiRevisionSnapshot(
-			syncedState,
+			currentState,
 			afterSnapshot,
-			nextResumeAiRevisionLabel(syncedState, baseLabel)
+			nextResumeAiRevisionLabel(currentState, RESUME_AI_REVISION_LABEL)
 		);
 		return true;
 	};
@@ -318,14 +352,16 @@
 		if (!revisionState) return;
 		const snapshot = getResumeAiRevisionSnapshot(revisionState, nextIndex);
 		if (!snapshot) return;
+		clearManualRevisionTimer();
 		applyingRevisionSnapshot = true;
 		applyDraftSnapshot(snapshot);
 		revisionState = {
 			...revisionState,
 			index: nextIndex
 		};
+		revisionRenderNonce += 1;
 		errorMessage = '';
-		queueMicrotask(() => {
+		void tick().then(() => {
 			applyingRevisionSnapshot = false;
 		});
 	};
@@ -428,8 +464,10 @@
 			normalize(draftByLanguage.en) !== normalize(sourceByLanguage.en) ||
 			hasUnappliedStructuredChanges()
 	);
+	const isBusy = $derived(generating || translating);
 
 	const syncDraftFromSource = () => {
+		clearManualRevisionTimer();
 		const sourceSnapshot = createSourceSnapshot();
 		applyDraftSnapshot(sourceSnapshot);
 		hasGeneratedOnce = false;
@@ -438,6 +476,10 @@
 		lockByField = createDefaultLocks();
 		resetRevisionState(sourceSnapshot);
 	};
+
+	onDestroy(() => {
+		clearManualRevisionTimer();
+	});
 
 	const openDrawer = () => {
 		activeLanguage = 'sv';
@@ -458,6 +500,9 @@
 	};
 
 	const requestClose = () => {
+		if (isBusy) {
+			return false;
+		}
 		if (!hasUnappliedChanges) {
 			return true;
 		}
@@ -616,7 +661,7 @@
 			if (sectionType === 'experience' && !isLocked('endDate') && generated.endDate !== undefined) {
 				sharedDraft = { ...sharedDraft, endDate: generated.endDate };
 			}
-			commitRevision('AI write', beforeSnapshot);
+			commitRevision(beforeSnapshot);
 		} catch (error) {
 			const fallback = 'Could not generate text right now.';
 			errorMessage = error instanceof Error && error.message ? error.message : fallback;
@@ -700,7 +745,7 @@
 			if (shouldTranslateLocation && generated.location !== undefined) {
 				setLocation(targetLanguage, generated.location);
 			}
-			commitRevision('Translation', beforeSnapshot);
+			commitRevision(beforeSnapshot);
 		} catch (error) {
 			const fallback = 'Could not translate fields right now.';
 			errorMessage = error instanceof Error && error.message ? error.message : fallback;
@@ -764,13 +809,18 @@
 	$effect(() => {
 		if (!open || !revisionState || applyingRevisionSnapshot) return;
 		const currentSnapshot = createDraftSnapshot();
-		if (
-			serializeDraftSnapshot(currentSnapshot) ===
-			serializeDraftSnapshot(revisionState.entries[revisionState.index].snapshot)
-		) {
+		const currentEntry = revisionState.entries[revisionState.index];
+		if (!currentEntry) return;
+		if (serializeDraftSnapshot(currentSnapshot) === serializeDraftSnapshot(currentEntry.snapshot)) {
+			clearManualRevisionTimer();
 			return;
 		}
-		revisionState = replaceCurrentResumeAiRevisionSnapshot(revisionState, currentSnapshot);
+		clearManualRevisionTimer();
+		manualRevisionTimer = setTimeout(() => {
+			manualRevisionTimer = null;
+			if (!open || applyingRevisionSnapshot) return;
+			commitHumanRevision();
+		}, RESUME_AI_HUMAN_REVISION_DEBOUNCE_MS);
 	});
 </script>
 
@@ -786,7 +836,11 @@
 </Button>
 
 <Drawer bind:open variant="bottom" title={rowTitle} subtitle="AI writer" beforeClose={requestClose}>
-	<div class="relative flex min-h-0 flex-1 flex-col gap-4">
+	<div
+		class="relative flex min-h-0 flex-1 flex-col gap-4"
+		inert={isBusy ? true : undefined}
+		aria-busy={isBusy}
+	>
 		<button
 			type="button"
 			class="pointer-events-none absolute right-0 top-0 h-0 w-0 opacity-0"
@@ -799,6 +853,16 @@
 				action: discardAndClose
 			}}
 		></button>
+
+		{#if isBusy}
+			<div
+				class="bg-card/75 absolute inset-0 z-20 flex items-center justify-center backdrop-blur-[1px]"
+				role="status"
+				aria-live="polite"
+			>
+				<p class="text-foreground text-sm font-medium">AI is working. Editing is temporarily disabled.</p>
+			</div>
+		{/if}
 
 		<div
 			class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1"
@@ -888,15 +952,6 @@
 			{#if errorMessage}
 				<p class="text-sm text-red-600">{errorMessage}</p>
 			{/if}
-
-			<ResumeAiRevisionPanel
-				{revisionState}
-				fields={revisionDiffFields}
-				busy={generating || translating}
-				helperText="AI revisions stay local until you click Apply changes."
-				onUndo={() => revisionState && restoreRevision(revisionState.index - 1)}
-				onRedo={() => revisionState && restoreRevision(revisionState.index + 1)}
-			/>
 
 			{#if showFieldPanel}
 				<div class="rounded-xs border-border bg-muted grid gap-3 border p-3">
@@ -1092,7 +1147,7 @@
 									<p class="text-secondary-text p-3 text-sm">No description yet.</p>
 								{/if}
 							{:else}
-								{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}`}
+								{#key `${activeLanguage}-${descriptionRevisionByLanguage[activeLanguage]}-${revisionRenderNonce}`}
 									{@const editorLanguage = activeLanguage}
 									<QuillEditor
 										content={draftByLanguage[editorLanguage]}
@@ -1129,22 +1184,34 @@
 								class={getInputClass('technologies')}
 							/>
 						{:else}
-							<TechStackSelector
-								value={sharedDraft.technologies}
-								{organisationId}
-								onchange={(techs) => setTechnologies(techs ?? [])}
-							/>
+							{#key revisionRenderNonce}
+								<TechStackSelector
+									value={sharedDraft.technologies}
+									{organisationId}
+									onchange={(techs) => setTechnologies(techs ?? [])}
+								/>
+							{/key}
 						{/if}
 					</div>
 				</div>
 			{/if}
 		</div>
 
-		<div class="border-border flex justify-end gap-2 border-t pt-4">
-			<Button type="button" variant="ghost" onclick={closeDrawer}>Close</Button>
-			<Button type="button" variant="primary" disabled={generating || translating} onclick={accept}
-				>Apply changes</Button
-			>
+		<div class="border-border relative flex items-center justify-end gap-3 border-t pt-4">
+			<div class="pointer-events-none absolute inset-x-0 bottom-0 top-4">
+				<ResumeAiRevisionPanel
+					{revisionState}
+					fields={revisionDiffFields}
+					busy={isBusy}
+					onUndo={() => revisionState && restoreRevision(revisionState.index - 1)}
+					onRedo={() => revisionState && restoreRevision(revisionState.index + 1)}
+				/>
+			</div>
+			<div class="relative z-10 flex justify-end gap-2">
+				<Button type="button" variant="primary" disabled={isBusy} onclick={accept}
+					>Apply changes</Button
+				>
+			</div>
 		</div>
 	</div>
 </Drawer>

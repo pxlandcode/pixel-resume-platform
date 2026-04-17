@@ -131,24 +131,24 @@
 </Card>
 
 <style>
-	.organisation-table .flex.justify-center.p-2.text-sm.font-semibold {
+	:global(.organisation-table + .flex.justify-center.p-2.text-sm.font-semibold) {
 		display: none;
 	}
 
-	.organisation-table :global(tr) {
+	:global(.organisation-table tr) {
 		border-bottom: 1px solid var(--color-border);
 		transition: background-color 0.15s ease;
 	}
 
-	.organisation-table :global(tr:last-child) {
+	:global(.organisation-table tr:last-child) {
 		border-bottom: none;
 	}
 
-	.organisation-table :global(tr:hover) {
+	:global(.organisation-table tr:hover) {
 		background-color: color-mix(in oklab, var(--color-muted) 70%, transparent);
 	}
 
-	.organisation-table :global(td) {
+	:global(.organisation-table td) {
 		padding-top: 1rem;
 		padding-bottom: 1rem;
 	}
