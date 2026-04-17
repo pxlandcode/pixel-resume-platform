@@ -5,6 +5,7 @@
 	import type { SuperListHead } from '$lib/components/super-list';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import { goto, invalidateAll } from '$app/navigation';
 	import {
 		applyImageFallbackOnce,
 		getOriginalImageUrl,
@@ -15,18 +16,30 @@
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
 	import { Alert, Button, Card, Input } from '@pixelcode_/blocks/components';
-	import { User, LayoutGrid, List, SlidersHorizontal, Search } from 'lucide-svelte';
+	import { Pencil, User, LayoutGrid, List, SlidersHorizontal, Search } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
 	import { slide } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { onDestroy } from 'svelte';
 
-	const { data, form } = $props();
+	type LoadTalent = {
+		id: string;
+		user_id: string | null;
+		first_name: string;
+		last_name: string;
+		avatar_url: string | null;
+		title: string;
+		resume_count: number;
+		can_edit: boolean;
+		organisation_id: string | null;
+		organisation_name: string | null;
+		organisation_logo_url: string | null;
+	};
 
-	const allTalents = $derived(data.talents ?? []);
+	let { data } = $props();
+
+	const allTalents = $derived((data.talents as LoadTalent[] | undefined) ?? []);
 	const canManageTalents = $derived(Boolean(data.canManageTalents));
-	const actionMessage = $derived(typeof form?.message === 'string' ? form.message : null);
-	const actionFailed = $derived(form?.ok === false);
 	const talentsViewMode = $derived($userSettingsStore.settings.views.talents);
 	const homeOrganisationId = $derived(
 		typeof data.homeOrganisationId === 'string' ? data.homeOrganisationId : null
@@ -80,6 +93,8 @@
 	);
 
 	let isCreateDrawerOpen = $state(false);
+	let isEditDrawerOpen = $state(false);
+	let selectedTalentId = $state<string | null>(null);
 	let filtersOpen = $state(false);
 	let searchQuery = $state('');
 	let contactIndexStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -89,6 +104,7 @@
 	let contactIndexByScope = $state<Record<string, Record<string, string | null>>>({});
 	let contactEtagByScope = $state<Record<string, string | null>>({});
 	let contactIndexAbortController: AbortController | null = null;
+	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 
 	const needsContactIndex = $derived(talentsViewMode === 'list' || searchQuery.trim().length > 0);
 	const contactIndexLoadingForScope = $derived(
@@ -238,18 +254,19 @@
 		id: string;
 		name: string;
 		avatar_url: string | null;
-		title: string | null;
 		email: string | null;
 		organisation_name: string | null;
 		organisation_logo_url: string | null;
+		can_edit: boolean;
+		source: LoadTalent;
 	};
 
 	const talentsListHeadings: SuperListHead<TalentsListRow>[] = [
 		{ heading: null, width: 6 },
-		{ heading: 'Name', sortable: 'name', filterable: 'name', width: 28 },
-		{ heading: 'Title', sortable: 'title', filterable: 'title', width: 28 },
-		{ heading: 'Email', sortable: 'email', filterable: 'email', width: 22 },
-		{ heading: 'Organisation', sortable: 'organisation_name', width: 16 }
+		{ heading: 'Name', sortable: 'name', filterable: 'name', width: 34 },
+		{ heading: 'Email', sortable: 'email', filterable: 'email', width: 28 },
+		{ heading: 'Organisation', sortable: 'organisation_name', width: 24 },
+		{ heading: null, width: 8 }
 	];
 
 	const toTalentListRows = (items: typeof talents): TalentsListRow[] =>
@@ -257,10 +274,11 @@
 			id: t.id,
 			name: getTalentName(t),
 			avatar_url: t.avatar_url ?? null,
-			title: t.title ?? null,
 			email: getTalentEmail(t.id),
 			organisation_name: t.organisation_name ?? null,
-			organisation_logo_url: t.organisation_logo_url ?? null
+			organisation_logo_url: t.organisation_logo_url ?? null,
+			can_edit: t.can_edit,
+			source: t
 		}));
 
 	const talentListHandler = $derived.by(() => {
@@ -279,6 +297,9 @@
 			return name.includes(q) || title.includes(q) || email.includes(q);
 		});
 	});
+	const selectedTalent = $derived(
+		selectedTalentId ? (allTalents.find((talent) => talent.id === selectedTalentId) ?? null) : null
+	);
 
 	const setTalentsViewMode = (mode: ViewMode) => {
 		void userSettingsStore.setViewMode('talents', mode);
@@ -299,19 +320,64 @@
 		}
 		void userSettingsStore.setOrganisationFilters('talents', next);
 	};
+
+	const canEditTalent = (talent: LoadTalent | null | undefined) =>
+		Boolean(canManageTalents && talent?.id && talent.can_edit);
+
+	const openCreateDrawer = () => {
+		feedback = null;
+		selectedTalentId = null;
+		isCreateDrawerOpen = true;
+	};
+
+	const openEditDrawer = (talent: LoadTalent) => {
+		if (!canEditTalent(talent)) return;
+		feedback = null;
+		selectedTalentId = talent.id;
+		isEditDrawerOpen = true;
+	};
+
+	const handleDrawerSuccess = async (
+		event: CustomEvent<{ message: string; action: 'create' | 'update' | 'delete' }>
+	) => {
+		feedback = {
+			type: 'success',
+			message: event.detail.message
+		};
+		isCreateDrawerOpen = false;
+		isEditDrawerOpen = false;
+		selectedTalentId = null;
+		await invalidateAll();
+	};
+
+	const handleDrawerError = (
+		event: CustomEvent<{ message: string; action: 'create' | 'update' | 'delete' }>
+	) => {
+		feedback = {
+			type: 'error',
+			message: event.detail.message
+		};
+	};
+
+	const getTalentWorkspaceHref = (talentId: string) =>
+		`${resolve('/resumes/[personId]', { personId: talentId })}?from=talents`;
+
+	const openTalentWorkspace = async (talentId: string) => {
+		await goto(getTalentWorkspaceHref(talentId));
+	};
+
+	$effect(() => {
+		if (!isEditDrawerOpen && selectedTalentId) {
+			selectedTalentId = null;
+		}
+	});
 </script>
 
 <div class="relative space-y-6">
 	<div class="absolute right-0 top-0 z-10 flex items-center gap-2">
 		{#if canManageTalents}
 			<div class="bg-primary inline-flex items-center rounded-sm p-1">
-				<Button
-					type="button"
-					variant="primary"
-					size="sm"
-					class="px-3"
-					onclick={() => (isCreateDrawerOpen = true)}
-				>
+				<Button type="button" variant="primary" size="sm" class="px-3" onclick={openCreateDrawer}>
 					Create talent
 				</Button>
 			</div>
@@ -394,9 +460,9 @@
 		</div>
 	{/if}
 
-	{#if canManageTalents && actionMessage}
-		<Alert variant={actionFailed ? 'destructive' : 'success'} size="sm">
-			<p class="text-foreground text-sm font-medium">{actionMessage}</p>
+	{#if feedback}
+		<Alert variant={feedback.type === 'error' ? 'destructive' : 'success'} size="sm">
+			<p class="text-foreground text-sm font-medium">{feedback.message}</p>
 		</Alert>
 	{/if}
 	{#if needsContactIndex && contactIndexLoadingForScope}
@@ -408,7 +474,19 @@
 	{/if}
 
 	{#if canManageTalents}
-		<TalentFormDrawer bind:open={isCreateDrawerOpen} />
+		<TalentFormDrawer
+			bind:open={isCreateDrawerOpen}
+			mode="create"
+			on:success={handleDrawerSuccess}
+			on:error={handleDrawerError}
+		/>
+		<TalentFormDrawer
+			bind:open={isEditDrawerOpen}
+			mode="edit"
+			talent={selectedTalent}
+			on:success={handleDrawerSuccess}
+			on:error={handleDrawerError}
+		/>
 	{/if}
 
 	{#if allTalents.length === 0}
@@ -429,56 +507,78 @@
 		</div>
 		<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 			{#each searchFilteredTalents as talent (talent.id)}
-				<a href={resolve('/resumes/[personId]', { personId: talent.id })} class="block h-full">
-					<Card
-						class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
-					>
-						<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
-							{#if talent.avatar_url}
-								<img
-									src={getCardAvatarSrc(talent.avatar_url)}
-									srcset={getCardAvatarSrcSet(talent.avatar_url)}
-									sizes={supabaseImageSizes.avatarCard}
-									alt={getTalentName(talent)}
-									class="h-full w-full object-cover object-center transition-transform duration-500 hover:scale-105"
-									loading="lazy"
-									decoding="async"
-									onerror={(event) =>
-										applyImageFallbackOnce(event, getCardAvatarFallbackSrc(talent.avatar_url))}
-								/>
-							{:else}
-								<div class="text-muted-fg flex h-full w-full items-center justify-center">
-									<User size={48} />
-								</div>
-							{/if}
+				<div class="relative h-full">
+					<a href={getTalentWorkspaceHref(talent.id)} class="block h-full">
+						<Card
+							class="flex h-full flex-col overflow-hidden rounded-none transition-all hover:shadow-md"
+						>
+							<div class="bg-muted hidden aspect-square w-full overflow-hidden sm:block">
+								{#if talent.avatar_url}
+									<img
+										src={getCardAvatarSrc(talent.avatar_url)}
+										srcset={getCardAvatarSrcSet(talent.avatar_url)}
+										sizes={supabaseImageSizes.avatarCard}
+										alt={getTalentName(talent)}
+										class="h-full w-full object-cover object-center transition-transform duration-500 hover:scale-105"
+										loading="lazy"
+										decoding="async"
+										onerror={(event) =>
+											applyImageFallbackOnce(event, getCardAvatarFallbackSrc(talent.avatar_url))}
+									/>
+								{:else}
+									<div class="text-muted-fg flex h-full w-full items-center justify-center">
+										<User size={48} />
+									</div>
+								{/if}
+							</div>
+							<div class="flex flex-1 flex-col p-5">
+								<h3 class="text-foreground text-lg font-semibold">{getTalentName(talent)}</h3>
+								{#if talent.title}
+									<p class="text-muted-fg mt-1 text-sm">{talent.title}</p>
+								{/if}
+								{#if getTalentEmail(talent.id)}
+									<p class="text-muted-fg mt-2 hidden text-xs sm:block">
+										{getTalentEmail(talent.id)}
+									</p>
+								{/if}
+								{#if talent.organisation_logo_url || talent.organisation_name}
+									<div class="mt-auto pt-3">
+										{#if talent.organisation_logo_url}
+											<img
+												src={talent.organisation_logo_url}
+												alt={talent.organisation_name ?? 'Organisation'}
+												class="h-5 w-auto object-contain"
+											/>
+										{:else}
+											<span class="text-muted-fg text-xs font-medium"
+												>{talent.organisation_name}</span
+											>
+										{/if}
+									</div>
+								{/if}
+							</div>
+						</Card>
+					</a>
+					{#if canEditTalent(talent)}
+						<div class="absolute right-3 top-3">
+							<Button
+								variant="outline"
+								size="sm"
+								type="button"
+								aria-label={`Edit ${getTalentName(talent)}`}
+								onclick={(event) => {
+									event.preventDefault();
+									event.stopPropagation();
+									openEditDrawer(talent);
+								}}
+								class="bg-background/95 gap-0 sm:gap-1.5"
+							>
+								<Pencil size={14} />
+								<span class="sr-only sm:not-sr-only">Edit</span>
+							</Button>
 						</div>
-						<div class="flex flex-1 flex-col p-5">
-							<h3 class="text-foreground text-lg font-semibold">{getTalentName(talent)}</h3>
-							{#if talent.title}
-								<p class="text-muted-fg mt-1 text-sm">{talent.title}</p>
-							{/if}
-							{#if getTalentEmail(talent.id)}
-								<p class="text-muted-fg mt-2 hidden text-xs sm:block">
-									{getTalentEmail(talent.id)}
-								</p>
-							{/if}
-							{#if talent.organisation_logo_url || talent.organisation_name}
-								<div class="mt-auto pt-3">
-									{#if talent.organisation_logo_url}
-										<img
-											src={talent.organisation_logo_url}
-											alt={talent.organisation_name ?? 'Organisation'}
-											class="h-5 w-auto object-contain"
-										/>
-									{:else}
-										<span class="text-muted-fg text-xs font-medium">{talent.organisation_name}</span
-										>
-									{/if}
-								</div>
-							{/if}
-						</div>
-					</Card>
-				</a>
+					{/if}
+				</div>
 			{/each}
 		</div>
 		{#if searchQuery && searchFilteredTalents.length === 0}
@@ -489,24 +589,24 @@
 	{:else}
 		<SuperList instance={talentListHandler} emptyMessage="No talents found">
 			{#each talentListHandler.data as row (row.id)}
-				<Row.Root href={resolve('/resumes/[personId]', { personId: row.id })}>
+				<Row.Root
+					onclick={() => {
+						void openTalentWorkspace(row.id);
+					}}
+					class="cursor-pointer"
+				>
 					<Cell.Value width={6} class="hidden sm:block">
 						<Cell.Avatar src={row.avatar_url} alt={row.name} size={36} />
 					</Cell.Value>
-					<Cell.Value width={28} class="mobile-fill-cell">
+					<Cell.Value width={34} class="mobile-fill-cell">
 						<span class="text-foreground truncate text-sm font-semibold">{row.name}</span>
 					</Cell.Value>
-					<Cell.Value width={28} class="mobile-fill-cell">
-						{#if row.title}
-							<span class="text-muted-fg truncate text-sm">{row.title}</span>
-						{/if}
-					</Cell.Value>
-					<Cell.Value width={22} class="hidden sm:block">
+					<Cell.Value width={28} class="hidden sm:block">
 						{#if row.email}
 							<span class="text-muted-fg truncate text-xs">{row.email}</span>
 						{/if}
 					</Cell.Value>
-					<Cell.Value width={16} class="mobile-logo-cell">
+					<Cell.Value width={24} class="mobile-logo-cell">
 						{#if row.organisation_logo_url}
 							<img
 								src={row.organisation_logo_url}
@@ -515,6 +615,26 @@
 							/>
 						{:else if row.organisation_name}
 							<span class="text-muted-fg text-xs font-medium">{row.organisation_name}</span>
+						{/if}
+					</Cell.Value>
+					<Cell.Value width={8} class="mobile-action-cell">
+						{#if canEditTalent(row.source)}
+							<div class="flex justify-end gap-2 pl-2">
+								<Button
+									variant="outline"
+									size="sm"
+									type="button"
+									aria-label={`Edit ${row.name}`}
+									onclick={(event) => {
+										event.stopPropagation();
+										openEditDrawer(row.source);
+									}}
+									class="gap-0 sm:gap-1.5"
+								>
+									<Pencil size={14} />
+									<span class="sr-only sm:not-sr-only">Edit</span>
+								</Button>
+							</div>
 						{/if}
 					</Cell.Value>
 				</Row.Root>
@@ -531,6 +651,11 @@
 		}
 
 		:global(.mobile-logo-cell) {
+			width: auto !important;
+			flex: 0 0 auto !important;
+		}
+
+		:global(.mobile-action-cell) {
 			width: auto !important;
 			flex: 0 0 auto !important;
 		}

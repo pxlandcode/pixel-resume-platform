@@ -74,6 +74,11 @@ export type EffectiveTalentShare = {
 	ruleScope: ShareRuleScope;
 };
 
+export type AccessibleTalentAccess = {
+	talentId: string;
+	accessLevel: ShareAccessLevel;
+};
+
 export type TalentAccessResult = {
 	exists: boolean;
 	talentId: string;
@@ -435,15 +440,15 @@ export const getActorAccessContext = async (
 	return value;
 };
 
-export const getAccessibleTalentIds = async (
+export const getAccessibleTalentAccess = async (
 	adminClient: SupabaseClient | null,
 	context: ActorAccessContext
-): Promise<string[] | null> => {
+): Promise<AccessibleTalentAccess[] | null> => {
 	if (!adminClient || !context.userId) return [];
 	if (context.isAdmin) return null;
 
 	if (!(context.isBroker || context.isEmployer) || !context.homeOrganisationId) {
-		return unique([context.talentId ?? '']);
+		return context.talentId ? [{ talentId: context.talentId, accessLevel: 'write' }] : [];
 	}
 
 	const [homeTalentRowsResult, organisationRuleRowsResult, talentRuleRowsResult] =
@@ -537,11 +542,24 @@ export const getAccessibleTalentIds = async (
 		accessByTalentId.set(context.talentId, 'write');
 	}
 
-	return unique(
+	return Array.from(
 		Array.from(accessByTalentId.entries())
 			.filter(([, accessLevel]) => accessLevel !== 'none')
-			.map(([talentId]) => talentId)
+			.map(([talentId, accessLevel]) => ({
+				talentId,
+				accessLevel
+			}))
 	);
+};
+
+export const getAccessibleTalentIds = async (
+	adminClient: SupabaseClient | null,
+	context: ActorAccessContext
+): Promise<string[] | null> => {
+	const accessEntries = await getAccessibleTalentAccess(adminClient, context);
+	if (accessEntries === null) return null;
+
+	return unique(accessEntries.map((entry) => entry.talentId));
 };
 
 export const getTalentAccess = async (

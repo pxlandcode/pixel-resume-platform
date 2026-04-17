@@ -7,6 +7,8 @@
 		canEdit = false,
 		isEditing = false,
 		avatarUploading = false,
+		backHref = '/resumes',
+		backLabel = 'Back to resume list',
 		onStartEdit,
 		onCancelEdit
 	}: {
@@ -14,15 +16,17 @@
 		canEdit?: boolean;
 		isEditing?: boolean;
 		avatarUploading?: boolean;
+		backHref?: string;
+		backLabel?: string;
 		onStartEdit?: () => void;
 		onCancelEdit?: () => void;
 	} = $props();
 </script>
 
 <div class="mb-6 flex items-center justify-between">
-	<Button variant="ghost" href="/resumes" class="hover:text-primary pl-0 hover:bg-transparent">
+	<Button variant="ghost" href={backHref} class="hover:text-primary pl-0 hover:bg-transparent">
 		<ArrowLeft size={16} class="mr-2" />
-		Back to all talents
+		{backLabel}
 	</Button>
 
 	{#if hasProfile && canEdit}

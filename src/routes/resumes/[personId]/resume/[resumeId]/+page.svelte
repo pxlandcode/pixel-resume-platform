@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { deserialize } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import { Button, Card, Toaster, toast } from '@pixelcode_/blocks/components';
 	import { AlertCircle, ArrowLeft, Download, Edit, RotateCcw, Save, Share2, X } from 'lucide-svelte';
 	import ResumeView from '$lib/components/resumes/ResumeView.svelte';
@@ -97,7 +98,14 @@
 		}
 	});
 
+	const navigationOrigin = $derived.by<'resumes' | 'talents'>(() =>
+		$page.url.searchParams.get('from') === 'talents' ? 'talents' : 'resumes'
+	);
 	const personName = $derived(data.resumePerson?.name ?? 'Resume');
+	const talentProfileHref = $derived.by(() => {
+		const target = resolve('/resumes/[personId]', { personId: data.resume.personId });
+		return navigationOrigin === 'talents' ? `${target}?from=talents` : target;
+	});
 	const authenticatedUserId = $derived(
 		typeof $page.data.user?.id === 'string' ? $page.data.user.id : null
 	);
@@ -599,9 +607,13 @@
 
 <div class="flex items-center justify-between">
 	<div>
-		<Button variant="ghost" href="/resumes" class=" hover:text-primary pl-0 hover:bg-transparent">
+		<Button
+			variant="ghost"
+			href={talentProfileHref}
+			class=" hover:text-primary pl-0 hover:bg-transparent"
+		>
 			<ArrowLeft size={16} class="mr-2" />
-			Back to resumes
+			Back to talent profile
 		</Button>
 
 		{#if errorMessage}

@@ -49,6 +49,13 @@
 		typeof data.commentCount === 'number' ? data.commentCount : commentHistory.length
 	);
 	const canCreateComment = $derived(Boolean(data.canCreateComment));
+	const navigationOrigin = $derived.by<'resumes' | 'talents'>(() =>
+		$page.url.searchParams.get('from') === 'talents' ? 'talents' : 'resumes'
+	);
+	const talentProfileBackHref = $derived(navigationOrigin === 'talents' ? '/talents' : '/resumes');
+	const talentProfileBackLabel = $derived(
+		navigationOrigin === 'talents' ? 'Back to talent list' : 'Back to resume list'
+	);
 	type ResumeListItem = NonNullable<typeof data.resumes>[number];
 	type ImportFile = UppyFile<Record<string, unknown>, Record<string, unknown>>;
 	const techStack = $derived((profile?.tech_stack as ResumeTechCategory[]) ?? []);
@@ -1091,7 +1098,12 @@
 
 	const openResume = (resumeId: string) => {
 		if (!profile) return;
-		void goto(`/resumes/${encodeURIComponent(profile.id)}/resume/${encodeURIComponent(resumeId)}`);
+		const target = resolve('/resumes/[personId]/resume/[resumeId]', {
+			personId: profile.id,
+			resumeId
+		});
+		const query = navigationOrigin === 'talents' ? '?from=talents' : '';
+		void goto(`${target}${query}`);
 	};
 
 	const handleResumeDragEnd = () => {
@@ -1174,6 +1186,8 @@
 	<div class="mb-8">
 		<TalentProfileHeader
 			hasProfile={Boolean(profile)}
+			backHref={talentProfileBackHref}
+			backLabel={talentProfileBackLabel}
 			{canEdit}
 			{isEditing}
 			{avatarUploading}
