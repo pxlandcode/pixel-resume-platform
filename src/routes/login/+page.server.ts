@@ -8,7 +8,7 @@ import {
 	getSupabaseUrl,
 	setAuthCookies
 } from '$lib/server/supabase';
-import { normalizeAppRedirect } from '$lib/server/authRedirect';
+import { normalizeAppRedirect, resolvePublicOrigin } from '$lib/server/authRedirect';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ cookies }) => {
@@ -71,6 +71,7 @@ export const actions: Actions = {
 	microsoft: async ({ request, cookies, url }) => {
 		const formData = await request.formData();
 		const destination = normalizeAppRedirect(formData.get('redirectTo'), '/');
+		const publicOrigin = resolvePublicOrigin({ url, headers: request.headers });
 		const supabase = createSupabaseMicrosoftOAuthClient(cookies);
 		if (!supabase) {
 			return fail(500, {
@@ -79,7 +80,7 @@ export const actions: Actions = {
 			});
 		}
 
-		const callbackUrl = new URL('/auth/callback', url.origin);
+		const callbackUrl = new URL('/auth/callback', publicOrigin);
 		callbackUrl.searchParams.set('redirect', destination);
 
 		const { data, error } = await supabase.auth.signInWithOAuth({

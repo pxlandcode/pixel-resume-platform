@@ -6,7 +6,7 @@ import {
 	getSupabaseAdminClient,
 	setAuthCookies
 } from '$lib/server/supabase';
-import { normalizeAppRedirect } from '$lib/server/authRedirect';
+import { normalizeAppRedirect, resolvePublicOrigin } from '$lib/server/authRedirect';
 import {
 	MicrosoftOAuthProvisioningError,
 	provisionMicrosoftOAuthUser
@@ -23,25 +23,26 @@ const toErrorCode = (error: unknown) => {
 	return 'microsoft_oauth_failed';
 };
 
-export const GET: RequestHandler = async ({ url, cookies }) => {
+export const GET: RequestHandler = async ({ url, cookies, request }) => {
+	const publicOrigin = resolvePublicOrigin({ url, headers: request.headers });
 	const destination = normalizeAppRedirect(url.searchParams.get('redirect'), '/');
 	const providerError = url.searchParams.get('error') ?? null;
 	if (providerError) {
 		clearMicrosoftOAuthCookies(cookies);
-		throw redirect(303, toLoginRedirect('microsoft_oauth_failed', destination));
+		throw redirect(303, new URL(toLoginRedirect('microsoft_oauth_failed', destination), publicOrigin).toString());
 	}
 
 	const code = url.searchParams.get('code');
 	if (!code) {
 		clearMicrosoftOAuthCookies(cookies);
-		throw redirect(303, toLoginRedirect('missing_oauth_code', destination));
+		throw redirect(303, new URL(toLoginRedirect('missing_oauth_code', destination), publicOrigin).toString());
 	}
 
 	const supabase = createSupabaseMicrosoftOAuthClient(cookies);
 	const adminClient = getSupabaseAdminClient();
 	if (!supabase || !adminClient) {
 		clearMicrosoftOAuthCookies(cookies);
-		throw redirect(303, toLoginRedirect('server_not_configured', destination));
+		throw redirect(303, new URL(toLoginRedirect('server_not_configured', destination), publicOrigin).toString());
 	}
 
 	const { data, error } = await supabase.auth.exchangeCodeForSession(code);
@@ -49,7 +50,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 
 	if (error || !data.session || !data.user) {
 		clearAuthCookies(cookies);
-		throw redirect(303, toLoginRedirect('microsoft_oauth_failed', destination));
+		throw redirect(303, new URL(toLoginRedirect('microsoft_oauth_failed', destination), publicOrigin).toString());
 	}
 
 	try {
@@ -57,8 +58,8 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 		setAuthCookies(cookies, data.session);
 	} catch (provisioningError) {
 		clearAuthCookies(cookies);
-		throw redirect(303, toLoginRedirect(toErrorCode(provisioningError), destination));
+		throw redirect(303, new URL(toLoginRedirect(toErrorCode(provisioningError), destination), publicOrigin).toString());
 	}
 
-	throw redirect(303, destination);
+	throw redirect(303, new URL(destination, publicOrigin).toString());
 };
