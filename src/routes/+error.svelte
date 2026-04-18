@@ -1,37 +1,44 @@
 <script lang="ts">
 	import { page } from '$app/stores';
+	import DashboardSearch from '$lib/components/dashboard/DashboardSearch.svelte';
 
 	const status = $derived($page.status);
-	const errorMessage = $derived(
-		typeof $page.error === 'object' && $page.error && 'message' in $page.error
-			? String(($page.error as { message?: unknown }).message ?? '')
-			: ''
+
+	const headline = $derived(
+		status === 404
+			? 'This page took a coffee break'
+			: status === 403
+				? 'Nothing to see here, move along'
+				: 'Well, that wasn\u2019t supposed to happen'
+	);
+
+	const subtext = $derived(
+		status === 404
+			? 'We looked everywhere, under the keyboard, behind the server rack, but this page is gone. Try searching for what you need instead!'
+			: status === 403
+				? 'You don\u2019t have access to this page. If you think that\u2019s a mistake, try searching for something you do have access to.'
+				: 'Something went sideways. While we sort things out, why not search for what you were looking for?'
 	);
 </script>
 
-<div class="bg-background text-foreground flex min-h-screen items-center justify-center px-6 py-12">
-	<div class="border-border bg-card w-full max-w-xl rounded-lg border p-8 shadow-sm">
-		<p class="text-sm font-medium tracking-wide text-primary uppercase">Resume Platform</p>
-		<h1 class="text-foreground mt-2 text-2xl font-semibold">
-			{status === 404 ? 'Page not found' : 'Something went wrong'}
-		</h1>
-		<p class="text-muted-fg mt-3 text-sm">
-			{errorMessage || 'The page could not be loaded. Please try again or go back to the dashboard.'}
-		</p>
+<div
+	class="bg-background text-foreground flex min-h-screen flex-col items-center justify-center px-6 py-16"
+>
+	<p
+		class="text-primary/15 select-none text-[9rem] font-extrabold leading-none tracking-tight sm:text-[12rem]"
+	>
+		{status}
+	</p>
 
-		<div class="mt-6 flex flex-wrap gap-3">
-			<a
-				href="/"
-				class="inline-flex items-center rounded-sm bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary/90"
-			>
-				Go to dashboard
-			</a>
-			<a
-				href="/resumes"
-				class="border-border text-muted-fg hover:bg-muted/70 inline-flex items-center rounded-sm border px-4 py-2 text-sm font-medium transition"
-			>
-				Open resumes
-			</a>
-		</div>
+	<h1 class="text-foreground mt-2 text-center text-2xl font-semibold sm:text-3xl">
+		{headline}
+	</h1>
+
+	<p class="text-muted-fg mt-3 max-w-md text-center text-sm leading-relaxed">
+		{subtext}
+	</p>
+
+	<div class="mt-10 w-full max-w-2xl">
+		<DashboardSearch autoFocus />
 	</div>
 </div>

@@ -19,13 +19,13 @@
 		{
 			label: 'Available now',
 			value: stats.availableNow,
-			href: resolve('/resumes'),
+			href: `${resolve('/resumes')}?availability=now`,
 			icon: UserCheck
 		},
 		{
 			label: 'Available soon',
 			value: stats.availableSoon,
-			href: resolve('/resumes'),
+			href: `${resolve('/resumes')}?availability=within-days`,
 			icon: CalendarClock
 		}
 	]);

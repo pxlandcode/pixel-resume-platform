@@ -2,6 +2,7 @@
 	import { Input } from '@pixelcode_/blocks/components';
 	import { Search } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
+	import { page } from '$app/stores';
 	import { getEarliestAvailabilityDate } from '$lib/utils/availability';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
@@ -65,7 +66,12 @@
 	let searchQuery = $state('');
 	let freeTextSearchInput = $state('');
 	let freeTextSearchApplied = $state('');
-	let availabilityMode = $state<AvailabilityMode>('all');
+	const initialAvailability = $page.url.searchParams.get('availability');
+	let availabilityMode = $state<AvailabilityMode>(
+		initialAvailability === 'now' || initialAvailability === 'within-days'
+			? initialAvailability
+			: 'all'
+	);
 	let availabilityWithinDaysInput = $state(String(DEFAULT_AVAILABILITY_WITHIN_DAYS));
 	let availabilityWithinDaysAppliedInput = $state(String(DEFAULT_AVAILABILITY_WITHIN_DAYS));
 	let openTechRequirementKey = $state<string | null>(null);

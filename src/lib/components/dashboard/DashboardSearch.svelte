@@ -3,8 +3,10 @@
 	import { Input } from '@pixelcode_/blocks/components';
 	import { Search, Users, FileText, CircleCheck, CalendarClock, Briefcase } from 'lucide-svelte';
 	import { onDestroy, onMount } from 'svelte';
+
 	import { SvelteSet } from 'svelte/reactivity';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
+
 	import type { QuickSearchResponse, QuickSearchSection } from '$lib/types/quickSearch';
 	import type { QuickSearchStatus } from '$lib/components/menu-layout/types';
 	import { getEarliestAvailabilityDate } from '$lib/utils/availability';
@@ -14,6 +16,9 @@
 		isSearchResultActive
 	} from '$lib/components/menu-layout/utils';
 	import { ripple } from '$lib/utils/ripple';
+
+	let { autoFocus = false }: { autoFocus?: boolean } = $props();
+
 	const activePath = $derived($page.url.pathname);
 
 	type IndividualFilter = 'profiles' | 'resumes' | 'available-now' | 'available-soon';
@@ -57,7 +62,7 @@
 	let searchContainerEl: HTMLDivElement | undefined = $state();
 
 	onMount(() => {
-		if (window.innerWidth >= 1024) {
+		if (autoFocus || window.innerWidth >= 1024) {
 			searchContainerEl?.querySelector('input')?.focus();
 		}
 	});
