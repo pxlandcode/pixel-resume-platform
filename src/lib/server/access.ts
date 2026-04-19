@@ -6,7 +6,7 @@ import {
 	type OrganisationBrandingTheme
 } from '$lib/branding/theme';
 
-export type AppRole = 'admin' | 'broker' | 'talent' | 'employer';
+export type AppRole = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 export type ShareAccessLevel = 'none' | 'read' | 'write';
 export type ShareRuleScope =
 	| 'none'
@@ -16,7 +16,13 @@ export type ShareRuleScope =
 	| 'organisation_rule'
 	| 'talent_rule';
 
-const KNOWN_ROLES = new Set<AppRole>(['admin', 'broker', 'talent', 'employer']);
+const KNOWN_ROLES = new Set<AppRole>([
+	'admin',
+	'organisation_admin',
+	'broker',
+	'talent',
+	'employer'
+]);
 const ACTOR_CONTEXT_CACHE_TTL_MS = 30_000;
 
 type RoleJoinRow = {
@@ -58,6 +64,7 @@ export type ActorAccessContext = {
 	roles: AppRole[];
 	primaryRole: AppRole | null;
 	isAdmin: boolean;
+	isOrganisationAdmin: boolean;
 	isBroker: boolean;
 	isEmployer: boolean;
 	isTalent: boolean;
@@ -129,12 +136,20 @@ type ActorContextCacheEntry = {
 };
 
 const actorContextCache = new Map<string, ActorContextCacheEntry>();
+const ROLE_PRIORITY: AppRole[] = [
+	'admin',
+	'organisation_admin',
+	'broker',
+	'employer',
+	'talent'
+];
 
 const emptyActorContext = (): ActorAccessContext => ({
 	userId: null,
 	roles: [],
 	primaryRole: null,
 	isAdmin: false,
+	isOrganisationAdmin: false,
 	isBroker: false,
 	isEmployer: false,
 	isTalent: false,
@@ -178,6 +193,13 @@ const unique = (values: string[]) => {
 		out.push(key);
 	}
 	return out;
+};
+
+const sortRolesByPriority = (roles: AppRole[]) => {
+	const priorityIndex = new Map(ROLE_PRIORITY.map((role, index) => [role, index]));
+	return [...roles].sort(
+		(a, b) => (priorityIndex.get(a) ?? ROLE_PRIORITY.length) - (priorityIndex.get(b) ?? ROLE_PRIORITY.length)
+	);
 };
 
 const parseTemplateJson = (value: unknown): Record<string, unknown> => {
@@ -401,8 +423,9 @@ export const getActorAccessContext = async (
 		.map((value) => normalizeRole(value))
 		.filter((role): role is AppRole => role !== null);
 
-	const roles = Array.from(new Set([...rolesFromTable, ...rolesFromMetadata]));
+	const roles = sortRolesByPriority(Array.from(new Set([...rolesFromTable, ...rolesFromMetadata])));
 	const isAdmin = roles.includes('admin');
+	const isOrganisationAdmin = roles.includes('organisation_admin');
 	const isBroker = roles.includes('broker');
 	const isEmployer = roles.includes('employer');
 	const isTalent = roles.includes('talent');
@@ -425,6 +448,7 @@ export const getActorAccessContext = async (
 		roles,
 		primaryRole: roles[0] ?? null,
 		isAdmin,
+		isOrganisationAdmin,
 		isBroker,
 		isEmployer,
 		isTalent,

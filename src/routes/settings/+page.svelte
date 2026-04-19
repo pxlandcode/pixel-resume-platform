@@ -10,6 +10,7 @@
 		Input,
 		Toaster
 	} from '@pixelcode_/blocks/components';
+	import BillingCatalogManager from '$lib/components/admin/BillingCatalogManager.svelte';
 	import LegalDocumentsManager from '$lib/components/admin/LegalDocumentsManager.svelte';
 	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
 	import OrganisationDetailsDrawer from '$lib/components/admin/OrganisationDetailsDrawer.svelte';
@@ -18,9 +19,11 @@
 	import ResumeShareLinksPanel from '$lib/components/admin/ResumeShareLinksPanel.svelte';
 	import { Dropdown } from '$lib/components/dropdown';
 	import { OptionButton, type OptionButtonOption } from '$lib/components/option-button';
+	import type { BillingAddonVersion, BillingPlanVersion } from '$lib/types/billing';
 	import type { ManagedResumeShareLink } from '$lib/types/resumeShares';
 	import { ripple } from '$lib/utils/ripple';
 	import type { ActionData, PageData } from './$types';
+	import CreditCard from 'lucide-svelte/icons/credit-card';
 	import Scale from 'lucide-svelte/icons/scale';
 	import KeyRound from 'lucide-svelte/icons/key-round';
 	import Share2 from 'lucide-svelte/icons/share-2';
@@ -34,7 +37,7 @@
 
 	let { data, form }: { data: PageData; form: ActionData | null } = $props();
 
-	type Role = 'admin' | 'broker' | 'talent' | 'employer';
+	type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
 	type OrganisationOption = {
 		id: string;
@@ -118,6 +121,7 @@
 	type SettingsPanel =
 		| 'account'
 		| 'organisation'
+		| 'billing'
 		| 'legal'
 		| 'tech'
 		| 'sharing'
@@ -172,6 +176,12 @@
 	);
 	const actionFailed = $derived(form?.type !== 'changePassword' && form?.ok === false);
 	const legalDocuments = $derived((data.legalDocuments as LegalDocumentsProp | undefined) ?? []);
+	const billingPlanVersions = $derived(
+		(data.planVersions as BillingPlanVersion[] | undefined) ?? []
+	);
+	const billingAddonVersions = $derived(
+		(data.addonVersions as BillingAddonVersion[] | undefined) ?? []
+	);
 	const sourceContextFromForm =
 		form &&
 		typeof form === 'object' &&
@@ -213,6 +223,12 @@
 		'connectTalentHome',
 		'disconnectTalentHome'
 	]);
+	const BILLING_ACTION_TYPES = new Set([
+		'createPlanVersion',
+		'setPlanVersionState',
+		'createAddonVersion',
+		'setAddonVersionState'
+	]);
 
 	const initialSourceOrganisationId =
 		sourceContextFromForm ?? data.defaultSourceOrganisationId ?? '';
@@ -221,13 +237,15 @@
 			? 'account'
 			: ORGANISATION_ACTION_TYPES.has(form?.type ?? '')
 				? 'organisation'
-				: RESUME_SHARE_ACTION_TYPES.has(form?.type ?? '')
-					? 'resume_links'
-					: TECH_ACTION_TYPES.has(form?.type ?? '')
-						? 'tech'
-						: form?.type
-							? 'sharing'
-							: null;
+				: BILLING_ACTION_TYPES.has(form?.type ?? '')
+					? 'billing'
+					: RESUME_SHARE_ACTION_TYPES.has(form?.type ?? '')
+						? 'resume_links'
+						: TECH_ACTION_TYPES.has(form?.type ?? '')
+							? 'tech'
+							: form?.type
+								? 'sharing'
+								: null;
 	const techRefreshToken = $derived(
 		JSON.stringify({
 			type: form?.type ?? null,
@@ -383,6 +401,12 @@
 	);
 	const resumeShareHistoricalCount = $derived(
 		resumeShareLinks.filter((link) => link.status === 'expired' || link.status === 'revoked').length
+	);
+	const activeBillingPlanCount = $derived(
+		billingPlanVersions.filter((plan) => plan.isActive).length
+	);
+	const activeBillingAddonCount = $derived(
+		billingAddonVersions.filter((addon) => addon.isActive).length
 	);
 	const membershipUsers = $derived(organisationContext?.users ?? []);
 	const membershipTalents = $derived(organisationContext?.talents ?? []);
@@ -774,6 +798,64 @@
 							</div>
 						</button>
 					</div>
+				</div>
+			{/if}
+		</section>
+	{/if}
+
+	{#if data.canManageBillingCatalog}
+		<section
+			class={`bg-card group overflow-hidden rounded-sm border transition-colors ${
+				expandedPanel === 'billing' ? 'border-primary/50' : 'border-border hover:border-primary/50'
+			}`}
+		>
+			<button
+				type="button"
+				use:ripple={{ opacity: 0.14 }}
+				class="w-full text-left"
+				onclick={() => togglePanel('billing')}
+				aria-expanded={expandedPanel === 'billing'}
+				aria-controls="settings-billing-panel"
+			>
+				<div
+					class="group-hover:bg-muted/50 flex items-start gap-3 px-5 py-5 transition-colors sm:px-6"
+				>
+					<div
+						class="bg-muted text-muted-fg flex h-10 w-10 shrink-0 items-center justify-center rounded-sm"
+					>
+						<CreditCard class="h-5 w-5" />
+					</div>
+					<div class="min-w-0 flex-1">
+						<h2 class="text-foreground text-lg font-semibold">Billing catalog</h2>
+						<p class="text-muted-fg mt-1 text-sm">
+							Manage global plan and add-on versions used by organisation billing.
+						</p>
+					</div>
+					<div class="text-muted-fg flex shrink-0 items-center gap-3">
+						<div class="hidden text-right sm:block">
+							<p class="text-foreground text-sm font-semibold">{activeBillingPlanCount}</p>
+							<p class="text-[11px] uppercase tracking-[0.16em]">Plans</p>
+						</div>
+						<div class="hidden text-right sm:block">
+							<p class="text-foreground text-sm font-semibold">{activeBillingAddonCount}</p>
+							<p class="text-[11px] uppercase tracking-[0.16em]">Add-ons</p>
+						</div>
+						{#if expandedPanel === 'billing'}
+							<ChevronDown class="h-5 w-5" />
+						{:else}
+							<ChevronRight class="h-5 w-5" />
+						{/if}
+					</div>
+				</div>
+			</button>
+
+			{#if expandedPanel === 'billing'}
+				<div id="settings-billing-panel" class="border-border border-t px-5 py-5 sm:px-6">
+					<BillingCatalogManager
+						planVersions={billingPlanVersions}
+						addonVersions={billingAddonVersions}
+						{form}
+					/>
 				</div>
 			{/if}
 		</section>

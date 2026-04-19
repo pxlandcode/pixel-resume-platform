@@ -2,7 +2,7 @@
  * Shared organisation management action helpers.
  *
  * Used by both /organisations (admin-only) and /settings/organisation
- * (employer/broker managing their own home org).
+ * (organisation admins managing their own home org).
  */
 import { fail } from '@sveltejs/kit';
 import { create as createFont, type Font, type FontCollection } from 'fontkit';
@@ -271,7 +271,7 @@ export const ensureAdminContext = async (cookies: {
 };
 
 /**
- * Ensures the caller is an employer or broker with a home organisation,
+ * Ensures the caller is an organisation admin with a home organisation,
  * and that the target organisation matches their home org.
  */
 export const ensureOrgManagerContext = async (
@@ -283,8 +283,8 @@ export const ensureOrgManagerContext = async (
 		return { ok: false, status: 401, message: 'You are not authenticated.' };
 	}
 
-	const { isAdmin, isEmployer, isBroker, homeOrganisationId } = context.actor;
-	if (!isAdmin && !isEmployer && !isBroker) {
+	const { isAdmin, isOrganisationAdmin, homeOrganisationId } = context.actor;
+	if (!isAdmin && !isOrganisationAdmin) {
 		return {
 			ok: false,
 			status: 403,

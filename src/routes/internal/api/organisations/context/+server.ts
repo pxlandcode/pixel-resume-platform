@@ -7,7 +7,7 @@ const CACHE_TTL_MS = 60_000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 
-type Role = 'admin' | 'broker' | 'talent' | 'employer';
+type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
 type OrganisationContextResponse = {
 	organisation: {
@@ -95,7 +95,10 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 	if (!adminClient || !actor.userId) {
 		return json({ message: 'Unauthorized.' }, { status: 401 });
 	}
-	if (!actor.isAdmin) {
+	const canAccessTargetOrganisation =
+		actor.isAdmin ||
+		(actor.isOrganisationAdmin && actor.homeOrganisationId === orgId);
+	if (!canAccessTargetOrganisation) {
 		return json({ message: 'Forbidden.' }, { status: 403 });
 	}
 

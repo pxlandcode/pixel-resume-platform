@@ -1,7 +1,7 @@
 import { BriefcaseBusiness, Building2, Shield, User } from 'lucide-svelte';
 import type { ComponentType, SvelteComponent } from 'svelte';
 
-export type AppRole = 'admin' | 'broker' | 'talent' | 'employer';
+export type AppRole = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
 export const ROLE_CONFIG: Record<
 	AppRole,
@@ -15,6 +15,11 @@ export const ROLE_CONFIG: Record<
 		label: 'Admin',
 		icon: Shield,
 		description: 'Full access to internal tools.'
+	},
+	organisation_admin: {
+		label: 'Organisation admin',
+		icon: Shield,
+		description: 'Manage users, settings, and billing for your organisation.'
 	},
 	broker: {
 		label: 'Broker',

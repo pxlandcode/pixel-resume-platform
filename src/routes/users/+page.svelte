@@ -32,7 +32,7 @@
 	import { ROLE_CONFIG, getRoleLabel, getRoleIcon } from '$lib/types/roles';
 	import { tooltip } from '$lib/utils/tooltip';
 
-	type Role = 'admin' | 'broker' | 'talent' | 'employer';
+	type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 	type UserStatusFilter = 'active' | 'inactive';
 	type EditableUser = {
 		id: string;
@@ -85,12 +85,14 @@
 	const UNASSIGNED_ORGANISATION_FILTER = '__unassigned__';
 	const roleLabelByValue: Record<Role, string> = {
 		admin: ROLE_CONFIG.admin.label,
+		organisation_admin: ROLE_CONFIG.organisation_admin.label,
 		broker: ROLE_CONFIG.broker.label,
 		talent: ROLE_CONFIG.talent.label,
 		employer: ROLE_CONFIG.employer.label
 	};
 	const roleFilterOptions = [
 		{ label: 'Admin', value: 'admin' },
+		{ label: 'Organisation admin', value: 'organisation_admin' },
 		{ label: 'Broker', value: 'broker' },
 		{ label: 'Talent', value: 'talent' },
 		{ label: 'Employer', value: 'employer' }
@@ -141,7 +143,13 @@
 	});
 
 	const normalizeRoles = (roles: string[] | null | undefined): Role[] => {
-		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
+		const allowed = new Set<Role>([
+			'admin',
+			'organisation_admin',
+			'broker',
+			'talent',
+			'employer'
+		]);
 		const normalized =
 			roles?.filter((role): role is Role => allowed.has(role as Role))?.filter(Boolean) ?? [];
 		return normalized.length > 0 ? normalized : ['talent'];
@@ -202,7 +210,13 @@
 	let selectedStatusFilters = $state<UserStatusFilter[]>([]);
 
 	const sanitizeRoleFilters = (values: string[]): Role[] => {
-		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
+		const allowed = new Set<Role>([
+			'admin',
+			'organisation_admin',
+			'broker',
+			'talent',
+			'employer'
+		]);
 		return Array.from(new Set(values.filter((value): value is Role => allowed.has(value as Role))));
 	};
 

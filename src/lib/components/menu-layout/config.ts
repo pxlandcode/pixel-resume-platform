@@ -1,4 +1,4 @@
-import { Briefcase, Building2, FileText, House, Settings, Users } from 'lucide-svelte';
+import { Briefcase, Building2, FileText, House, ReceiptText, Settings, Users } from 'lucide-svelte';
 import type { MenuNavItem, MenuNavSection } from './types';
 
 export const menuNavSections: MenuNavSection[] = [
@@ -9,7 +9,7 @@ export const menuNavSections: MenuNavSection[] = [
 			{
 				label: 'Dashboard',
 				href: '/',
-				allowed: ['admin', 'broker', 'talent', 'employer'],
+				allowed: ['admin', 'organisation_admin', 'broker', 'talent', 'employer'],
 				match: 'exact',
 				icon: House
 			},
@@ -29,7 +29,7 @@ export const menuNavSections: MenuNavSection[] = [
 			{
 				label: 'Users',
 				href: '/users',
-				allowed: ['admin', 'broker', 'employer'],
+				allowed: ['admin', 'organisation_admin', 'broker', 'employer'],
 				match: 'prefix',
 				icon: Users
 			},
@@ -46,6 +46,13 @@ export const menuNavSections: MenuNavSection[] = [
 				allowed: ['admin'],
 				match: 'prefix',
 				icon: Building2
+			},
+			{
+				label: 'Billing',
+				href: '/billing',
+				allowed: ['admin', 'organisation_admin'],
+				match: 'prefix',
+				icon: ReceiptText
 			}
 		]
 	}
@@ -54,7 +61,7 @@ export const menuNavSections: MenuNavSection[] = [
 export const menuSettingsItem: MenuNavItem = {
 	label: 'Settings',
 	href: '/settings',
-	allowed: ['admin', 'broker', 'talent', 'employer'],
+	allowed: ['admin', 'organisation_admin', 'broker', 'talent', 'employer'],
 	match: 'prefix',
 	icon: Settings
 };

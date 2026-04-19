@@ -7,9 +7,15 @@ import {
 import type { Actions, PageServerLoad } from './$types';
 import { getActorAccessContext } from '$lib/server/access';
 
-type Role = 'admin' | 'broker' | 'talent' | 'employer';
+type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
-const KNOWN_ROLES = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
+const KNOWN_ROLES = new Set<Role>([
+	'admin',
+	'organisation_admin',
+	'broker',
+	'talent',
+	'employer'
+]);
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const normalizeRoles = (roles: string[]): Role[] => {
@@ -25,15 +31,30 @@ const normalizeRoles = (roles: string[]): Role[] => {
 const getAllowedCreateRoles = (
 	actor: Awaited<ReturnType<typeof getActorAccessContext>>
 ): Role[] => {
-	if (actor.isAdmin) return ['admin', 'broker', 'talent', 'employer'];
-	const roles: Role[] = ['talent'];
-	if (actor.isBroker) roles.push('broker');
-	if (actor.isEmployer) roles.push('employer');
-	return normalizeRoles(roles);
+	if (actor.isAdmin) return ['admin', 'organisation_admin', 'broker', 'talent', 'employer'];
+	if (actor.isOrganisationAdmin) {
+		return ['organisation_admin', 'broker', 'talent', 'employer'];
+	}
+	return ['talent'];
 };
 
 const canActorEditUsers = (actor: Awaited<ReturnType<typeof getActorAccessContext>>) =>
-	actor.isAdmin || ((actor.isBroker || actor.isEmployer) && Boolean(actor.homeOrganisationId));
+	actor.isAdmin ||
+	((actor.isOrganisationAdmin || actor.isBroker || actor.isEmployer) &&
+		Boolean(actor.homeOrganisationId));
+
+const canActorDeleteUsers = (actor: Awaited<ReturnType<typeof getActorAccessContext>>) =>
+	actor.isAdmin || (actor.isOrganisationAdmin && Boolean(actor.homeOrganisationId));
+
+const canActorManageTargetRoles = (
+	actor: Awaited<ReturnType<typeof getActorAccessContext>>,
+	targetRoles: Role[]
+) => {
+	if (actor.isAdmin) return true;
+	if (targetRoles.includes('admin')) return false;
+	if (actor.isOrganisationAdmin) return true;
+	return targetRoles.every((role) => role === 'talent');
+};
 
 const normalizeOptionalUuid = (value: FormDataEntryValue | null) => {
 	if (typeof value !== 'string') return null;
@@ -110,7 +131,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 	}
 
 	const actor = await requestContext.getActorContext();
-	if (!actor.userId || (!actor.isAdmin && !actor.isBroker && !actor.isEmployer)) {
+	if (
+		!actor.userId ||
+		(!actor.isAdmin &&
+			!actor.isOrganisationAdmin &&
+			!actor.isBroker &&
+			!actor.isEmployer)
+	) {
 		return {
 			users: [],
 			canCreateUsers: false,
@@ -124,8 +151,9 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	}
 
-	const canCreateUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
-	const canDeleteUsers = actor.isAdmin || actor.isBroker || actor.isEmployer;
+	const canCreateUsers =
+		actor.isAdmin || actor.isOrganisationAdmin || actor.isBroker || actor.isEmployer;
+	const canDeleteUsers = canActorDeleteUsers(actor);
 	const canEditUsers = canActorEditUsers(actor);
 	const canManageLinkedTalent = canActorEditUsers(actor);
 	const canManageOrganisationAssignment = actor.isAdmin;
@@ -317,7 +345,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			? users
 					.filter(
 						(user) =>
-							user.organisation_id === actor.homeOrganisationId && !user.roles.includes('admin')
+							user.organisation_id === actor.homeOrganisationId &&
+							canActorManageTargetRoles(actor, normalizeRoles(user.roles))
 					)
 					.map((user) => user.id)
 			: [];
@@ -541,7 +570,13 @@ export const actions: Actions = {
 		}
 
 		const actor = await getActorAccessContext(supabase, adminClient);
-		if (!actor.userId || (!actor.isAdmin && !actor.isBroker && !actor.isEmployer)) {
+		if (
+			!actor.userId ||
+			(!actor.isAdmin &&
+				!actor.isOrganisationAdmin &&
+				!actor.isBroker &&
+				!actor.isEmployer)
+		) {
 			return fail(403, {
 				type: 'updateUser',
 				ok: false,
@@ -599,11 +634,13 @@ export const actions: Actions = {
 						: []
 			);
 			const targetRoles = normalizeRoles([...targetRolesFromDb, ...targetRolesFromMetadata]);
-			if (targetRoles.includes('admin')) {
+			if (!canActorManageTargetRoles(actor, targetRoles)) {
 				return fail(403, {
 					type: 'updateUser',
 					ok: false,
-					message: 'Only admins can edit admin users.'
+					message: actor.isOrganisationAdmin
+						? 'Only admins can edit admin users.'
+						: 'You can only edit talent users in your own organisation.'
 				});
 			}
 
@@ -915,7 +952,13 @@ export const actions: Actions = {
 		}
 
 		const actor = await getActorAccessContext(supabase, adminClient);
-		if (!actor.userId || (!actor.isAdmin && !actor.isBroker && !actor.isEmployer)) {
+		if (
+			!actor.userId ||
+			(!actor.isAdmin &&
+				!actor.isOrganisationAdmin &&
+				!actor.isBroker &&
+				!actor.isEmployer)
+		) {
 			return fail(403, {
 				type: 'deleteUser',
 				ok: false,
@@ -974,11 +1017,20 @@ export const actions: Actions = {
 					message: 'You must be linked to an organisation to delete users.'
 				});
 			}
-			if (targetRoles.includes('admin')) {
+			if (!canActorDeleteUsers(actor)) {
 				return fail(403, {
 					type: 'deleteUser',
 					ok: false,
-					message: 'Only admins can delete admin users.'
+					message: 'You are not authorized to delete users.'
+				});
+			}
+			if (!canActorManageTargetRoles(actor, targetRoles)) {
+				return fail(403, {
+					type: 'deleteUser',
+					ok: false,
+					message: actor.isOrganisationAdmin
+						? 'Only admins can delete admin users.'
+						: 'You can only delete talent users in your own organisation.'
 				});
 			}
 

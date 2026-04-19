@@ -19,7 +19,7 @@
 	import { onDestroy, tick } from 'svelte';
 
 	type AnyUppyFile = UppyFile<Meta, Body>;
-	type Role = 'admin' | 'broker' | 'talent' | 'employer';
+	type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
 	type TalentOption = {
 		id: string;

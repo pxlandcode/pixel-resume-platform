@@ -1,6 +1,6 @@
 import type { Icon as IconType } from 'lucide-svelte';
 
-export type AdminRole = 'admin' | 'broker' | 'talent' | 'employer';
+export type AdminRole = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
 export type MenuProfile = {
 	first_name: string | null;

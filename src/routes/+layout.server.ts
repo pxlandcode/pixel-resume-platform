@@ -10,7 +10,7 @@ import type { PageMetaInput } from '$lib/seo';
 import { resolveHomeOrganisationId } from '$lib/server/homeOrganisation';
 import type { LayoutServerLoad } from './$types';
 
-type Role = 'admin' | 'broker' | 'talent' | 'employer';
+type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
 type Profile = {
 	first_name: string | null;

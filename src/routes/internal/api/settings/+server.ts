@@ -45,7 +45,7 @@ const parseViewsPatch = (
 		return { ok: false, message: '"views" must be an object.' };
 	}
 
-	const allowedViewKeys = new Set(['talents', 'resumes', 'users']);
+	const allowedViewKeys = new Set(['billing', 'talents', 'resumes', 'users']);
 	const viewKeys = Object.keys(value.views);
 	if (viewKeys.length === 0) {
 		return { ok: false, message: 'At least one view setting is required.' };
@@ -62,7 +62,9 @@ const parseViewsPatch = (
 			return { ok: false, message: `Invalid view mode for "${key}".` };
 		}
 
-		if (key === 'talents') {
+		if (key === 'billing') {
+			patch.billing = mode;
+		} else if (key === 'talents') {
 			patch.talents = mode;
 		} else if (key === 'resumes') {
 			patch.resumes = mode;
@@ -86,7 +88,7 @@ const parseOrganisationFiltersPatch = (
 		return { ok: false, message: '"organisationFilters" must be an object.' };
 	}
 
-	const allowedKeys = new Set(['talents', 'resumes', 'users']);
+	const allowedKeys = new Set(['billing', 'talents', 'resumes', 'users']);
 	const keys = Object.keys(value);
 	if (keys.length === 0) {
 		return { ok: false, message: '"organisationFilters" requires at least one key.' };
@@ -103,6 +105,7 @@ const parseOrganisationFiltersPatch = (
 		}
 
 		const ids = normalizeOrganisationFilterIds(value[key]);
+		if (key === 'billing') patch.billing = ids;
 		if (key === 'talents') patch.talents = ids;
 		if (key === 'resumes') patch.resumes = ids;
 		if (key === 'users') patch.users = ids;

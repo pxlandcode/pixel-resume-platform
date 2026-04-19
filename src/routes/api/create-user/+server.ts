@@ -7,8 +7,14 @@ import {
 } from '$lib/server/supabase';
 import { getActorAccessContext } from '$lib/server/access';
 
-type Role = 'admin' | 'broker' | 'talent' | 'employer';
-const KNOWN_ROLES = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
+type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
+const KNOWN_ROLES = new Set<Role>([
+	'admin',
+	'organisation_admin',
+	'broker',
+	'talent',
+	'employer'
+]);
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const randomPassword = (length = 32) =>
@@ -70,11 +76,14 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		throw error(401, 'You are not authenticated.');
 	}
 
-	if (!actor.isAdmin && !actor.isBroker && !actor.isEmployer) {
+	if (!actor.isAdmin && !actor.isOrganisationAdmin && !actor.isBroker && !actor.isEmployer) {
 		throw error(403, 'Not authorized to create users.');
 	}
 
-	if ((actor.isBroker || actor.isEmployer) && !actor.homeOrganisationId) {
+	if (
+		(actor.isOrganisationAdmin || actor.isBroker || actor.isEmployer) &&
+		!actor.homeOrganisationId
+	) {
 		throw error(
 			400,
 			'You must be connected to a home organisation before creating users.'
@@ -94,11 +103,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const normalizedRoles: Role[] = roles.length > 0 ? normalizeRoles(roles) : ['talent'];
 
 	if (!actor.isAdmin) {
-		const allowedRoles = new Set<Role>([
-			'talent',
-			...(actor.isBroker ? (['broker'] as const) : []),
-			...(actor.isEmployer ? (['employer'] as const) : [])
-		]);
+		const allowedRoles = new Set<Role>(
+			actor.isOrganisationAdmin
+				? ['organisation_admin', 'broker', 'talent', 'employer']
+				: ['talent']
+		);
 		const disallowed = normalizedRoles.filter((role) => !allowedRoles.has(role));
 		if (disallowed.length > 0) {
 			throw error(
@@ -122,7 +131,11 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	if (requestedOrganisationId === '__invalid__') {
 		throw error(400, 'Organisation selection must be a valid UUID or empty.');
 	}
-	if (!actor.isAdmin && requestedOrganisationId && requestedOrganisationId !== actor.homeOrganisationId) {
+	if (
+		!actor.isAdmin &&
+		requestedOrganisationId &&
+		requestedOrganisationId !== actor.homeOrganisationId
+	) {
 		throw error(403, 'You can only assign users to your own organisation.');
 	}
 

@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	export type UserRole = 'admin' | 'broker' | 'talent' | 'employer';
+	export type UserRole = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 </script>
 
 <script lang="ts">
@@ -67,7 +67,13 @@
 		mode = $bindable<'create' | 'edit'>('create'),
 		talentOptions = $bindable<TalentOption[]>([]),
 		organisationOptions = $bindable<OrganisationOption[]>([]),
-		allowedRoles = $bindable<UserRole[]>(['admin', 'broker', 'talent', 'employer']),
+		allowedRoles = $bindable<UserRole[]>([
+			'admin',
+			'organisation_admin',
+			'broker',
+			'talent',
+			'employer'
+		]),
 		canEditUsers = $bindable(true),
 		canManageLinkedTalent = $bindable(true),
 		canManageOrganisationAssignment = $bindable(true),
