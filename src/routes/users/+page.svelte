@@ -32,7 +32,7 @@
 	import { ROLE_CONFIG, getRoleLabel, getRoleIcon } from '$lib/types/roles';
 	import { tooltip } from '$lib/utils/tooltip';
 
-	type Role = 'admin' | 'broker' | 'talent' | 'employer';
+	type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 	type UserStatusFilter = 'active' | 'inactive';
 	type EditableUser = {
 		id: string;
@@ -85,12 +85,14 @@
 	const UNASSIGNED_ORGANISATION_FILTER = '__unassigned__';
 	const roleLabelByValue: Record<Role, string> = {
 		admin: ROLE_CONFIG.admin.label,
+		organisation_admin: ROLE_CONFIG.organisation_admin.label,
 		broker: ROLE_CONFIG.broker.label,
 		talent: ROLE_CONFIG.talent.label,
 		employer: ROLE_CONFIG.employer.label
 	};
 	const roleFilterOptions = [
 		{ label: 'Admin', value: 'admin' },
+		{ label: 'Organisation admin', value: 'organisation_admin' },
 		{ label: 'Broker', value: 'broker' },
 		{ label: 'Talent', value: 'talent' },
 		{ label: 'Employer', value: 'employer' }
@@ -106,9 +108,7 @@
 	const canDeleteUsers = $derived(Boolean(data.canDeleteUsers));
 	const canEditUsers = $derived(Boolean(data.canEditUsers));
 	const canManageLinkedTalent = $derived(Boolean(data.canManageLinkedTalent));
-	const canManageOrganisationAssignment = $derived(
-		Boolean(data.canManageOrganisationAssignment)
-	);
+	const canManageOrganisationAssignment = $derived(Boolean(data.canManageOrganisationAssignment));
 	const editableUserIds = $derived(
 		new Set(((data.editableUserIds as string[] | undefined) ?? []).filter(Boolean))
 	);
@@ -141,7 +141,7 @@
 	});
 
 	const normalizeRoles = (roles: string[] | null | undefined): Role[] => {
-		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
+		const allowed = new Set<Role>(['admin', 'organisation_admin', 'broker', 'talent', 'employer']);
 		const normalized =
 			roles?.filter((role): role is Role => allowed.has(role as Role))?.filter(Boolean) ?? [];
 		return normalized.length > 0 ? normalized : ['talent'];
@@ -151,6 +151,19 @@
 
 	const getUserName = (user: LoadUser) =>
 		[user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || 'Unknown User';
+
+	const compareUsers = (a: LoadUser, b: LoadUser) => {
+		const nameA = `${a.last_name ?? ''} ${a.first_name ?? ''}`.trim().toLowerCase();
+		const nameB = `${b.last_name ?? ''} ${b.first_name ?? ''}`.trim().toLowerCase();
+		return nameA.localeCompare(nameB);
+	};
+
+	const sortUsers = (items: LoadUser[]) => [...items].sort(compareUsers);
+
+	const getOrganisationFilterValue = (user: LoadUser) =>
+		typeof user.organisation_id === 'string' && user.organisation_id.trim().length > 0
+			? user.organisation_id
+			: UNASSIGNED_ORGANISATION_FILTER;
 
 	const toEditableUser = (user: LoadUser): EditableUser => ({
 		id: user.id,
@@ -189,7 +202,7 @@
 	let isMobileDetailOpen = $state(false);
 	let selectedUserForDetail = $state<UsersListRow | null>(null);
 	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
-	let users = $state<LoadUser[]>((data.users as LoadUser[] | undefined) ?? []);
+	let users = $state<LoadUser[]>(sortUsers((data.users as LoadUser[] | undefined) ?? []));
 	let talentOptions = $state<TalentOption[]>([]);
 	let talentOptionsStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let talentOptionsError = $state<string | null>(null);
@@ -202,7 +215,7 @@
 	let selectedStatusFilters = $state<UserStatusFilter[]>([]);
 
 	const sanitizeRoleFilters = (values: string[]): Role[] => {
-		const allowed = new Set<Role>(['admin', 'broker', 'talent', 'employer']);
+		const allowed = new Set<Role>(['admin', 'organisation_admin', 'broker', 'talent', 'employer']);
 		return Array.from(new Set(values.filter((value): value is Role => allowed.has(value as Role))));
 	};
 
@@ -277,7 +290,24 @@
 		}
 	};
 
-	const handleUserSaved = async (event: CustomEvent<{ message?: string }>) => {
+	const handleUserSaved = async (
+		event: CustomEvent<{ message?: string; mode: 'create' | 'edit'; user?: LoadUser | null }>
+	) => {
+		const savedUser = event.detail?.user ?? null;
+		if (savedUser) {
+			users = sortUsers([...users.filter((candidate) => candidate.id !== savedUser.id), savedUser]);
+		}
+
+		if (event.detail.mode === 'create' && savedUser) {
+			const filterValue = getOrganisationFilterValue(savedUser);
+			if (!selectedOrganisationIds.includes(filterValue)) {
+				void userSettingsStore.setOrganisationFilters('users', [
+					...selectedOrganisationIds,
+					filterValue
+				]);
+			}
+		}
+
 		feedback = { type: 'success', message: event.detail?.message ?? 'User saved.' };
 		isModalOpen = false;
 		selectedUserForDetail = null;
@@ -507,7 +537,7 @@
 
 	$effect(() => {
 		const nextUsers = (data.users as LoadUser[] | undefined) ?? [];
-		users = nextUsers;
+		users = sortUsers(nextUsers);
 
 		const selectedUserId = selectedUserForDetail?.id ?? null;
 		if (!selectedUserId) return;

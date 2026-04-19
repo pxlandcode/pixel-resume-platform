@@ -34,6 +34,7 @@ const actorContextFromPermissions = (
 		roles,
 		primaryRole: roles[0] ?? null,
 		isAdmin: roles.includes('admin'),
+		isOrganisationAdmin: roles.includes('organisation_admin'),
 		isBroker: roles.includes('broker'),
 		isEmployer: roles.includes('employer'),
 		isTalent: roles.includes('talent'),

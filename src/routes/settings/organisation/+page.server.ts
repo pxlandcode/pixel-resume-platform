@@ -29,7 +29,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		throw error(401, 'Unauthorized');
 	}
 
-	const canManageOrg = actor.isAdmin || actor.isEmployer || actor.isBroker;
+	const canManageOrg = actor.isAdmin || actor.isOrganisationAdmin;
 	if (!canManageOrg || !actor.homeOrganisationId) {
 		throw error(403, 'You do not have a home organisation to manage.');
 	}

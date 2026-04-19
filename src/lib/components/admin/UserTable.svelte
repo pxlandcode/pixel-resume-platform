@@ -20,7 +20,7 @@
 		transformSupabasePublicUrl,
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
-	type Role = 'admin' | 'broker' | 'talent' | 'employer' | string;
+	type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer' | string;
 
 	type UserRow = {
 		id: string;

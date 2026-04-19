@@ -1,12 +1,14 @@
 export type ViewMode = 'grid' | 'list';
 
 export type UserSettingsViews = {
+	billing: ViewMode;
 	talents: ViewMode;
 	resumes: ViewMode;
 	users: ViewMode;
 };
 
 export type UserSettingsOrganisationFilters = {
+	billing: string[];
 	talents: string[];
 	resumes: string[];
 	users: string[];
@@ -34,11 +36,13 @@ export type UserSettingsPatch = {
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
 	views: {
+		billing: 'list',
 		talents: 'grid',
 		resumes: 'grid',
 		users: 'list'
 	},
 	organisationFilters: {
+		billing: [],
 		talents: [],
 		resumes: [],
 		users: []
@@ -56,11 +60,13 @@ export const isViewMode = (value: unknown): value is ViewMode =>
 
 export const cloneUserSettings = (settings: UserSettings): UserSettings => ({
 	views: {
+		billing: settings.views.billing,
 		talents: settings.views.talents,
 		resumes: settings.views.resumes,
 		users: settings.views.users
 	},
 	organisationFilters: {
+		billing: [...settings.organisationFilters.billing],
 		talents: [...settings.organisationFilters.talents],
 		resumes: [...settings.organisationFilters.resumes],
 		users: [...settings.organisationFilters.users]
@@ -94,11 +100,13 @@ export const normalizeUserSettings = (value: unknown): UserSettings => {
 
 	return {
 		views: {
+			billing: isViewMode(views.billing) ? views.billing : defaults.views.billing,
 			talents: isViewMode(views.talents) ? views.talents : defaults.views.talents,
 			resumes: isViewMode(views.resumes) ? views.resumes : defaults.views.resumes,
 			users: isViewMode(views.users) ? views.users : defaults.views.users
 		},
 		organisationFilters: {
+			billing: normalizeOrganisationFilterIds(organisationFilters.billing),
 			talents: normalizeOrganisationFilterIds(organisationFilters.talents),
 			resumes: normalizeOrganisationFilterIds(organisationFilters.resumes),
 			users: normalizeOrganisationFilterIds(organisationFilters.users)
@@ -117,11 +125,13 @@ export const applyUserSettingsViewsPatch = (
 	patch: UserSettingsViewsPatch
 ): UserSettings => ({
 	views: {
+		billing: patch.billing ?? settings.views.billing,
 		talents: patch.talents ?? settings.views.talents,
 		resumes: patch.resumes ?? settings.views.resumes,
 		users: patch.users ?? settings.views.users
 	},
 	organisationFilters: {
+		billing: settings.organisationFilters.billing,
 		talents: settings.organisationFilters.talents,
 		resumes: settings.organisationFilters.resumes,
 		users: settings.organisationFilters.users
@@ -136,11 +146,16 @@ export const applyUserSettingsPatch = (
 	patch: UserSettingsPatch
 ): UserSettings => ({
 	views: {
+		billing: patch.views?.billing ?? settings.views.billing,
 		talents: patch.views?.talents ?? settings.views.talents,
 		resumes: patch.views?.resumes ?? settings.views.resumes,
 		users: patch.views?.users ?? settings.views.users
 	},
 	organisationFilters: {
+		billing:
+			patch.organisationFilters?.billing !== undefined
+				? normalizeOrganisationFilterIds(patch.organisationFilters.billing)
+				: settings.organisationFilters.billing,
 		talents:
 			patch.organisationFilters?.talents !== undefined
 				? normalizeOrganisationFilterIds(patch.organisationFilters.talents)

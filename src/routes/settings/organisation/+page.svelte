@@ -7,7 +7,7 @@
 
 	let { data, form } = $props();
 
-	type Role = 'admin' | 'broker' | 'talent' | 'employer';
+	type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 	type Organisation = {
 		id: string;
 		name: string;

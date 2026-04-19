@@ -42,7 +42,7 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 	if (!adminClient || !actor.userId) {
 		return json({ message: 'Unauthorized.' }, { status: 401 });
 	}
-	if (!actor.isAdmin && !actor.isBroker && !actor.isEmployer) {
+	if (!actor.isAdmin && !actor.isOrganisationAdmin && !actor.isBroker && !actor.isEmployer) {
 		return json({ message: 'Forbidden.' }, { status: 403 });
 	}
 	if (!actor.isAdmin && !actor.homeOrganisationId) {

@@ -39,6 +39,15 @@ import {
 	handleConnectTalentHome,
 	handleDisconnectTalentHome
 } from '$lib/server/organisationActions';
+import {
+	createBillingAddonVersion,
+	createBillingPlanVersion,
+	loadBillingAddonVersions,
+	loadBillingPlanVersions,
+	setBillingAddonVersionActiveState,
+	setBillingPlanVersionActiveState
+} from '$lib/server/billing';
+import type { BillingMetricKey, BillingPlanFamily } from '$lib/types/billing';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORGANISATION_ACCESS_LEVELS = new Set<ShareAccessLevel>(['read', 'write']);
@@ -527,7 +536,67 @@ const parseOptionalInteger = (value: FormDataEntryValue | null) => {
 	return Number.isFinite(parsed) ? parsed : null;
 };
 
+const parseRequiredString = (formData: FormData, key: string) => {
+	const value = formData.get(key);
+	if (typeof value !== 'string' || value.trim().length === 0) {
+		throw new Error(`Missing ${key.replace(/_/g, ' ')}.`);
+	}
+	return value.trim();
+};
+
+const parseOptionalString = (formData: FormData, key: string) => {
+	const value = formData.get(key);
+	return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+};
+
+const parseMoneyOre = (value: string | null) => {
+	if (!value) return 0;
+	const normalized = value.replace(',', '.').trim();
+	const parsed = Number(normalized);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		throw new Error('Price must be a positive number.');
+	}
+	return Math.round(parsed * 100);
+};
+
+const parseBillingOptionalInteger = (value: string | null) => {
+	if (!value) return null;
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		throw new Error('Value must be a whole number or empty.');
+	}
+	return parsed;
+};
+
+const parseBillingSortOrder = (value: string | null) => {
+	if (!value) return 100;
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed)) return 100;
+	return parsed;
+};
+
+const parseFeatureList = (value: string | null) =>
+	(value ?? '')
+		.split('\n')
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+
 const toSortOrderValue = (index: number) => (index + 1) * 10;
+
+const ensureAdminBillingActionContext = async (cookies: {
+	get(name: string): string | undefined;
+}) => {
+	const context = await getActionContext(cookies);
+	if (!context.ok) return context;
+	if (!context.effectiveRoles.includes('admin')) {
+		return {
+			ok: false as const,
+			status: 403,
+			message: 'You are not authorized to manage billing catalog.'
+		};
+	}
+	return context;
+};
 
 const resolveNextTechCategorySortOrder = async (
 	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>
@@ -832,10 +901,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const techCatalogManagementEnabled =
 		isAdmin || effectiveRoles.includes('broker') || effectiveRoles.includes('employer');
 	const canManageOrganisation =
-		(isAdmin || effectiveRoles.includes('broker') || effectiveRoles.includes('employer')) &&
-		Boolean(actor.homeOrganisationId);
+		(isAdmin || effectiveRoles.includes('organisation_admin')) && Boolean(actor.homeOrganisationId);
 
-	const [legalDocumentsResult, sharingData, resumeShareLinks, organisation] = await Promise.all([
+	const [
+		legalDocumentsResult,
+		sharingData,
+		resumeShareLinks,
+		organisation,
+		planVersions,
+		addonVersions
+	] = await Promise.all([
 		isAdmin
 			? adminClient
 					.from('legal_documents')
@@ -859,7 +934,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			adminClient,
 			canManageOrganisation,
 			homeOrganisationId: actor.homeOrganisationId
-		})
+		}),
+		isAdmin ? loadBillingPlanVersions(adminClient) : Promise.resolve([]),
+		isAdmin ? loadBillingAddonVersions(adminClient) : Promise.resolve([])
 	]);
 
 	if (legalDocumentsResult.error) {
@@ -868,12 +945,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	return {
 		canManageLegalDocuments: isAdmin,
+		canManageBillingCatalog: isAdmin,
 		canManageSharing: sharingEnabled,
 		canManageGlobalTechCatalog: canManageGlobalTechCatalog(actor),
 		canManageOrganisationTechCatalog: techCatalogManagementEnabled,
 		canManageOrganisation,
 		homeOrganisationId: actor.homeOrganisationId ?? null,
 		organisation,
+		planVersions,
+		addonVersions,
 		legalDocuments: legalDocumentsResult.data ?? [],
 		resumeShareLinks,
 		...sharingData
@@ -947,6 +1027,200 @@ export const actions: Actions = {
 			ok: true as const,
 			message: 'Password updated successfully.'
 		};
+	},
+
+	createPlanVersion: async ({ request, cookies }) => {
+		const context = await ensureAdminBillingActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'createPlanVersion',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		try {
+			const formData = await request.formData();
+			const planFamily = parseRequiredString(formData, 'plan_family');
+			if (planFamily !== 'standard' && planFamily !== 'broker') {
+				return fail(400, {
+					type: 'createPlanVersion',
+					ok: false,
+					message: 'Plan family must be standard or broker.'
+				});
+			}
+
+			await createBillingPlanVersion({
+				adminClient: context.adminClient,
+				planFamily: planFamily as BillingPlanFamily,
+				planCode: parseRequiredString(formData, 'plan_code'),
+				planName: parseRequiredString(formData, 'plan_name'),
+				currencyCode: parseOptionalString(formData, 'currency_code') ?? 'SEK',
+				monthlyPriceOre: parseMoneyOre(parseOptionalString(formData, 'monthly_price')),
+				includedTalentProfiles: parseBillingOptionalInteger(
+					parseOptionalString(formData, 'included_talent_profiles')
+				),
+				includedTalentUserSeats: parseBillingOptionalInteger(
+					parseOptionalString(formData, 'included_talent_user_seats')
+				),
+				includedAdminSeats: parseBillingOptionalInteger(
+					parseOptionalString(formData, 'included_admin_seats')
+				),
+				sortOrder: parseBillingSortOrder(parseOptionalString(formData, 'sort_order')),
+				features: parseFeatureList(parseOptionalString(formData, 'features')),
+				metadata: {}
+			});
+
+			return {
+				type: 'createPlanVersion' as const,
+				ok: true as const,
+				message: 'Plan version created.'
+			};
+		} catch (actionError) {
+			return fail(400, {
+				type: 'createPlanVersion',
+				ok: false,
+				message:
+					actionError instanceof Error ? actionError.message : 'Could not create plan version.'
+			});
+		}
+	},
+
+	setPlanVersionState: async ({ request, cookies }) => {
+		const context = await ensureAdminBillingActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'setPlanVersionState',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		try {
+			const formData = await request.formData();
+			const planVersionId = parseRequiredString(formData, 'plan_version_id');
+			const nextActive = parseRequiredString(formData, 'is_active') === 'true';
+
+			await setBillingPlanVersionActiveState({
+				adminClient: context.adminClient,
+				planVersionId,
+				isActive: nextActive
+			});
+
+			return {
+				type: 'setPlanVersionState' as const,
+				ok: true as const,
+				message: 'Plan version updated.'
+			};
+		} catch (actionError) {
+			return fail(400, {
+				type: 'setPlanVersionState',
+				ok: false,
+				message:
+					actionError instanceof Error ? actionError.message : 'Could not update plan version.'
+			});
+		}
+	},
+
+	createAddonVersion: async ({ request, cookies }) => {
+		const context = await ensureAdminBillingActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'createAddonVersion',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		try {
+			const formData = await request.formData();
+			const billingType = parseRequiredString(formData, 'billing_type');
+			if (billingType !== 'monthly' && billingType !== 'one_time') {
+				return fail(400, {
+					type: 'createAddonVersion',
+					ok: false,
+					message: 'Billing type must be monthly or one_time.'
+				});
+			}
+
+			const appliesToMetric = parseOptionalString(formData, 'applies_to_metric');
+			if (
+				appliesToMetric &&
+				appliesToMetric !== 'talent_profiles' &&
+				appliesToMetric !== 'talent_user_seats' &&
+				appliesToMetric !== 'admin_seats'
+			) {
+				return fail(400, {
+					type: 'createAddonVersion',
+					ok: false,
+					message: 'Invalid metric for addon.'
+				});
+			}
+
+			await createBillingAddonVersion({
+				adminClient: context.adminClient,
+				addonCode: parseRequiredString(formData, 'addon_code'),
+				addonName: parseRequiredString(formData, 'addon_name'),
+				billingType,
+				currencyCode: parseOptionalString(formData, 'currency_code') ?? 'SEK',
+				unitPriceOre: parseMoneyOre(parseOptionalString(formData, 'unit_price')),
+				packageQuantity: parseBillingOptionalInteger(
+					parseOptionalString(formData, 'package_quantity')
+				),
+				appliesToMetric: (appliesToMetric as BillingMetricKey | null) ?? null,
+				sortOrder: parseBillingSortOrder(parseOptionalString(formData, 'sort_order')),
+				metadata: {}
+			});
+
+			return {
+				type: 'createAddonVersion' as const,
+				ok: true as const,
+				message: 'Add-on version created.'
+			};
+		} catch (actionError) {
+			return fail(400, {
+				type: 'createAddonVersion',
+				ok: false,
+				message:
+					actionError instanceof Error ? actionError.message : 'Could not create add-on version.'
+			});
+		}
+	},
+
+	setAddonVersionState: async ({ request, cookies }) => {
+		const context = await ensureAdminBillingActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'setAddonVersionState',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		try {
+			const formData = await request.formData();
+			const addonVersionId = parseRequiredString(formData, 'addon_version_id');
+			const nextActive = parseRequiredString(formData, 'is_active') === 'true';
+
+			await setBillingAddonVersionActiveState({
+				adminClient: context.adminClient,
+				addonVersionId,
+				isActive: nextActive
+			});
+
+			return {
+				type: 'setAddonVersionState' as const,
+				ok: true as const,
+				message: 'Add-on version updated.'
+			};
+		} catch (actionError) {
+			return fail(400, {
+				type: 'setAddonVersionState',
+				ok: false,
+				message:
+					actionError instanceof Error ? actionError.message : 'Could not update add-on version.'
+			});
+		}
 	},
 
 	updateOrganisation: async ({ request, cookies }) => {

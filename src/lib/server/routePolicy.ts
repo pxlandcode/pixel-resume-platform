@@ -24,6 +24,7 @@ export const isPublicPagePath = (pathname: string) =>
 
 const managedAppPathPatterns: RegExp[] = [
 	/^\/$/,
+	/^\/billing(\/.*)?$/,
 	/^\/users(\/.*)?$/,
 	/^\/organisations(\/.*)?$/,
 	/^\/settings(\/.*)?$/,
@@ -36,10 +37,11 @@ export const isManagedAppPath = (pathname: string) =>
 	isPublicPagePath(pathname) || managedAppPathPatterns.some((pattern) => pattern.test(pathname));
 
 const roleGuards: Array<{ pattern: RegExp; roles: AppRole[] }> = [
-	{ pattern: /^\/$/, roles: ['admin', 'broker', 'talent', 'employer'] },
-	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'broker', 'employer'] },
+	{ pattern: /^\/$/, roles: ['admin', 'organisation_admin', 'broker', 'talent', 'employer'] },
+	{ pattern: /^\/billing(\/.*)?$/, roles: ['admin', 'organisation_admin'] },
+	{ pattern: /^\/users(\/.*)?$/, roles: ['admin', 'organisation_admin', 'broker', 'employer'] },
 	{ pattern: /^\/organisations(\/.*)?$/, roles: ['admin'] },
-	{ pattern: /^\/settings(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
+	{ pattern: /^\/settings(\/.*)?$/, roles: ['admin', 'organisation_admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/talents(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] },
 	{ pattern: /^\/resumes(\/.*)?$/, roles: ['admin', 'broker', 'talent', 'employer'] }
 ];
