@@ -6,6 +6,11 @@ import {
 	type OrganisationBrandingTheme
 } from '$lib/branding/theme';
 import { resolveOrganisationMainFont } from '$lib/branding/font';
+import {
+	getCachedBranding,
+	setCachedBranding,
+	type BrandingCacheValue
+} from '$lib/server/brandingCache';
 import type { PageMetaInput } from '$lib/seo';
 import { resolveHomeOrganisationId } from '$lib/server/homeOrganisation';
 import type { LayoutServerLoad } from './$types';
@@ -38,23 +43,11 @@ type ProfileCacheEntry = {
 	value: Profile | null;
 };
 
-type BrandingCacheEntry = {
-	expiresAt: number;
-	value: {
-		theme: OrganisationBrandingTheme;
-		font: {
-			cssStack: string;
-			fontFaceCss: string | null;
-		};
-	};
-};
-
 const PROFILE_CACHE_TTL_MS = 60_000;
 const BRANDING_CACHE_TTL_MS = 120_000;
 const DEFAULT_MAIN_FONT = resolveOrganisationMainFont(null);
 
 const profileCache = new Map<string, ProfileCacheEntry>();
-const brandingCache = new Map<string, BrandingCacheEntry>();
 
 const APP_META: PageMetaInput = {
 	title: 'Resume Platform',
@@ -78,30 +71,6 @@ const getCachedProfile = (
 const setCachedProfile = (userId: string, value: Profile | null, now: number) => {
 	profileCache.set(userId, {
 		expiresAt: now + PROFILE_CACHE_TTL_MS,
-		value
-	});
-};
-
-const getCachedBranding = (
-	organisationId: string,
-	now: number
-): BrandingCacheEntry['value'] | null => {
-	const cached = brandingCache.get(organisationId);
-	if (!cached) return null;
-	if (cached.expiresAt <= now) {
-		brandingCache.delete(organisationId);
-		return null;
-	}
-	return cached.value;
-};
-
-const setCachedBranding = (
-	organisationId: string,
-	value: BrandingCacheEntry['value'],
-	now: number
-) => {
-	brandingCache.set(organisationId, {
-		expiresAt: now + BRANDING_CACHE_TTL_MS,
 		value
 	});
 };
@@ -182,14 +151,14 @@ const resolveBranding = async (payload: {
 		}
 	});
 
-	const value = {
+	const value: BrandingCacheValue = {
 		theme,
 		font: {
 			cssStack: resolvedFont.cssStack,
 			fontFaceCss: resolvedFont.fontFaceCss
 		}
 	};
-	setCachedBranding(payload.organisationId, value, now);
+	setCachedBranding(payload.organisationId, value, now, BRANDING_CACHE_TTL_MS);
 	return value;
 };
 

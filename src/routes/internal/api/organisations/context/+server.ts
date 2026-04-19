@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { json, type RequestHandler } from '@sveltejs/kit';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+	getCachedOrganisationContext,
+	setCachedOrganisationContext
+} from '$lib/server/organisationContextCache';
 import { normalizeRolesFromJoinRows } from '$lib/server/access';
 
 const CACHE_TTL_MS = 60_000;
@@ -47,14 +51,6 @@ type OrganisationContextResponse = {
 	generatedAt: string;
 };
 
-type ContextCacheEntry = {
-	expiresAt: number;
-	etag: string;
-	payload: OrganisationContextResponse;
-};
-
-const contextCache = new Map<string, ContextCacheEntry>();
-
 const buildCacheHeaders = (etag: string) => ({
 	'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
 	ETag: etag,
@@ -96,16 +92,14 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 		return json({ message: 'Unauthorized.' }, { status: 401 });
 	}
 	const canAccessTargetOrganisation =
-		actor.isAdmin ||
-		(actor.isOrganisationAdmin && actor.homeOrganisationId === orgId);
+		actor.isAdmin || (actor.isOrganisationAdmin && actor.homeOrganisationId === orgId);
 	if (!canAccessTargetOrganisation) {
 		return json({ message: 'Forbidden.' }, { status: 403 });
 	}
 
 	const cacheKey = `${actor.userId}:${orgId}`;
 	const now = Date.now();
-	const cached = contextCache.get(cacheKey);
-	let entry = cached && cached.expiresAt > now ? cached : null;
+	let entry = getCachedOrganisationContext<OrganisationContextResponse>(cacheKey, now);
 
 	try {
 		if (!entry) {
@@ -251,7 +245,7 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				etag,
 				payload
 			};
-			contextCache.set(cacheKey, entry);
+			setCachedOrganisationContext(cacheKey, entry);
 		}
 	} catch (error) {
 		console.error('[organisations context] failed to build context', error);

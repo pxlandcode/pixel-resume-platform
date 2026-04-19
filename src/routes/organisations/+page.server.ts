@@ -1,6 +1,8 @@
 import { error, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { create as createFont, type Font, type FontCollection } from 'fontkit';
+import { invalidateOrganisationBrandingCache } from '$lib/server/brandingCache';
+import { invalidateOrganisationContextCache } from '$lib/server/organisationContextCache';
 import {
 	AUTH_COOKIE_NAMES,
 	createSupabaseServerClient,
@@ -660,6 +662,9 @@ export const actions: Actions = {
 			return domainActionError('updateOrganisation', domainError);
 		}
 
+		invalidateOrganisationBrandingCache(orgId);
+		invalidateOrganisationContextCache(orgId);
+
 		return { type: 'updateOrganisation', ok: true, message: 'Organisation updated.' };
 	},
 
@@ -993,6 +998,9 @@ export const actions: Actions = {
 			}
 		}
 
+		invalidateOrganisationBrandingCache(organisationId);
+		invalidateOrganisationContextCache(organisationId);
+
 		return {
 			type: 'updateOrganisationBranding',
 			ok: true,
@@ -1061,6 +1069,8 @@ export const actions: Actions = {
 				message: upsertError.message
 			});
 		}
+
+		invalidateOrganisationContextCache(organisationId);
 
 		return { type: 'updateOrganisationTemplate', ok: true, message: 'Template settings updated.' };
 	},

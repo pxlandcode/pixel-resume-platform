@@ -5,6 +5,7 @@ import {
 	createSupabaseServerClient,
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
+import { invalidateOrganisationContextCache } from '$lib/server/organisationContextCache';
 import { getActorAccessContext } from '$lib/server/access';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
@@ -50,17 +51,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		return json({ message: 'You are not authenticated.' }, { status: 401 });
 	}
 
-	const actor = await getActorAccessContext(supabase, adminClient);
-	if (!actor.userId) {
-		return json({ message: 'You are not authenticated.' }, { status: 401 });
-	}
-	if (!actor.isAdmin) {
-		return json(
-			{ message: 'Only admins can upload organisation branding images.' },
-			{ status: 403 }
-		);
-	}
-
 	const formData = await request.formData();
 	const organisationIdRaw = formData.get('organisation_id');
 	const assetSlotRaw = formData.get('asset_slot');
@@ -75,6 +65,21 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	if (!isTemplateAssetSlot(assetSlot)) {
 		return json({ message: 'Invalid asset slot.' }, { status: 400 });
 	}
+
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId) {
+		return json({ message: 'You are not authenticated.' }, { status: 401 });
+	}
+
+	const canManageOrganisation =
+		actor.isAdmin || (actor.isOrganisationAdmin && actor.homeOrganisationId === organisationId);
+	if (!canManageOrganisation) {
+		return json(
+			{ message: 'You do not have permission to upload branding assets for this organisation.' },
+			{ status: 403 }
+		);
+	}
+
 	if (!(file instanceof File)) {
 		return json({ message: 'Image file is required.' }, { status: 400 });
 	}
@@ -125,6 +130,8 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	const { data: publicUrlData } = adminClient.storage
 		.from(ORGANISATION_IMAGES_BUCKET)
 		.getPublicUrl(objectPath);
+
+	invalidateOrganisationContextCache(organisationId);
 
 	return json({
 		path: objectPath,
