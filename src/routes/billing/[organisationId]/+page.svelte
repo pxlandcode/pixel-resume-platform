@@ -1,17 +1,17 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import type { AirDatepickerOptions } from 'air-datepicker';
 	import {
 		Alert,
 		Badge,
 		Button,
 		Card,
-		Datepicker,
 		FormControl,
 		Input,
 		TextArea
 	} from '@pixelcode_/blocks/components';
 	import { Drawer, Dropdown } from '$lib/components';
+	import MonthInputDatepicker from '$lib/components/month-input-datepicker.svelte';
 	import { ArrowLeft, ClipboardCheck, Download, Pencil } from 'lucide-svelte';
 	import { getBillingDisplayStatusLabel, getBillingMetricDisplayStatus } from '$lib/types/billing';
 
@@ -32,11 +32,13 @@
 				: 'success';
 
 	const usagePercent = (current: number, limit: number | null) => {
-		if (limit === null || limit === 0) return 0;
+		if (limit === null) return 0;
+		if (limit === 0) return 100;
 		return Math.min(100, Math.round((current / limit) * 100));
 	};
 	const usageBarColor = (current: number, limit: number | null) => {
 		if (limit === null) return 'bg-primary/60';
+		if (limit === 0) return current > 0 ? 'bg-destructive' : 'bg-primary/40';
 		const pct = current / limit;
 		if (pct >= 1) return 'bg-destructive';
 		if (pct >= 0.8) return 'bg-warning';
@@ -52,12 +54,27 @@
 	const pdfHref = $derived(
 		`/api/billing/${data.organisation.id}/pdf?month=${encodeURIComponent(formatMonthInput(data.selectedMonth))}`
 	);
-	const monthDatepickerOptions: AirDatepickerOptions = {
-		view: 'months',
-		minView: 'months',
-		dateFormat: 'yyyy-MM'
-	};
+	let pendingMonthNavigation = $state<string | null>(null);
 	let selectedMonthValue = $state(formatMonthInput(data.selectedMonth));
+	const logMonthNavigation = (event: string, details?: Record<string, unknown>) => {
+		console.debug(`[billing-month-page] ${event}`, details ?? {});
+	};
+	const handleMonthSwitcherHide = (isAnimationComplete: boolean) => {
+		logMonthNavigation('month-switcher-hide', {
+			isAnimationComplete,
+			pendingMonthNavigation
+		});
+		if (!isAnimationComplete || !pendingMonthNavigation) return;
+
+		const target = new URL($page.url);
+		target.searchParams.set('month', pendingMonthNavigation);
+		pendingMonthNavigation = null;
+
+		logMonthNavigation('goto', {
+			href: `${target.pathname}${target.search}`
+		});
+		void goto(`${target.pathname}${target.search}`, { noScroll: true });
+	};
 	const reviewDecisionOptions = [
 		{ label: 'Use computed status', value: '' },
 		{ label: 'Ignore (<24h)', value: 'ignore' },
@@ -89,6 +106,9 @@
 
 	$effect(() => {
 		const selectedMonth = formatMonthInput(data.selectedMonth);
+		logMonthNavigation('sync-from-data', {
+			selectedMonth
+		});
 		assignmentEffectiveMonth = selectedMonth;
 		addonEffectiveMonth = selectedMonth;
 		addonEndMonth = '';
@@ -98,8 +118,22 @@
 	$effect(() => {
 		const current = formatMonthInput(data.selectedMonth);
 		if (selectedMonthValue && selectedMonthValue !== current) {
-			window.location.href = `${$page.url.pathname}?month=${selectedMonthValue}`;
+			logMonthNavigation('queue-navigation', {
+				from: current,
+				to: selectedMonthValue
+			});
+			pendingMonthNavigation = selectedMonthValue;
+			return;
 		}
+
+		if (pendingMonthNavigation) {
+			logMonthNavigation('clear-pending-navigation', {
+				pendingMonthNavigation,
+				current,
+				selectedMonthValue
+			});
+		}
+		pendingMonthNavigation = null;
 	});
 </script>
 
@@ -134,9 +168,10 @@
 			</div>
 
 			<div class="ml-auto shrink-0">
-				<Datepicker
+				<MonthInputDatepicker
 					bind:value={selectedMonthValue}
-					options={monthDatepickerOptions}
+					debugLabel="header-month-switcher"
+					onPickerHide={handleMonthSwitcherHide}
 					class="bg-card text-foreground w-40 !pl-11"
 					placeholder="YYYY-MM"
 				/>
@@ -408,11 +443,11 @@
 	>
 		<form method="POST" action="?/upsertAssignment" class="space-y-4">
 			<FormControl label="Effective month" class="gap-2 text-sm">
-				<Datepicker
+				<MonthInputDatepicker
 					id="assignment-effective-month"
 					name="effective_month"
 					bind:value={assignmentEffectiveMonth}
-					options={monthDatepickerOptions}
+					debugLabel="plan-assignment-effective-month"
 					class="bg-card text-foreground w-full !pl-11"
 					placeholder="YYYY-MM"
 				/>
@@ -512,21 +547,21 @@
 			</FormControl>
 			<div class="grid gap-4 sm:grid-cols-2">
 				<FormControl label="Effective month" class="gap-2 text-sm">
-					<Datepicker
+					<MonthInputDatepicker
 						id="addon-effective-month"
 						name="effective_month"
 						bind:value={addonEffectiveMonth}
-						options={monthDatepickerOptions}
+						debugLabel="addon-effective-month"
 						class="bg-card text-foreground w-full !pl-11"
 						placeholder="YYYY-MM"
 					/>
 				</FormControl>
 				<FormControl label="End month" class="gap-2 text-sm">
-					<Datepicker
+					<MonthInputDatepicker
 						id="addon-end-month"
 						name="end_month"
 						bind:value={addonEndMonth}
-						options={monthDatepickerOptions}
+						debugLabel="addon-end-month"
 						class="bg-card text-foreground w-full !pl-11"
 						placeholder="YYYY-MM"
 					/>

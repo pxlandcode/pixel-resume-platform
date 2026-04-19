@@ -8,13 +8,7 @@ import {
 import { getActorAccessContext } from '$lib/server/access';
 
 type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
-const KNOWN_ROLES = new Set<Role>([
-	'admin',
-	'organisation_admin',
-	'broker',
-	'talent',
-	'employer'
-]);
+const KNOWN_ROLES = new Set<Role>(['admin', 'organisation_admin', 'broker', 'talent', 'employer']);
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const randomPassword = (length = 32) =>
@@ -84,10 +78,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		(actor.isOrganisationAdmin || actor.isBroker || actor.isEmployer) &&
 		!actor.homeOrganisationId
 	) {
-		throw error(
-			400,
-			'You must be connected to a home organisation before creating users.'
-		);
+		throw error(400, 'You must be connected to a home organisation before creating users.');
 	}
 
 	const body = await request.json().catch(() => ({}));
@@ -110,10 +101,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		);
 		const disallowed = normalizedRoles.filter((role) => !allowedRoles.has(role));
 		if (disallowed.length > 0) {
-			throw error(
-				403,
-				`You can only assign roles: ${Array.from(allowedRoles).join(', ')}.`
-			);
+			throw error(403, `You can only assign roles: ${Array.from(allowedRoles).join(', ')}.`);
 		}
 	}
 	const active = body.active !== false && body.active !== 'false';
@@ -142,23 +130,25 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	if (!email) throw error(400, 'Email is required.');
 	if (active && !password) throw error(400, 'Password is required for active accounts.');
 
-	const targetOrganisationId = actor.isAdmin
-		? requestedOrganisationId
-		: actor.homeOrganisationId;
+	const targetOrganisationId = actor.isAdmin ? requestedOrganisationId : actor.homeOrganisationId;
 
+	let selectedOrganisation: { id: string; name: string | null } | null = null;
 	if (targetOrganisationId) {
 		const { data: organisationData, error: organisationLookupError } = await admin
 			.from('organisations')
-			.select('id')
+			.select('id, name')
 			.eq('id', targetOrganisationId)
 			.maybeSingle();
 
 		if (organisationLookupError || !organisationData) {
 			throw error(404, 'Selected organisation was not found.');
 		}
+
+		selectedOrganisation = organisationData;
 	}
 
-	let selectedTalent: { id: string; user_id: string | null; avatar_url: string | null } | null = null;
+	let selectedTalent: { id: string; user_id: string | null; avatar_url: string | null } | null =
+		null;
 	if (linkedTalentId) {
 		const { data: selectedTalentData, error: selectedTalentError } = await admin
 			.from('talents')
@@ -275,10 +265,7 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		if (membershipError) {
 			console.error('[create-user] organisation membership insert error', membershipError);
 			await admin.auth.admin.deleteUser(userId);
-			throw error(
-				500,
-				'User creation was rolled back because organisation linking failed.'
-			);
+			throw error(500, 'User creation was rolled back because organisation linking failed.');
 		}
 	}
 
@@ -298,5 +285,20 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		}
 	}
 
-	return json({ ok: true, user_id: userId });
+	return json({
+		ok: true,
+		user_id: userId,
+		user: {
+			id: userId,
+			first_name: firstName,
+			last_name: lastName,
+			email,
+			roles: normalizedRoles,
+			avatar_url: syncedAvatar,
+			active,
+			linked_talent_id: linkedTalentId ?? null,
+			organisation_id: targetOrganisationId ?? null,
+			organisation_name: selectedOrganisation?.name ?? null
+		}
+	});
 };

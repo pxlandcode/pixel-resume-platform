@@ -24,9 +24,21 @@
 	} from '$lib/images/supabaseImage';
 
 	type AnyUppyFile = UppyFile<Meta, Body>;
+	type SavedUser = {
+		id: string;
+		first_name: string | null;
+		last_name: string | null;
+		email: string | null;
+		roles: UserRole[] | null;
+		avatar_url: string | null;
+		active: boolean;
+		linked_talent_id: string | null;
+		organisation_id?: string | null;
+		organisation_name?: string | null;
+	};
 
 	const dispatch = createEventDispatcher<{
-		success: { message?: string };
+		success: { message?: string; mode: 'create' | 'edit'; user?: SavedUser | null };
 		close: void;
 		error: { message?: string };
 		requestDelete: { userId: string };
@@ -447,12 +459,21 @@
 						organisation_id: canManageOrganisationAssignment ? organisationId : undefined
 					})
 				});
+				const detail = (await response.json().catch(() => null)) as {
+					message?: string;
+					user?: SavedUser | null;
+				} | null;
 
 				if (!response.ok) {
-					const detail = await response.json().catch(() => null);
 					dispatch('error', { message: detail?.message ?? 'Request failed.' });
 					return;
 				}
+
+				dispatch('success', {
+					message: detail?.message ?? 'User created.',
+					mode: 'create',
+					user: detail?.user ?? null
+				});
 			} else {
 				const response = await fetch('?/updateUser', { method: 'POST', body: formData });
 
@@ -461,9 +482,12 @@
 					dispatch('error', { message: detail?.message ?? 'Request failed.' });
 					return;
 				}
-			}
 
-			dispatch('success', { message: mode === 'create' ? 'User created.' : 'User updated.' });
+				dispatch('success', {
+					message: 'User updated.',
+					mode: 'edit'
+				});
+			}
 
 			// Reset only when creating; keep selections on edit so the state mirrors what was saved.
 			if (mode === 'create') {
@@ -550,7 +574,6 @@
 					</p>
 				{/if}
 			</FormControl>
-
 		{/if}
 
 		{#if canManageOrganisationAssignment}

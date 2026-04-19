@@ -154,6 +154,29 @@ const toNullableInteger = (value: number | string | null | undefined) => {
 	return Math.trunc(toNumber(value));
 };
 
+const normalizeBrokerTalentUserSeatLimit = (
+	planFamily: BillingPlanFamily,
+	limit: number | null
+) => (planFamily === 'broker' && limit === null ? 0 : limit);
+
+const normalizeResolvedBillingPlan = (
+	plan: ResolvedBillingPlan | null
+): ResolvedBillingPlan | null => {
+	if (!plan) return null;
+
+	const includedTalentUserSeats = normalizeBrokerTalentUserSeatLimit(
+		plan.planFamily,
+		plan.includedTalentUserSeats
+	);
+
+	if (includedTalentUserSeats === plan.includedTalentUserSeats) return plan;
+
+	return {
+		...plan,
+		includedTalentUserSeats
+	};
+};
+
 const asObject = (value: unknown): Record<string, unknown> => {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
 	return value as Record<string, unknown>;
@@ -374,7 +397,10 @@ const mapBillingPlanVersion = (row: BillingPlanVersionRow): BillingPlanVersion =
 	currencyCode: row.currency_code,
 	monthlyPriceOre: toInteger(row.monthly_price_ore),
 	includedTalentProfiles: toNullableInteger(row.included_talent_profiles),
-	includedTalentUserSeats: toNullableInteger(row.included_talent_user_seats),
+	includedTalentUserSeats: normalizeBrokerTalentUserSeatLimit(
+		row.plan_family,
+		toNullableInteger(row.included_talent_user_seats)
+	),
 	includedAdminSeats: toNullableInteger(row.included_admin_seats),
 	sortOrder: toInteger(row.sort_order, 100),
 	features: asStringArray(row.features_json),
@@ -463,6 +489,28 @@ const readSerializedMetrics = (value: unknown): BillingUsageMetric[] => {
 					? (metric.status as BillingMetricStatus)
 					: 'ignore'
 		} satisfies BillingUsageMetric;
+	});
+};
+
+const normalizeMetricsForPlan = (
+	metrics: BillingUsageMetric[],
+	plan: ResolvedBillingPlan | null
+): BillingUsageMetric[] => {
+	if (!plan || plan.planFamily !== 'broker' || plan.includedTalentUserSeats !== 0) {
+		return metrics;
+	}
+
+	return metrics.map((metric) => {
+		if (metric.key !== 'talent_user_seats' || metric.limit !== null) return metric;
+
+		return {
+			...metric,
+			limit: 0,
+			status:
+				metric.status === 'unlimited'
+					? determineMetricStatus(metric.durationAboveLimitMs, 0)
+					: metric.status
+		};
 	});
 };
 
@@ -663,7 +711,8 @@ const computeUsageMetrics = (payload: {
 	analysisEnd: Date;
 	plan: ResolvedBillingPlan | null;
 }): { metrics: BillingUsageMetric[]; isPartialPeriod: boolean } => {
-	const { snapshots, baselineSnapshot, periodStart, analysisEnd, plan } = payload;
+	const { snapshots, baselineSnapshot, periodStart, analysisEnd } = payload;
+	const plan = normalizeResolvedBillingPlan(payload.plan);
 
 	const durationsByMetric: Record<BillingMetricKey, number> = {
 		talent_profiles: 0,
@@ -893,7 +942,7 @@ const mapFrozenBillingMonthView = (
 			) as BillingLineItem[])
 		: [];
 	const planSnapshot = asObject(row.plan_snapshot_json);
-	const plan =
+	const plan = normalizeResolvedBillingPlan(
 		typeof planSnapshot.planVersionId === 'string'
 			? ({
 					planVersionId: planSnapshot.planVersionId,
@@ -922,7 +971,8 @@ const mapFrozenBillingMonthView = (
 					features: asStringArray(planSnapshot.features),
 					metadata: asObject(planSnapshot.metadata)
 				} satisfies ResolvedBillingPlan)
-			: null;
+			: null
+	);
 	const addOns = Array.isArray(row.addons_snapshot_json)
 		? (row.addons_snapshot_json.filter(
 				(item): item is ResolvedOrganisationBillingAddon =>
@@ -948,7 +998,7 @@ const mapFrozenBillingMonthView = (
 		plan,
 		addOns,
 		lineItems,
-		metrics: readSerializedMetrics(row.metrics_json),
+		metrics: normalizeMetricsForPlan(readSerializedMetrics(row.metrics_json), plan),
 		totals: {
 			currencyCode:
 				typeof totals.currencyCode === 'string' ? totals.currencyCode : row.currency_code,
@@ -1271,7 +1321,10 @@ export const createBillingPlanVersion = async (payload: {
 		currency_code: payload.currencyCode.trim() || 'SEK',
 		monthly_price_ore: Math.max(0, Math.trunc(payload.monthlyPriceOre)),
 		included_talent_profiles: payload.includedTalentProfiles,
-		included_talent_user_seats: payload.includedTalentUserSeats,
+		included_talent_user_seats: normalizeBrokerTalentUserSeatLimit(
+			payload.planFamily,
+			payload.includedTalentUserSeats
+		),
 		included_admin_seats: payload.includedAdminSeats,
 		sort_order: payload.sortOrder,
 		features_json: payload.features,
