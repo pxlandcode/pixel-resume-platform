@@ -18,6 +18,8 @@ import {
 	parseEmailDomainList,
 	replaceOrganisationEmailDomains
 } from '$lib/server/organisationEmailDomains';
+import { invalidateOrganisationBrandingCache } from '$lib/server/brandingCache';
+import { invalidateOrganisationContextCache } from '$lib/server/organisationContextCache';
 import {
 	mergeOrganisationBrandingTheme,
 	parseOrganisationBrandingThemeFormData,
@@ -392,6 +394,9 @@ export const handleUpdateOrganisation = async (
 		return domainActionError('updateOrganisation', domainError);
 	}
 
+	invalidateOrganisationBrandingCache(orgId);
+	invalidateOrganisationContextCache(orgId);
+
 	return { type: 'updateOrganisation', ok: true, message: 'Organisation updated.' };
 };
 
@@ -682,6 +687,9 @@ export const handleUpdateOrganisationBranding = async (
 		}
 	}
 
+	invalidateOrganisationBrandingCache(organisationId);
+	invalidateOrganisationContextCache(organisationId);
+
 	return {
 		type: 'updateOrganisationBranding',
 		ok: true,
@@ -743,6 +751,8 @@ export const handleUpdateOrganisationTemplate = async (
 			message: upsertError.message
 		});
 	}
+
+	invalidateOrganisationContextCache(organisationId);
 
 	return { type: 'updateOrganisationTemplate', ok: true, message: 'Template settings updated.' };
 };

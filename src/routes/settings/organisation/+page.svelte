@@ -146,7 +146,7 @@
 		id: organisation.id,
 		name: organisation.name,
 		brand_settings:
-			organisationContext?.organisation.brand_settings ?? organisation.brand_settings ?? null
+			organisation.brand_settings ?? organisationContext?.organisation.brand_settings ?? null
 	});
 	const brandingTemplate = $derived(organisationContext?.template ?? undefined);
 </script>
