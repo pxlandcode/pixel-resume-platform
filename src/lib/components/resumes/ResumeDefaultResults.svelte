@@ -5,6 +5,7 @@
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
 	import type { ResumesTalentListItem } from '$lib/types/resumes';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import { getAvailabilitySortKey } from '$lib/utils/availability';
 	import ResumeOrganisationMark from './ResumeOrganisationMark.svelte';
 	import ResumeTalentCard from './ResumeTalentCard.svelte';
 	import { getTalentName } from './pageShared';
@@ -14,6 +15,7 @@
 		name: string;
 		avatar_url: string | null;
 		availability: ResumesTalentListItem['availability'] | null;
+		availability_sort: string;
 		organisation_name: string | null;
 		organisation_logo_url: string | null;
 	};
@@ -27,7 +29,7 @@
 	const resumesListHeadings: SuperListHead<ResumesListRow>[] = [
 		{ heading: null, width: 6 },
 		{ heading: 'Name', sortable: 'name', filterable: 'name', width: 34 },
-		{ heading: 'Availability', width: 35 },
+		{ heading: 'Availability', sortable: 'availability_sort', width: 35 },
 		{ heading: 'Organisation', sortable: 'organisation_name', width: 25 }
 	];
 
@@ -47,6 +49,7 @@
 			name: getTalentName(talent),
 			avatar_url: talent.avatar_url ?? null,
 			availability: talent.availability ?? null,
+			availability_sort: getAvailabilitySortKey(talent.availability ?? null),
 			organisation_name: talent.organisation_name ?? null,
 			organisation_logo_url: talent.organisation_logo_url ?? null
 		}));
