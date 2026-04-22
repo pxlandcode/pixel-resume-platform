@@ -8,19 +8,22 @@
 		Checkbox,
 		FormControl,
 		Input,
-		Toaster
+		Toaster,
+		toast
 	} from '@pixelcode_/blocks/components';
 	import BillingCatalogManager from '$lib/components/admin/BillingCatalogManager.svelte';
 	import LegalDocumentsManager from '$lib/components/admin/LegalDocumentsManager.svelte';
 	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
 	import OrganisationDetailsDrawer from '$lib/components/admin/OrganisationDetailsDrawer.svelte';
 	import OrganisationMembershipDrawer from '$lib/components/admin/OrganisationMembershipDrawer.svelte';
+	import OrganisationTalentLabelsDrawer from '$lib/components/admin/OrganisationTalentLabelsDrawer.svelte';
 	import TechCatalogManager from '$lib/components/admin/TechCatalogManager.svelte';
 	import ResumeShareLinksPanel from '$lib/components/admin/ResumeShareLinksPanel.svelte';
 	import { Dropdown } from '$lib/components/dropdown';
 	import { OptionButton, type OptionButtonOption } from '$lib/components/option-button';
 	import type { BillingAddonVersion, BillingPlanVersion } from '$lib/types/billing';
 	import type { ManagedResumeShareLink } from '$lib/types/resumeShares';
+	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 	import { ripple } from '$lib/utils/ripple';
 	import type { ActionData, PageData } from './$types';
 	import CreditCard from 'lucide-svelte/icons/credit-card';
@@ -34,6 +37,7 @@
 	import CircleOff from 'lucide-svelte/icons/circle-off';
 	import ChevronDown from 'lucide-svelte/icons/chevron-down';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import Tags from 'lucide-svelte/icons/tags';
 
 	let { data, form }: { data: PageData; form: ActionData | null } = $props();
 
@@ -90,6 +94,7 @@
 		}>;
 		usersWithHomeOrgIds: string[];
 		talentsWithHomeOrgIds: string[];
+		talentLabelDefinitions: TalentLabelDefinition[];
 		generatedAt: string;
 	};
 
@@ -127,6 +132,11 @@
 		| 'sharing'
 		| 'resume_links'
 		| null;
+
+	const isTalentLabelActionType = (value: string | null | undefined) =>
+		value === 'createTalentLabelDefinition' ||
+		value === 'updateTalentLabelDefinition' ||
+		value === 'deleteTalentLabelDefinition';
 
 	const organisationRuleAccessOptions = [
 		{ value: 'read', label: 'Read only', icon: Eye },
@@ -167,14 +177,6 @@
 	const resumeShareLinks = $derived(
 		(data.resumeShareLinks as ManagedResumeShareLink[] | undefined) ?? []
 	);
-	const passwordMessage = $derived(
-		form?.type === 'changePassword' && typeof form.message === 'string' ? form.message : null
-	);
-	const isPasswordMessageSuccess = $derived(form?.type === 'changePassword' && form.ok === true);
-	const actionMessage = $derived(
-		form?.type !== 'changePassword' && typeof form?.message === 'string' ? form.message : null
-	);
-	const actionFailed = $derived(form?.type !== 'changePassword' && form?.ok === false);
 	const legalDocuments = $derived((data.legalDocuments as LegalDocumentsProp | undefined) ?? []);
 	const billingPlanVersions = $derived(
 		(data.planVersions as BillingPlanVersion[] | undefined) ?? []
@@ -221,7 +223,15 @@
 		'connectUserHome',
 		'disconnectUserHome',
 		'connectTalentHome',
-		'disconnectTalentHome'
+		'disconnectTalentHome',
+		'createTalentLabelDefinition',
+		'updateTalentLabelDefinition',
+		'deleteTalentLabelDefinition'
+	]);
+	const TALENT_LABEL_ACTION_TYPES = new Set([
+		'createTalentLabelDefinition',
+		'updateTalentLabelDefinition',
+		'deleteTalentLabelDefinition'
 	]);
 	const BILLING_ACTION_TYPES = new Set([
 		'createPlanVersion',
@@ -229,6 +239,17 @@
 		'createAddonVersion',
 		'setAddonVersionState'
 	]);
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
 
 	const initialSourceOrganisationId =
 		sourceContextFromForm ?? data.defaultSourceOrganisationId ?? '';
@@ -270,11 +291,13 @@
 	let isDetailsDrawerOpen = $state(false);
 	let isBrandingDrawerOpen = $state(false);
 	let isMembershipDrawerOpen = $state(false);
+	let isLabelsDrawerOpen = $state(TALENT_LABEL_ACTION_TYPES.has(form?.type ?? ''));
 	let organisationContext = $state<OrganisationContext | null>(null);
 	let contextStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let contextError = $state<string | null>(null);
 	let contextEtag = $state<string | null>(null);
 	let contextAbortController: AbortController | null = null;
+	let lastFormToastKey = $state<string | null>(null);
 
 	const organisationNameById = $derived(
 		Object.fromEntries(
@@ -414,6 +437,7 @@
 	const membershipTalentRows = $derived(organisationContext?.membershipsTalents ?? []);
 	const usersWithHomeOrg = $derived(new Set(organisationContext?.usersWithHomeOrgIds ?? []));
 	const talentsWithHomeOrg = $derived(new Set(organisationContext?.talentsWithHomeOrgIds ?? []));
+	const talentLabelDefinitions = $derived(organisationContext?.talentLabelDefinitions ?? []);
 	const brandingOrganisation = $derived(
 		organisation
 			? {
@@ -512,10 +536,11 @@
 	const brandingLabel = (allowTargetLogoExport: boolean) =>
 		allowTargetLogoExport ? 'Uses target organisation branding' : 'Uses talent owner branding';
 
-	const loadOrganisationContext = async () => {
+	const loadOrganisationContext = async (options: { force?: boolean } = {}) => {
+		const force = options.force ?? false;
 		if (!organisation?.id) return;
-		if (contextStatus === 'loading') return;
-		if (contextStatus === 'ready' && organisationContext) return;
+		if (!force && contextStatus === 'loading') return;
+		if (!force && contextStatus === 'ready' && organisationContext) return;
 
 		contextAbortController?.abort();
 		const controller = new AbortController();
@@ -529,7 +554,7 @@
 				method: 'GET',
 				credentials: 'include',
 				signal: controller.signal,
-				headers: contextEtag ? { 'If-None-Match': contextEtag } : undefined
+				headers: !force && contextEtag ? { 'If-None-Match': contextEtag } : undefined
 			});
 
 			if (response.status === 304) {
@@ -579,6 +604,30 @@
 		void loadOrganisationContext();
 	};
 
+	const openLabelsDrawer = () => {
+		isLabelsDrawerOpen = true;
+		void loadOrganisationContext();
+	};
+
+	const refreshOrganisationContext = async () => {
+		await loadOrganisationContext({ force: true });
+	};
+
+	$effect(() => {
+		if (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen) {
+			void loadOrganisationContext();
+		}
+	});
+
+	$effect(() => {
+		if (typeof form?.message !== 'string' || form.message.length === 0) return;
+		if (isTalentLabelActionType(form?.type) || TECH_ACTION_TYPES.has(form?.type ?? '')) return;
+		const key = `${form?.type ?? 'unknown'}:${form?.ok === false ? 'error' : 'success'}:${form.message}`;
+		if (lastFormToastKey === key) return;
+		lastFormToastKey = key;
+		showToast(form?.ok === false ? 'error' : 'success', form.message);
+	});
+
 	function togglePanel(panel: Exclude<SettingsPanel, null>) {
 		expandedPanel = expandedPanel === panel ? null : panel;
 	}
@@ -594,12 +643,6 @@
 			talents.
 		</p>
 	</header>
-
-	{#if actionMessage}
-		<Alert variant={actionFailed ? 'destructive' : 'success'} size="sm">
-			<p class="text-foreground text-sm font-medium">{actionMessage}</p>
-		</Alert>
-	{/if}
 
 	<section
 		class={`bg-card group overflow-hidden rounded-sm border transition-colors ${
@@ -671,18 +714,6 @@
 						/>
 					</FormControl>
 
-					{#if passwordMessage}
-						<p
-							class={`rounded-md px-3 py-2 text-sm ${
-								isPasswordMessageSuccess
-									? 'bg-emerald-100 text-emerald-800'
-									: 'bg-rose-100 text-rose-700'
-							}`}
-						>
-							{passwordMessage}
-						</p>
-					{/if}
-
 					<Button type="submit" class="justify-center" disabled={isPasswordSavePending}>
 						{isPasswordSavePending ? 'Saving…' : 'Update password'}
 					</Button>
@@ -739,15 +770,15 @@
 					id="settings-organisation-panel"
 					class="border-border space-y-5 border-t px-5 py-5 sm:px-6"
 				>
-					{#if contextStatus === 'loading' && (isBrandingDrawerOpen || isMembershipDrawerOpen)}
+					{#if contextStatus === 'loading' && (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
 						<p class="text-muted-fg text-sm">Loading organisation details…</p>
-					{:else if contextError && (isBrandingDrawerOpen || isMembershipDrawerOpen)}
+					{:else if contextError && (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
 						<Alert variant="destructive" size="sm">
 							<p class="text-foreground text-sm font-medium">{contextError}</p>
 						</Alert>
 					{/if}
 
-					<div class="grid gap-4 sm:grid-cols-3">
+					<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 						<button
 							type="button"
 							onclick={openDetailsDrawer}
@@ -795,6 +826,24 @@
 							<div>
 								<h3 class="text-foreground text-base font-semibold">Membership</h3>
 								<p class="text-muted-fg mt-1 text-sm">Manage home users and talents.</p>
+							</div>
+						</button>
+
+						<button
+							type="button"
+							onclick={openLabelsDrawer}
+							class="bg-background border-border hover:border-primary/50 flex flex-col items-start gap-3 rounded-sm border p-5 text-left transition-colors"
+						>
+							<div
+								class="bg-muted text-muted-fg flex h-10 w-10 items-center justify-center rounded-sm"
+							>
+								<Tags size={20} />
+							</div>
+							<div>
+								<h3 class="text-foreground text-base font-semibold">Labels</h3>
+								<p class="text-muted-fg mt-1 text-sm">
+									Manage Finder-style talent labels for `/resumes`.
+								</p>
 							</div>
 						</button>
 					</div>
@@ -1416,4 +1465,11 @@
 	talentMemberships={membershipTalentRows}
 	{usersWithHomeOrg}
 	{talentsWithHomeOrg}
+/>
+
+<OrganisationTalentLabelsDrawer
+	bind:open={isLabelsDrawerOpen}
+	organisation={organisation ?? undefined}
+	{talentLabelDefinitions}
+	{refreshOrganisationContext}
 />

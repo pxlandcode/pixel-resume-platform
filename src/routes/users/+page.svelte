@@ -16,7 +16,7 @@
 		transformSupabasePublicUrl,
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
-	import { Alert, Badge, Button, Card, Input } from '@pixelcode_/blocks/components';
+	import { Alert, Badge, Button, Card, Input, Toaster, toast } from '@pixelcode_/blocks/components';
 	import {
 		Pencil,
 		User,
@@ -198,10 +198,21 @@
 		return { ok, message };
 	};
 
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
+
 	let isModalOpen = $state(false);
 	let isMobileDetailOpen = $state(false);
 	let selectedUserForDetail = $state<UsersListRow | null>(null);
-	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 	let users = $state<LoadUser[]>(sortUsers((data.users as LoadUser[] | undefined) ?? []));
 	let talentOptions = $state<TalentOption[]>([]);
 	let talentOptionsStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
@@ -308,7 +319,7 @@
 			}
 		}
 
-		feedback = { type: 'success', message: event.detail?.message ?? 'User saved.' };
+		showToast('success', event.detail?.message ?? 'User saved.');
 		isModalOpen = false;
 		selectedUserForDetail = null;
 		isMobileDetailOpen = false;
@@ -316,7 +327,7 @@
 	};
 
 	const handleCreateError = (event: CustomEvent<{ message?: string }>) => {
-		feedback = { type: 'error', message: event.detail?.message ?? 'Failed to save user.' };
+		showToast('error', event.detail?.message ?? 'Failed to save user.');
 	};
 
 	const canDeleteRow = (user: { id: string } | null | undefined) =>
@@ -327,7 +338,7 @@
 	const handleDeleteUserById = async (userId: string) => {
 		const user = users.find((candidate) => candidate.id === userId);
 		if (!user) {
-			feedback = { type: 'error', message: 'User not found.' };
+			showToast('error', 'User not found.');
 			return;
 		}
 		await handleDeleteUser(user);
@@ -341,10 +352,7 @@
 			const response = await fetch('?/deleteUser', { method: 'POST', body: formData });
 			const result = await parseActionMessage(response);
 			if (!response.ok || !result.ok) {
-				feedback = {
-					type: 'error',
-					message: result.message ?? 'Failed to delete user.'
-				};
+				showToast('error', result.message ?? 'Failed to delete user.');
 				return;
 			}
 
@@ -358,20 +366,13 @@
 				isModalOpen = false;
 			}
 
-			feedback = {
-				type: 'success',
-				message: result.message ?? 'User deleted.'
-			};
+			showToast('success', result.message ?? 'User deleted.');
 		} catch (error) {
-			feedback = {
-				type: 'error',
-				message: error instanceof Error ? error.message : 'Failed to delete user.'
-			};
+			showToast('error', error instanceof Error ? error.message : 'Failed to delete user.');
 		}
 	};
 
 	const openCreateUserModal = () => {
-		feedback = null;
 		editMode = 'create';
 		editUser = {
 			id: '',
@@ -390,7 +391,6 @@
 
 	const openEditUserModal = (user: LoadUser) => {
 		if (!canEditUser(user)) return;
-		feedback = null;
 		editMode = 'edit';
 		editUser = toEditableUser(user);
 		isModalOpen = true;
@@ -399,11 +399,8 @@
 
 	$effect(() => {
 		if (form?.type !== 'updateRole') return;
-
-		feedback = {
-			type: form.ok ? 'success' : 'error',
-			message: form.message ?? ''
-		};
+		if (!form.message) return;
+		showToast(form.ok ? 'success' : 'error', form.message);
 	});
 
 	$effect(() => {
@@ -619,6 +616,8 @@
 </script>
 
 <div class="relative space-y-6">
+	<Toaster />
+
 	<div class="absolute right-0 top-0 z-10 flex items-center gap-2">
 		{#if canCreateUsers}
 			<div class="bg-primary inline-flex items-center rounded-sm p-1">
@@ -745,11 +744,6 @@
 		</div>
 	{/if}
 
-	{#if feedback}
-		<Alert variant={feedback.type === 'success' ? 'success' : 'destructive'} size="sm">
-			<p class="text-foreground text-sm font-medium">{feedback.message}</p>
-		</Alert>
-	{/if}
 	{#if talentOptionsError && isModalOpen}
 		<Alert variant="destructive" size="sm">
 			<p class="text-foreground text-sm font-medium">{talentOptionsError}</p>

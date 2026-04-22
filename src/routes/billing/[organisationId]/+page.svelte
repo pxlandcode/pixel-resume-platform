@@ -2,13 +2,14 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import {
-		Alert,
 		Badge,
 		Button,
 		Card,
 		FormControl,
 		Input,
-		TextArea
+		TextArea,
+		Toaster,
+		toast
 	} from '@pixelcode_/blocks/components';
 	import { Drawer, Dropdown } from '$lib/components';
 	import MonthInputDatepicker from '$lib/components/month-input-datepicker.svelte';
@@ -51,6 +52,17 @@
 			message: form.message
 		};
 	});
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
 	const pdfHref = $derived(
 		`/api/billing/${data.organisation.id}/pdf?month=${encodeURIComponent(formatMonthInput(data.selectedMonth))}`
 	);
@@ -103,6 +115,7 @@
 	let reviewDrawerOpen = $state(false);
 	let planDrawerOpen = $state(false);
 	let addonsDrawerOpen = $state(false);
+	let lastFeedbackToastKey = $state<string | null>(null);
 
 	$effect(() => {
 		const selectedMonth = formatMonthInput(data.selectedMonth);
@@ -135,6 +148,14 @@
 		}
 		pendingMonthNavigation = null;
 	});
+
+	$effect(() => {
+		if (!feedback) return;
+		const key = `${form?.type ?? 'unknown'}:${feedback.ok ? 'success' : 'error'}:${feedback.message}`;
+		if (lastFeedbackToastKey === key) return;
+		lastFeedbackToastKey = key;
+		showToast(feedback.ok ? 'success' : 'error', feedback.message);
+	});
 </script>
 
 <svelte:head>
@@ -142,6 +163,8 @@
 </svelte:head>
 
 <div class="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+	<Toaster />
+
 	<!-- Header -->
 	<div>
 		{#if data.canManageBilling}
@@ -178,12 +201,6 @@
 			</div>
 		</div>
 	</div>
-
-	{#if feedback}
-		<Alert variant={feedback.ok ? 'success' : 'destructive'} size="sm">
-			<p class="text-sm font-medium">{feedback.message}</p>
-		</Alert>
-	{/if}
 
 	<!-- Top cards: Plan summary + Add-ons -->
 	<div class="grid gap-4 lg:grid-cols-[1.4fr_1fr]">

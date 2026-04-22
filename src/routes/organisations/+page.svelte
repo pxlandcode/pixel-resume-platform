@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button } from '@pixelcode_/blocks/components';
+	import { Alert, Button, Toaster, toast } from '@pixelcode_/blocks/components';
 	import { SuperList, ListHandler, Cell, Row } from '$lib/components/super-list';
 	import type { SuperListHead } from '$lib/components/super-list';
 	import OrganisationCreateDrawer from '$lib/components/admin/OrganisationCreateDrawer.svelte';
@@ -62,6 +62,18 @@
 	const actionMessage = $derived(typeof form?.message === 'string' ? form.message : null);
 	const actionFailed = $derived(form?.ok === false);
 
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
+
 	let isCreateDrawerOpen = $state(false);
 	let isDetailsDrawerOpen = $state(false);
 	let isBrandingDrawerOpen = $state(false);
@@ -72,6 +84,7 @@
 	let contextErrorByOrgId = $state<Record<string, string | null>>({});
 	let contextEtagByOrgId = $state<Record<string, string | null>>({});
 	let contextAbortController: AbortController | null = null;
+	let lastActionToastKey = $state<string | null>(null);
 
 	const selectedOrganisationContext = $derived(
 		selectedOrganisation ? (organisationContextById[selectedOrganisation.id] ?? null) : null
@@ -218,9 +231,19 @@
 	const orgListHandler = $derived(
 		new ListHandler<OrgListRow>(orgListHeadings, toOrgListRows(organisations))
 	);
+
+	$effect(() => {
+		if (!actionMessage) return;
+		const key = `${form?.type ?? 'unknown'}:${form?.ok === false ? 'error' : 'success'}:${actionMessage}`;
+		if (lastActionToastKey === key) return;
+		lastActionToastKey = key;
+		showToast(actionFailed ? 'error' : 'success', actionMessage);
+	});
 </script>
 
 <div class="relative space-y-6">
+	<Toaster />
+
 	<div class="absolute right-0 top-0 z-10 flex items-center gap-2">
 		<div class="bg-primary inline-flex items-center rounded-sm p-1">
 			<Button variant="primary" size="sm" type="button" class="px-3" onclick={openCreateDrawer}>
@@ -236,11 +259,6 @@
 		</p>
 	</header>
 
-	{#if actionMessage}
-		<Alert variant={actionFailed ? 'destructive' : 'success'} size="sm">
-			<p class="text-foreground text-sm font-medium">{actionMessage}</p>
-		</Alert>
-	{/if}
 	{#if selectedOrganisation && (isBrandingDrawerOpen || isMembershipDrawerOpen)}
 		{#if selectedContextStatus === 'loading'}
 			<p class="text-muted-fg text-sm">Loading organisation details...</p>

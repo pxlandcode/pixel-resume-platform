@@ -15,7 +15,7 @@
 		transformSupabasePublicUrl,
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
-	import { Alert, Button, Card, Input } from '@pixelcode_/blocks/components';
+	import { Alert, Button, Card, Input, Toaster, toast } from '@pixelcode_/blocks/components';
 	import { Pencil, User, LayoutGrid, List, SlidersHorizontal, Search } from 'lucide-svelte';
 	import { resolve } from '$app/paths';
 	import { slide } from 'svelte/transition';
@@ -104,7 +104,6 @@
 	let contactIndexByScope = $state<Record<string, Record<string, string | null>>>({});
 	let contactEtagByScope = $state<Record<string, string | null>>({});
 	let contactIndexAbortController: AbortController | null = null;
-	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
 
 	const needsContactIndex = $derived(talentsViewMode === 'list' || searchQuery.trim().length > 0);
 	const contactIndexLoadingForScope = $derived(
@@ -301,6 +300,18 @@
 		selectedTalentId ? (allTalents.find((talent) => talent.id === selectedTalentId) ?? null) : null
 	);
 
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
+
 	const setTalentsViewMode = (mode: ViewMode) => {
 		void userSettingsStore.setViewMode('talents', mode);
 	};
@@ -325,14 +336,12 @@
 		Boolean(canManageTalents && talent?.id && talent.can_edit);
 
 	const openCreateDrawer = () => {
-		feedback = null;
 		selectedTalentId = null;
 		isCreateDrawerOpen = true;
 	};
 
 	const openEditDrawer = (talent: LoadTalent) => {
 		if (!canEditTalent(talent)) return;
-		feedback = null;
 		selectedTalentId = talent.id;
 		isEditDrawerOpen = true;
 	};
@@ -340,10 +349,7 @@
 	const handleDrawerSuccess = async (
 		event: CustomEvent<{ message: string; action: 'create' | 'update' | 'delete' }>
 	) => {
-		feedback = {
-			type: 'success',
-			message: event.detail.message
-		};
+		showToast('success', event.detail.message);
 		isCreateDrawerOpen = false;
 		isEditDrawerOpen = false;
 		selectedTalentId = null;
@@ -353,10 +359,7 @@
 	const handleDrawerError = (
 		event: CustomEvent<{ message: string; action: 'create' | 'update' | 'delete' }>
 	) => {
-		feedback = {
-			type: 'error',
-			message: event.detail.message
-		};
+		showToast('error', event.detail.message);
 	};
 
 	const getTalentWorkspaceHref = (talentId: string) =>
@@ -374,6 +377,8 @@
 </script>
 
 <div class="relative space-y-6">
+	<Toaster />
+
 	<div class="absolute right-0 top-0 z-10 flex items-center gap-2">
 		{#if canManageTalents}
 			<div class="bg-primary inline-flex items-center rounded-sm p-1">
@@ -460,11 +465,6 @@
 		</div>
 	{/if}
 
-	{#if feedback}
-		<Alert variant={feedback.type === 'error' ? 'destructive' : 'success'} size="sm">
-			<p class="text-foreground text-sm font-medium">{feedback.message}</p>
-		</Alert>
-	{/if}
 	{#if needsContactIndex && contactIndexLoadingForScope}
 		<p class="text-muted-fg text-sm">Loading contact emails...</p>
 	{:else if contactIndexError && needsContactIndex}

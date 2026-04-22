@@ -8,6 +8,8 @@ import {
 } from '$lib/server/supabase';
 import { getActorAccessContext } from '$lib/server/access';
 import { writeAuditLog } from '$lib/server/legalService';
+import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
+import { invalidateOrganisationContextCache } from '$lib/server/organisationContextCache';
 import {
 	extendResumeShareLink,
 	listVisibleResumeShareLinks,
@@ -39,6 +41,12 @@ import {
 	handleConnectTalentHome,
 	handleDisconnectTalentHome
 } from '$lib/server/organisationActions';
+import {
+	createTalentLabelDefinition,
+	deleteTalentLabelDefinition,
+	TalentLabelServiceError,
+	updateTalentLabelDefinition
+} from '$lib/server/talentLabels';
 import {
 	createBillingAddonVersion,
 	createBillingPlanVersion,
@@ -466,6 +474,43 @@ const ensureOrgManager = async (
 	const targetOrgId = typeof orgId === 'string' ? orgId : undefined;
 	return ensureOrgManagerContext(cookies, targetOrgId);
 };
+
+const isRecordWithStatus = (value: unknown): value is { status?: unknown } =>
+	typeof value === 'object' && value !== null;
+
+const ensureLegalAcceptance = async (
+	context: Extract<Awaited<ReturnType<typeof ensureOrgManager>>, { ok: true }>
+) => {
+	try {
+		await assertAcceptedForSensitiveAction({
+			adminClient: context.adminClient,
+			userId: context.actor.userId,
+			homeOrganisationId: context.actor.homeOrganisationId
+		});
+		return null;
+	} catch (legalError) {
+		const status =
+			isRecordWithStatus(legalError) && typeof legalError.status === 'number'
+				? legalError.status
+				: 403;
+		const message =
+			legalError instanceof Error
+				? legalError.message
+				: 'You must accept the latest legal documents before continuing.';
+		return { status, message };
+	}
+};
+
+const failTalentLabelAction = (payload: {
+	status: number;
+	type: 'createTalentLabelDefinition' | 'updateTalentLabelDefinition' | 'deleteTalentLabelDefinition';
+	message: string;
+}) =>
+	fail(payload.status, {
+		type: payload.type,
+		ok: false,
+		message: payload.message
+	});
 
 const ensureAllowedSourceOrganisation = (
 	context: Awaited<ReturnType<typeof ensureSharingActionContext>>,
@@ -1312,6 +1357,155 @@ export const actions: Actions = {
 			});
 		}
 		return handleDisconnectTalentHome(formData, context);
+	},
+
+	createTalentLabelDefinition: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return failTalentLabelAction({
+				status: context.status,
+				type: 'createTalentLabelDefinition',
+				message: context.message
+			});
+		}
+
+		const legalError = await ensureLegalAcceptance(context);
+		if (legalError) {
+			return failTalentLabelAction({
+				status: legalError.status,
+				type: 'createTalentLabelDefinition',
+				message: legalError.message
+			});
+		}
+
+		try {
+			await createTalentLabelDefinition({
+				adminClient: context.adminClient,
+				actor: context.actor,
+				name: typeof formData.get('name') === 'string' ? String(formData.get('name')) : '',
+				colorHex:
+					typeof formData.get('color_hex') === 'string' ? String(formData.get('color_hex')) : ''
+			});
+			invalidateOrganisationContextCache(context.actor.homeOrganisationId);
+			return {
+				type: 'createTalentLabelDefinition' as const,
+				ok: true,
+				message: 'Label created.'
+			};
+		} catch (actionError) {
+			const status = actionError instanceof TalentLabelServiceError ? actionError.status : 500;
+			return failTalentLabelAction({
+				status,
+				type: 'createTalentLabelDefinition',
+				message: actionError instanceof Error ? actionError.message : 'Could not create label.'
+			});
+		}
+	},
+
+	updateTalentLabelDefinition: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return failTalentLabelAction({
+				status: context.status,
+				type: 'updateTalentLabelDefinition',
+				message: context.message
+			});
+		}
+
+		const legalError = await ensureLegalAcceptance(context);
+		if (legalError) {
+			return failTalentLabelAction({
+				status: legalError.status,
+				type: 'updateTalentLabelDefinition',
+				message: legalError.message
+			});
+		}
+
+		const labelDefinitionId = formData.get('label_definition_id');
+		if (typeof labelDefinitionId !== 'string' || !labelDefinitionId.trim()) {
+			return failTalentLabelAction({
+				status: 400,
+				type: 'updateTalentLabelDefinition',
+				message: 'Invalid label id.'
+			});
+		}
+
+		try {
+			await updateTalentLabelDefinition({
+				adminClient: context.adminClient,
+				actor: context.actor,
+				labelDefinitionId,
+				name: typeof formData.get('name') === 'string' ? String(formData.get('name')) : '',
+				colorHex:
+					typeof formData.get('color_hex') === 'string' ? String(formData.get('color_hex')) : ''
+			});
+			invalidateOrganisationContextCache(context.actor.homeOrganisationId);
+			return {
+				type: 'updateTalentLabelDefinition' as const,
+				ok: true,
+				message: 'Label updated.'
+			};
+		} catch (actionError) {
+			const status = actionError instanceof TalentLabelServiceError ? actionError.status : 500;
+			return failTalentLabelAction({
+				status,
+				type: 'updateTalentLabelDefinition',
+				message: actionError instanceof Error ? actionError.message : 'Could not update label.'
+			});
+		}
+	},
+
+	deleteTalentLabelDefinition: async ({ request, cookies }) => {
+		const formData = await request.formData();
+		const context = await ensureOrgManager(cookies, formData);
+		if (!context.ok) {
+			return failTalentLabelAction({
+				status: context.status,
+				type: 'deleteTalentLabelDefinition',
+				message: context.message
+			});
+		}
+
+		const legalError = await ensureLegalAcceptance(context);
+		if (legalError) {
+			return failTalentLabelAction({
+				status: legalError.status,
+				type: 'deleteTalentLabelDefinition',
+				message: legalError.message
+			});
+		}
+
+		const labelDefinitionId = formData.get('label_definition_id');
+		if (typeof labelDefinitionId !== 'string' || !labelDefinitionId.trim()) {
+			return failTalentLabelAction({
+				status: 400,
+				type: 'deleteTalentLabelDefinition',
+				message: 'Invalid label id.'
+			});
+		}
+
+		try {
+			await deleteTalentLabelDefinition({
+				adminClient: context.adminClient,
+				actor: context.actor,
+				labelDefinitionId
+			});
+			invalidateOrganisationContextCache(context.actor.homeOrganisationId);
+			return {
+				type: 'deleteTalentLabelDefinition' as const,
+				ok: true,
+				message: 'Label deleted.'
+			};
+		} catch (actionError) {
+			const status = actionError instanceof TalentLabelServiceError ? actionError.status : 500;
+			return failTalentLabelAction({
+				status,
+				type: 'deleteTalentLabelDefinition',
+				message: actionError instanceof Error ? actionError.message : 'Could not delete label.'
+			});
+		}
 	},
 
 	updateResumeShareLink: async ({ request, cookies }) => {

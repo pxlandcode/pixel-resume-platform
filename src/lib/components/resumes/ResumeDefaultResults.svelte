@@ -4,10 +4,12 @@
 	import type { SuperListHead } from '$lib/components/super-list';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
 	import type { ResumesTalentListItem } from '$lib/types/resumes';
+	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 	import type { ViewMode } from '$lib/types/userSettings';
 	import { getAvailabilitySortKey } from '$lib/utils/availability';
 	import ResumeOrganisationMark from './ResumeOrganisationMark.svelte';
 	import ResumeTalentCard from './ResumeTalentCard.svelte';
+	import TalentLabelCluster from './TalentLabelCluster.svelte';
 	import { getTalentName } from './pageShared';
 
 	type ResumesListRow = {
@@ -18,19 +20,35 @@
 		availability_sort: string;
 		organisation_name: string | null;
 		organisation_logo_url: string | null;
+		labels: ResumesTalentListItem['labels'];
 	};
 
-	let { talents, viewMode, searchQuery } = $props<{
+	let {
+		talents,
+		viewMode,
+		searchQuery,
+		labelDefinitions = [],
+		canManageTalentLabels = false,
+		labelMutationByTalentId = {},
+		onAssignTalentLabel,
+		onRemoveTalentLabel
+	} = $props<{
 		talents: ResumesTalentListItem[];
 		viewMode: ViewMode;
 		searchQuery: string;
+		labelDefinitions?: TalentLabelDefinition[];
+		canManageTalentLabels?: boolean;
+		labelMutationByTalentId?: Record<string, boolean>;
+		onAssignTalentLabel?: (talentId: string, labelDefinitionId: string) => void;
+		onRemoveTalentLabel?: (talentId: string, labelDefinitionId: string) => void;
 	}>();
 
 	const resumesListHeadings: SuperListHead<ResumesListRow>[] = [
 		{ heading: null, width: 6 },
-		{ heading: 'Name', sortable: 'name', filterable: 'name', width: 34 },
-		{ heading: 'Availability', sortable: 'availability_sort', width: 35 },
-		{ heading: 'Organisation', sortable: 'organisation_name', width: 25 }
+		{ heading: 'Name', sortable: 'name', filterable: 'name', width: 30 },
+		{ heading: 'Availability', sortable: 'availability_sort', width: 26 },
+		{ heading: 'Organisation', sortable: 'organisation_name', width: 22 },
+		{ heading: 'Labels', width: 16 }
 	];
 
 	const matchesNameFilter = (talent: ResumesTalentListItem, rawQuery: string) => {
@@ -51,7 +69,8 @@
 			availability: talent.availability ?? null,
 			availability_sort: getAvailabilitySortKey(talent.availability ?? null),
 			organisation_name: talent.organisation_name ?? null,
-			organisation_logo_url: talent.organisation_logo_url ?? null
+			organisation_logo_url: talent.organisation_logo_url ?? null,
+			labels: talent.labels ?? []
 		}));
 
 	const listHandler = $derived.by(() => {
@@ -64,7 +83,16 @@
 {#if viewMode === 'grid'}
 	<div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 		{#each searchFilteredTalents as talent (talent.id)}
-			<ResumeTalentCard {talent} href={resolve('/resumes/[personId]', { personId: talent.id })} />
+			<ResumeTalentCard
+				{talent}
+				href={resolve('/resumes/[personId]', { personId: talent.id })}
+				overflowVisible
+				{labelDefinitions}
+				{canManageTalentLabels}
+				labelMutationBusy={Boolean(labelMutationByTalentId[talent.id])}
+				{onAssignTalentLabel}
+				{onRemoveTalentLabel}
+			/>
 		{/each}
 	</div>
 
@@ -80,16 +108,28 @@
 				<Cell.Value width={6} class="hidden sm:block">
 					<Cell.Avatar src={row.avatar_url} alt={row.name} size={36} />
 				</Cell.Value>
-				<Cell.Value width={34} class="mobile-fill-cell">
+				<Cell.Value width={30} class="mobile-fill-cell">
 					<span class="text-foreground truncate text-sm font-semibold">{row.name}</span>
 				</Cell.Value>
-				<Cell.Value width={35} class="mobile-fill-cell">
+				<Cell.Value width={26} class="mobile-fill-cell">
 					<ConsultantAvailabilityPills compact availability={row.availability} />
 				</Cell.Value>
-				<Cell.Value width={25} class="mobile-logo-cell">
+				<Cell.Value width={22} class="mobile-logo-cell">
 					<ResumeOrganisationMark
 						organisationLogoUrl={row.organisation_logo_url}
 						organisationName={row.organisation_name}
+					/>
+				</Cell.Value>
+				<Cell.Value width={16} class="mobile-label-cell">
+					<TalentLabelCluster
+						talentId={row.id}
+						labels={row.labels}
+						{labelDefinitions}
+						canManage={canManageTalentLabels}
+						busy={Boolean(labelMutationByTalentId[row.id])}
+						menuAlign="right"
+						onAssign={onAssignTalentLabel}
+						onRemove={onRemoveTalentLabel}
 					/>
 				</Cell.Value>
 			</Row.Root>

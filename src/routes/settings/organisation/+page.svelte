@@ -1,9 +1,11 @@
 <script lang="ts">
-	import { Alert } from '@pixelcode_/blocks/components';
+	import { Alert, Toaster, toast } from '@pixelcode_/blocks/components';
 	import OrganisationDetailsDrawer from '$lib/components/admin/OrganisationDetailsDrawer.svelte';
 	import OrganisationBrandingDrawer from '$lib/components/admin/OrganisationBrandingDrawer.svelte';
 	import OrganisationMembershipDrawer from '$lib/components/admin/OrganisationMembershipDrawer.svelte';
-	import { Settings, Palette, Users, ArrowLeft } from 'lucide-svelte';
+	import OrganisationTalentLabelsDrawer from '$lib/components/admin/OrganisationTalentLabelsDrawer.svelte';
+	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
+	import { Settings, Palette, Users, ArrowLeft, Tags } from 'lucide-svelte';
 
 	let { data, form } = $props();
 
@@ -53,26 +55,44 @@
 		}>;
 		usersWithHomeOrgIds: string[];
 		talentsWithHomeOrgIds: string[];
+		talentLabelDefinitions: TalentLabelDefinition[];
 		generatedAt: string;
 	};
 
+	const isTalentLabelActionType = (value: string | null | undefined) =>
+		value === 'createTalentLabelDefinition' ||
+		value === 'updateTalentLabelDefinition' ||
+		value === 'deleteTalentLabelDefinition';
+
 	const organisation = $derived(data.organisation as Organisation);
-	const actionMessage = $derived(typeof form?.message === 'string' ? form.message : null);
-	const actionFailed = $derived(form?.ok === false);
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
 
 	let isDetailsDrawerOpen = $state(false);
 	let isBrandingDrawerOpen = $state(false);
 	let isMembershipDrawerOpen = $state(false);
+	let isLabelsDrawerOpen = $state(false);
 	let organisationContext = $state<OrganisationContext | null>(null);
 	let contextStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let contextError = $state<string | null>(null);
 	let contextEtag = $state<string | null>(null);
 	let contextAbortController: AbortController | null = null;
+	let lastActionToastKey = $state<string | null>(null);
 
-	const loadOrganisationContext = async () => {
+	const loadOrganisationContext = async (options: { force?: boolean } = {}) => {
+		const force = options.force ?? false;
 		if (!organisation?.id) return;
-		if (contextStatus === 'loading') return;
-		if (contextStatus === 'ready' && organisationContext) return;
+		if (!force && contextStatus === 'loading') return;
+		if (!force && contextStatus === 'ready' && organisationContext) return;
 
 		contextAbortController?.abort();
 		const controller = new AbortController();
@@ -86,7 +106,7 @@
 				method: 'GET',
 				credentials: 'include',
 				signal: controller.signal,
-				headers: contextEtag ? { 'If-None-Match': contextEtag } : undefined
+				headers: !force && contextEtag ? { 'If-None-Match': contextEtag } : undefined
 			});
 
 			if (response.status === 304) {
@@ -136,6 +156,15 @@
 		void loadOrganisationContext();
 	};
 
+	const openLabelsDrawer = () => {
+		isLabelsDrawerOpen = true;
+		void loadOrganisationContext();
+	};
+
+	const refreshOrganisationContext = async () => {
+		await loadOrganisationContext({ force: true });
+	};
+
 	const membershipUsers = $derived(organisationContext?.users ?? []);
 	const membershipTalents = $derived(organisationContext?.talents ?? []);
 	const membershipUserRows = $derived(organisationContext?.membershipsUsers ?? []);
@@ -149,9 +178,22 @@
 			organisation.brand_settings ?? organisationContext?.organisation.brand_settings ?? null
 	});
 	const brandingTemplate = $derived(organisationContext?.template ?? undefined);
+	const talentLabelDefinitions = $derived(organisationContext?.talentLabelDefinitions ?? []);
+
+	$effect(() => {
+		if (isTalentLabelActionType(form?.type) || typeof form?.message !== 'string' || form.message.length === 0) {
+			return;
+		}
+		const key = `${form?.type ?? 'unknown'}:${form?.ok === false ? 'error' : 'success'}:${form.message}`;
+		if (lastActionToastKey === key) return;
+		lastActionToastKey = key;
+		showToast(form?.ok === false ? 'error' : 'success', form.message);
+	});
 </script>
 
 <div class="space-y-6">
+	<Toaster />
+
 	<div class="flex items-center gap-3">
 		<a
 			href="/settings"
@@ -171,21 +213,15 @@
 		</p>
 	</header>
 
-	{#if actionMessage}
-		<Alert variant={actionFailed ? 'destructive' : 'success'} size="sm">
-			<p class="text-foreground text-sm font-medium">{actionMessage}</p>
-		</Alert>
-	{/if}
-
-	{#if contextStatus === 'loading' && (isBrandingDrawerOpen || isMembershipDrawerOpen)}
+	{#if contextStatus === 'loading' && (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
 		<p class="text-muted-fg text-sm">Loading organisation details…</p>
-	{:else if contextError && (isBrandingDrawerOpen || isMembershipDrawerOpen)}
+	{:else if contextError && (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
 		<Alert variant="destructive" size="sm">
 			<p class="text-foreground text-sm font-medium">{contextError}</p>
 		</Alert>
 	{/if}
 
-	<div class="grid gap-4 sm:grid-cols-3">
+	<div class="grid gap-4 sm:grid-cols-4">
 		<button
 			type="button"
 			onclick={openDetailsDrawer}
@@ -227,6 +263,20 @@
 				<p class="text-muted-fg mt-1 text-sm">Manage home users and talents.</p>
 			</div>
 		</button>
+
+		<button
+			type="button"
+			onclick={openLabelsDrawer}
+			class="bg-card border-border hover:border-primary/50 flex flex-col items-start gap-3 rounded-sm border p-5 text-left transition-colors"
+		>
+			<div class="bg-muted text-muted-fg flex h-10 w-10 items-center justify-center rounded-sm">
+				<Tags size={20} />
+			</div>
+			<div>
+				<h2 class="text-foreground text-base font-semibold">Labels</h2>
+				<p class="text-muted-fg mt-1 text-sm">Manage Finder-style talent labels and colors.</p>
+			</div>
+		</button>
 	</div>
 </div>
 
@@ -248,4 +298,11 @@
 	talentMemberships={membershipTalentRows}
 	{usersWithHomeOrg}
 	{talentsWithHomeOrg}
+/>
+
+<OrganisationTalentLabelsDrawer
+	bind:open={isLabelsDrawerOpen}
+	{organisation}
+	{talentLabelDefinitions}
+	{refreshOrganisationContext}
 />
