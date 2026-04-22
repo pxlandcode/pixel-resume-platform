@@ -1,3 +1,5 @@
+import type { TalentLabelDefinition } from '$lib/types/talentLabels';
+
 export type ResumesAvailabilitySummary = {
 	nowPercent: number | null;
 	futurePercent: number | null;
@@ -16,6 +18,7 @@ export type ResumesTalentListItem = {
 	organisation_id: string | null;
 	organisation_name: string | null;
 	organisation_logo_url: string | null;
+	labels: TalentLabelDefinition[];
 };
 
 export type ResumeTechIndexItem = {

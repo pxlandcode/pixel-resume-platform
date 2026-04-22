@@ -6,10 +6,16 @@
 	import TechStackSelector from '$lib/components/tech-stack-selector/tech-stack-selector.svelte';
 	import { clickOutside } from '$lib/utils/clickOutside';
 	import { ResumeFreeTextSearchInput } from '$lib/components/resumes/resume-free-text-search-input';
+	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 	import type { AvailabilityMode, SelectedSearchFilter } from './pageShared';
 	import { formatYears } from './pageShared';
 
 	type OrganisationFilterOption = {
+		label: string;
+		value: string;
+	};
+
+	type LabelFilterOption = {
 		label: string;
 		value: string;
 	};
@@ -27,6 +33,11 @@
 		onAvailabilityWithinDaysInput: (value: string) => void;
 		onAvailabilityWithinDaysCommit: (value: string) => void;
 		onAvailabilityWithinDaysKeydown: (event: KeyboardEvent) => void;
+		labelFilterOptions: LabelFilterOption[];
+		selectedLabelIds: string[];
+		selectedLabelDefinitions: TalentLabelDefinition[];
+		onSelectedLabelIdsChange: (selected: string[]) => void;
+		onRemoveSelectedLabelFilter: (labelId: string) => void;
 		freeTextSearchInput: string;
 		hasFreeTextSearch: boolean;
 		freeTextSearchLoading: boolean;
@@ -62,6 +73,11 @@
 		onAvailabilityWithinDaysInput,
 		onAvailabilityWithinDaysCommit,
 		onAvailabilityWithinDaysKeydown,
+		labelFilterOptions,
+		selectedLabelIds,
+		selectedLabelDefinitions,
+		onSelectedLabelIdsChange,
+		onRemoveSelectedLabelFilter,
 		freeTextSearchInput,
 		hasFreeTextSearch,
 		freeTextSearchLoading,
@@ -164,6 +180,26 @@
 				{/if}
 			</div>
 
+			{#if labelFilterOptions.length > 0}
+				<div>
+					<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">Labels</h2>
+					<div class="w-64">
+						<DropdownCheckbox
+							label="Labels"
+							hideLabel
+							placeholder="Labels"
+							options={labelFilterOptions}
+							selectedValues={selectedLabelIds}
+							onchange={onSelectedLabelIdsChange}
+							variant="outline"
+							size="sm"
+							search
+							searchPlaceholder="Search labels"
+						/>
+					</div>
+				</div>
+			{/if}
+
 			<div>
 				<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">
 					Search by tech
@@ -196,13 +232,37 @@
 					<h2 class="text-muted-fg text-xs font-semibold uppercase tracking-wide">
 						All active filters
 					</h2>
-					{#if selectedSearchFilters.length > 0}
+					{#if selectedSearchFilters.length > 0 || selectedLabelDefinitions.length > 0}
 						<Button variant="ghost" size="sm" onclick={onClearSelectedSearchFilters}>Clear</Button>
 					{/if}
 				</div>
 
-				{#if selectedSearchFilters.length > 0}
+				{#if selectedSearchFilters.length > 0 || selectedLabelDefinitions.length > 0}
 					<div class="mt-3 flex flex-wrap gap-2" use:clickOutside={onCloseTechRequirementPopover}>
+						{#each selectedLabelDefinitions as labelDefinition (labelDefinition.id)}
+							<div class="relative">
+								<span
+									class="border-border bg-muted text-foreground inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 pr-8 text-xs font-medium"
+								>
+									<span
+										class="h-2.5 w-2.5 rounded-full"
+										style={`background-color: ${labelDefinition.color_hex};`}
+										aria-hidden="true"
+									></span>
+									<span>{labelDefinition.name}</span>
+								</span>
+
+								<button
+									type="button"
+									onclick={() => onRemoveSelectedLabelFilter(labelDefinition.id)}
+									class="text-muted-fg hover:text-foreground absolute right-1 top-1/2 -translate-y-1/2 rounded-sm px-1 text-xs"
+									aria-label={`Remove ${labelDefinition.name} label filter`}
+								>
+									×
+								</button>
+							</div>
+						{/each}
+
 						{#each selectedSearchFilters as searchFilter (searchFilter.key)}
 							<div class="relative">
 								<button
@@ -283,7 +343,7 @@
 						once they show up.
 					</p>
 				{:else}
-					<p class="text-muted-fg text-sm">No active search filters yet.</p>
+					<p class="text-muted-fg text-sm">No active filters yet.</p>
 				{/if}
 
 				<p class="text-muted-fg mt-3 text-sm">{summaryText}</p>

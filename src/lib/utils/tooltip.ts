@@ -10,15 +10,27 @@
  */
 export type TooltipPosition = 'top' | 'bottom' | 'left' | 'right';
 
-export type TooltipOptions = string | { text: string; position?: TooltipPosition };
+export type TooltipOptions =
+	| string
+	| {
+			text: string;
+			position?: TooltipPosition;
+			backgroundColor?: string;
+			textColor?: string;
+	  };
 
 function resolveOptions(options: TooltipOptions) {
 	if (typeof options === 'string') return { text: options, position: 'bottom' as TooltipPosition };
-	return { text: options.text, position: options.position ?? 'bottom' };
+	return {
+		text: options.text,
+		position: options.position ?? 'bottom',
+		backgroundColor: options.backgroundColor,
+		textColor: options.textColor
+	};
 }
 
 export function tooltip(node: HTMLElement, options: TooltipOptions) {
-	let { text, position } = resolveOptions(options);
+	let { text, position, backgroundColor, textColor } = resolveOptions(options);
 	let el: HTMLDivElement | null = null;
 	let arrow: HTMLDivElement | null = null;
 	const gap = 8;
@@ -53,11 +65,7 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 
 			if (position === 'right' && spaceRight < ttRect.width + gap && spaceLeft > spaceRight) {
 				resolvedPosition = 'left';
-			} else if (
-				position === 'left' &&
-				spaceLeft < ttRect.width + gap &&
-				spaceRight > spaceLeft
-			) {
+			} else if (position === 'left' && spaceLeft < ttRect.width + gap && spaceRight > spaceLeft) {
 				resolvedPosition = 'right';
 			}
 		}
@@ -122,6 +130,28 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 		positionTooltip();
 	};
 
+	const applyTooltipColors = () => {
+		if (!el) return;
+
+		const styles = window.getComputedStyle(node);
+		const nodeBackground = styles.getPropertyValue('--tooltip-bg').trim();
+		const nodeText = styles.getPropertyValue('--tooltip-fg').trim();
+		const resolvedBackground = nodeBackground || backgroundColor;
+		const resolvedText = nodeText || textColor;
+
+		if (resolvedBackground) {
+			el.style.setProperty('--app-tooltip-bg', resolvedBackground);
+		} else {
+			el.style.removeProperty('--app-tooltip-bg');
+		}
+
+		if (resolvedText) {
+			el.style.setProperty('--app-tooltip-fg', resolvedText);
+		} else {
+			el.style.removeProperty('--app-tooltip-fg');
+		}
+	};
+
 	const show = () => {
 		if (!text || el) return;
 
@@ -129,6 +159,7 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 		el.className = 'app-tooltip';
 		el.style.visibility = 'hidden';
 		el.textContent = text;
+		applyTooltipColors();
 
 		arrow = document.createElement('div');
 		arrow.className = 'app-tooltip__arrow';
@@ -163,7 +194,7 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 
 	return {
 		update(newOptions: TooltipOptions) {
-			({ text, position } = resolveOptions(newOptions));
+			({ text, position, backgroundColor, textColor } = resolveOptions(newOptions));
 			if (!text) {
 				hide();
 				return;
@@ -171,6 +202,7 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 
 			if (el) {
 				el.textContent = text;
+				applyTooltipColors();
 				if (!arrow) {
 					arrow = document.createElement('div');
 				}

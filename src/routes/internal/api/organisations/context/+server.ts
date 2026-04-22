@@ -6,6 +6,8 @@ import {
 	setCachedOrganisationContext
 } from '$lib/server/organisationContextCache';
 import { normalizeRolesFromJoinRows } from '$lib/server/access';
+import { listOrganisationTalentLabelDefinitions } from '$lib/server/talentLabels';
+import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 
 const CACHE_TTL_MS = 60_000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -48,6 +50,7 @@ type OrganisationContextResponse = {
 	}>;
 	usersWithHomeOrgIds: string[];
 	talentsWithHomeOrgIds: string[];
+	talentLabelDefinitions: TalentLabelDefinition[];
 	generatedAt: string;
 };
 
@@ -112,7 +115,8 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				userRolesResult,
 				talentsResult,
 				allUserMembershipsResult,
-				allTalentMembershipsResult
+				allTalentMembershipsResult,
+				talentLabelDefinitions
 			] = await Promise.all([
 				adminClient
 					.from('organisations')
@@ -140,7 +144,8 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 					.order('last_name', { ascending: true })
 					.order('first_name', { ascending: true }),
 				adminClient.from('organisation_users').select('user_id, organisation_id'),
-				adminClient.from('organisation_talents').select('talent_id, organisation_id')
+				adminClient.from('organisation_talents').select('talent_id, organisation_id'),
+				listOrganisationTalentLabelDefinitions(adminClient, orgId)
 			]);
 
 			if (organisationResult.error) throw new Error(organisationResult.error.message);
@@ -236,6 +241,7 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				})),
 				usersWithHomeOrgIds,
 				talentsWithHomeOrgIds,
+				talentLabelDefinitions,
 				generatedAt: new Date().toISOString()
 			};
 

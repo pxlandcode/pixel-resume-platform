@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
-	import { Alert, Badge, Button, FormControl, Input, Select } from '@pixelcode_/blocks/components';
+	import { Badge, Button, FormControl, Input, Select, Toaster, toast } from '@pixelcode_/blocks/components';
 	import { ArrowLeft, Lock, Unlock, User } from 'lucide-svelte';
 	import Uppy from '@uppy/core';
 	import Dashboard from '@uppy/dashboard';
@@ -47,7 +47,18 @@
 		Object.entries(ROLE_CONFIG) as [Role, (typeof ROLE_CONFIG)[Role]][]
 	).map(([value, cfg]) => ({ value, label: cfg.label, description: cfg.description }));
 
-	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
+
 	let selectedRoles = $state<Role[]>([]);
 	let avatarUrl = $state('');
 	let previewUrl = $state('');
@@ -120,10 +131,8 @@
 
 	$effect(() => {
 		if (form?.type !== 'updateUser') return;
-		feedback = {
-			type: form.ok ? 'success' : 'error',
-			message: form.message ?? ''
-		};
+		if (!form.message) return;
+		showToast(form.ok ? 'success' : 'error', form.message);
 	});
 
 	const revokeTempObjectUrl = () => {
@@ -271,7 +280,7 @@
 
 		if (selectedRoles.length === 0) {
 			event.preventDefault();
-			feedback = { type: 'error', message: 'Select at least one role.' };
+			showToast('error', 'Select at least one role.');
 			return;
 		}
 
@@ -291,18 +300,14 @@
 </script>
 
 <div class="mx-auto max-w-4xl space-y-6">
+	<Toaster />
+
 	<div class="flex items-center gap-4">
 		<Button variant="ghost" size="sm" onclick={() => goto('/users')} class="gap-2">
 			<ArrowLeft size={16} />
 			Back to users
 		</Button>
 	</div>
-
-	{#if feedback}
-		<Alert variant={feedback.type === 'success' ? 'success' : 'destructive'} size="sm">
-			<p class="text-foreground text-sm font-medium">{feedback.message}</p>
-		</Alert>
-	{/if}
 
 	<div class="bg-card border-border rounded-lg border p-6">
 		<div class="mb-6 flex items-start gap-6">

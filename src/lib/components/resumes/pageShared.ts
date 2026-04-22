@@ -91,5 +91,19 @@ export const getSearchMatchPillClass = (matchPercent: number) => {
 	return 'bg-slate-100 text-slate-700';
 };
 
+export const getSearchMatchTooltip = (
+	search: Pick<ResumeSearchItem, 'matchPercent' | 'matchedTerms' | 'missingTerms'>
+) => {
+	return 'Full search relevance';
+};
+
+export const getTechMatchTooltip = (
+	metCount: number,
+	total: number,
+	insufficientCount: number
+) => {
+	return 'Tech stack relevance';
+};
+
 export const formatSearchReasonLabel = (reason: ResumeSearchReason) =>
 	reason.resumeTitle ? `${reason.label} · ${reason.resumeTitle}` : reason.label;

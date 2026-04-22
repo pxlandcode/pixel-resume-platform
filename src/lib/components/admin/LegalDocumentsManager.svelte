@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Button, FormControl, Input } from '@pixelcode_/blocks/components';
+	import { Button, FormControl, Input, toast } from '@pixelcode_/blocks/components';
 	import ArrowLeft from 'lucide-svelte/icons/arrow-left';
 	import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 	import ChevronRight from 'lucide-svelte/icons/chevron-right';
@@ -90,7 +90,18 @@
 	let activateNow = $state(true);
 	let isSaving = $state(false);
 	let isRefreshing = $state(false);
-	let feedback = $state<{ type: 'success' | 'error'; message: string } | null>(null);
+
+	const showToast = (kind: 'success' | 'error', message: string) => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
+			return;
+		}
+		toast(message);
+	};
 
 	$effect(() => {
 		if (selectedDocType) {
@@ -152,10 +163,10 @@
 			}
 			localDocumentsOverride = payload?.documents ?? [];
 		} catch (err) {
-			feedback = {
-				type: 'error',
-				message: err instanceof Error ? err.message : 'Could not refresh legal documents.'
-			};
+			showToast(
+				'error',
+				err instanceof Error ? err.message : 'Could not refresh legal documents.'
+			);
 		} finally {
 			isRefreshing = false;
 		}
@@ -163,7 +174,6 @@
 
 	const createDocument = async (event: SubmitEvent) => {
 		event.preventDefault();
-		feedback = null;
 		isSaving = true;
 
 		try {
@@ -191,10 +201,7 @@
 				throw new Error(payload?.message ?? 'Could not create legal document.');
 			}
 
-			feedback = {
-				type: 'success',
-				message: 'Legal document created successfully.'
-			};
+			showToast('success', 'Legal document created successfully.');
 			version = '';
 			effectiveDate = '';
 			contentHtml = '';
@@ -203,17 +210,13 @@
 			showCreateForm = false;
 			await refreshDocuments();
 		} catch (err) {
-			feedback = {
-				type: 'error',
-				message: err instanceof Error ? err.message : 'Could not create legal document.'
-			};
+			showToast('error', err instanceof Error ? err.message : 'Could not create legal document.');
 		} finally {
 			isSaving = false;
 		}
 	};
 
 	const activateDocument = async (documentId: string) => {
-		feedback = null;
 		isSaving = true;
 		try {
 			const response = await fetch(`/legal/admin/documents/${documentId}/activate`, {
@@ -227,16 +230,10 @@
 			if (!response.ok || !payload?.ok) {
 				throw new Error(payload?.message ?? 'Could not activate legal document.');
 			}
-			feedback = {
-				type: 'success',
-				message: 'Legal document activated.'
-			};
+			showToast('success', 'Legal document activated.');
 			await refreshDocuments();
 		} catch (err) {
-			feedback = {
-				type: 'error',
-				message: err instanceof Error ? err.message : 'Could not activate legal document.'
-			};
+			showToast('error', err instanceof Error ? err.message : 'Could not activate legal document.');
 		} finally {
 			isSaving = false;
 		}
@@ -264,12 +261,6 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden">
-	{#if feedback}
-		<Alert variant={feedback.type === 'success' ? 'success' : 'destructive'} size="sm">
-			<p class="text-foreground text-sm font-medium">{feedback.message}</p>
-		</Alert>
-	{/if}
-
 	<div class="flex min-h-0 flex-1 flex-col overflow-hidden sm:flex-row sm:gap-4">
 		<div
 			class="border-border bg-muted/30 flex shrink-0 flex-col gap-1 overflow-y-auto rounded-sm border p-2 {selectedDocType ||

@@ -3,20 +3,30 @@
 	import { Cell, Row } from '$lib/components/super-list';
 	import ConsultantAvailabilityPills from '$lib/components/resumes/ConsultantAvailabilityPills.svelte';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 	import ResumeOrganisationMark from './ResumeOrganisationMark.svelte';
 	import ResumeTalentCard from './ResumeTalentCard.svelte';
 	import ResumeTechMatchBadges from './ResumeTechMatchBadges.svelte';
+	import TalentLabelCluster from './TalentLabelCluster.svelte';
 	import type { TalentGroup } from './pageShared';
-	import {
-		getMatchBadgeClass,
-		getMatchPillClass,
-		getTalentName,
-		isPerfectMatch
-	} from './pageShared';
+	import { getMatchPillClass, getTalentName, isPerfectMatch } from './pageShared';
 
-	let { groups, viewMode } = $props<{
+	let {
+		groups,
+		viewMode,
+		labelDefinitions = [],
+		canManageTalentLabels = false,
+		labelMutationByTalentId = {},
+		onAssignTalentLabel,
+		onRemoveTalentLabel
+	} = $props<{
 		groups: TalentGroup[];
 		viewMode: ViewMode;
+		labelDefinitions?: TalentLabelDefinition[];
+		canManageTalentLabels?: boolean;
+		labelMutationByTalentId?: Record<string, boolean>;
+		onAssignTalentLabel?: (talentId: string, labelDefinitionId: string) => void;
+		onRemoveTalentLabel?: (talentId: string, labelDefinitionId: string) => void;
 	}>();
 </script>
 
@@ -58,16 +68,19 @@
 							overflowVisible
 							desktopBadge={{
 								label: `${talent.metCount}/${group.total}`,
-								className: getMatchBadgeClass(
+								className: getMatchPillClass(
 									talent.metCount,
 									group.total,
 									talent.insufficientCount
 								)
 							}}
-							mobileBadge={{
-								label: `${talent.metCount}/${group.total}`,
-								className: getMatchPillClass(talent.metCount, group.total, talent.insufficientCount)
-							}}
+							badgePlacement="header"
+							inlineMetaRow
+							{labelDefinitions}
+							{canManageTalentLabels}
+							labelMutationBusy={Boolean(labelMutationByTalentId[talent.id])}
+							{onAssignTalentLabel}
+							{onRemoveTalentLabel}
 						>
 							{#snippet children()}
 								<div class="mt-3">
@@ -87,7 +100,7 @@
 							<Cell.Value width={6} class="hidden sm:block">
 								<Cell.Avatar src={talent.avatar_url} alt={getTalentName(talent)} size={36} />
 							</Cell.Value>
-							<Cell.Value width={24} class="mobile-fill-cell">
+							<Cell.Value width={22} class="mobile-fill-cell">
 								<div class="flex flex-wrap items-center gap-2">
 									<span class="text-foreground truncate text-sm font-semibold">
 										{getTalentName(talent)}
@@ -103,16 +116,28 @@
 									</span>
 								</div>
 							</Cell.Value>
-							<Cell.Value width={20} class="mobile-fill-cell">
+							<Cell.Value width={18} class="mobile-fill-cell">
 								<ConsultantAvailabilityPills compact availability={talent.availability ?? null} />
 							</Cell.Value>
-							<Cell.Value width={30} class="mobile-fill-cell">
+							<Cell.Value width={24} class="mobile-fill-cell">
 								<ResumeTechMatchBadges techMatches={talent.techMatches} />
 							</Cell.Value>
-							<Cell.Value width={20} class="mobile-logo-cell">
+							<Cell.Value width={18} class="mobile-logo-cell">
 								<ResumeOrganisationMark
 									organisationLogoUrl={talent.organisation_logo_url}
 									organisationName={talent.organisation_name}
+								/>
+							</Cell.Value>
+							<Cell.Value width={12} class="mobile-label-cell">
+								<TalentLabelCluster
+									talentId={talent.id}
+									labels={talent.labels}
+									{labelDefinitions}
+									canManage={canManageTalentLabels}
+									busy={Boolean(labelMutationByTalentId[talent.id])}
+									menuAlign="right"
+									onAssign={onAssignTalentLabel}
+									onRemove={onRemoveTalentLabel}
 								/>
 							</Cell.Value>
 						</Row.Root>

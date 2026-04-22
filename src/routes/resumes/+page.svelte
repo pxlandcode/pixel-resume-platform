@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Input } from '@pixelcode_/blocks/components';
+	import { Input, Toaster, toast } from '@pixelcode_/blocks/components';
 	import { Search } from 'lucide-svelte';
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { getEarliestAvailabilityDate } from '$lib/utils/availability';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
+	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 	import type {
 		ResumeSearchFilterTerm,
 		ResumeSearchItem,
@@ -39,12 +40,21 @@
 		appliedTerms: ResumeSearchFilterTerm[];
 		items: ResumeSearchItem[];
 	};
+	type Talent = NonNullable<PageData['talents']>[number];
+	type LabelFilterOption = {
+		label: string;
+		value: string;
+	};
 
 	const DEFAULT_AVAILABILITY_WITHIN_DAYS = 30;
 	const MS_PER_DAY = 24 * 60 * 60 * 1000;
-	const allTalents = data.talents ?? [];
+	const serverTalents = (data.talents ?? []) as Talent[];
 
-	type Talent = (typeof allTalents)[number];
+	const buildTalentLabelState = (talents: Talent[]) =>
+		Object.fromEntries(
+			talents.map((talent: Talent) => [talent.id, [...(talent.labels ?? [])]] as const)
+		) as Record<string, TalentLabelDefinition[]>;
+
 	type TalentTechData = {
 		searchTechs: string[];
 		techYearsByKey: Record<string, number>;
@@ -74,6 +84,7 @@
 	);
 	let availabilityWithinDaysInput = $state(String(DEFAULT_AVAILABILITY_WITHIN_DAYS));
 	let availabilityWithinDaysAppliedInput = $state(String(DEFAULT_AVAILABILITY_WITHIN_DAYS));
+	let selectedLabelIds = $state<string[]>([]);
 	let openTechRequirementKey = $state<string | null>(null);
 	let techRequirementDraft = $state('');
 	let techRequirementError = $state('');
@@ -91,10 +102,39 @@
 	let activeFreeTextSearchCacheKey = $state<string | null>(null);
 	let freeTextSearchAbortController: AbortController | null = null;
 	let freeTextSearchCache = $state<Record<string, FreeTextSearchCacheEntry>>({});
+	let talentLabelsById = $state<Record<string, TalentLabelDefinition[]>>(
+		buildTalentLabelState(serverTalents)
+	);
+	let labelMutationByTalentId = $state<Record<string, boolean>>({});
 
 	const resumesViewMode = $derived($userSettingsStore.settings.views.resumes);
 	const homeOrganisationId = $derived(
 		typeof data.homeOrganisationId === 'string' ? data.homeOrganisationId : null
+	);
+	const labelDefinitions = $derived(
+		((data.labelDefinitions ?? []) as TalentLabelDefinition[]).slice().sort((left, right) => {
+			if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
+			return left.name.localeCompare(right.name);
+		})
+	);
+	const labelFilterOptions = $derived.by<LabelFilterOption[]>(() =>
+		labelDefinitions.map((labelDefinition) => ({
+			label: labelDefinition.name,
+			value: labelDefinition.id
+		}))
+	);
+	const availableLabelIds = $derived(labelFilterOptions.map((labelOption) => labelOption.value));
+	const labelContextOrganisationId = $derived(
+		typeof data.labelContextOrganisationId === 'string' ? data.labelContextOrganisationId : null
+	);
+	const canManageTalentLabels = $derived(
+		Boolean(data.canManageTalentLabels) && Boolean(labelContextOrganisationId)
+	);
+	const allTalents = $derived.by<Talent[]>(() =>
+		serverTalents.map((talent: Talent) => ({
+			...talent,
+			labels: talentLabelsById[talent.id] ?? talent.labels ?? []
+		}))
 	);
 
 	const organisationFilterOptions = $derived.by<Array<{ label: string; value: string }>>(() =>
@@ -109,6 +149,12 @@
 
 	const sanitizeOrganisationIds = (ids: string[]) => {
 		const allowed = new Set(availableOrganisationIds);
+		return Array.from(
+			new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0 && allowed.has(id)))
+		);
+	};
+	const sanitizeLabelIds = (ids: string[]) => {
+		const allowed = new Set(availableLabelIds);
 		return Array.from(
 			new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0 && allowed.has(id)))
 		);
@@ -257,6 +303,90 @@
 		clearFreeTextSearchDebounce();
 	};
 
+	const setTalentLabels = (talentId: string, labels: TalentLabelDefinition[]) => {
+		talentLabelsById = {
+			...talentLabelsById,
+			[talentId]: [...labels].sort((left, right) => {
+				if (left.sort_order !== right.sort_order) return left.sort_order - right.sort_order;
+				return left.name.localeCompare(right.name);
+			})
+		};
+	};
+
+	const setTalentLabelMutation = (talentId: string, isBusy: boolean) => {
+		labelMutationByTalentId = {
+			...labelMutationByTalentId,
+			[talentId]: isBusy
+		};
+	};
+
+	const showLabelMutationError = (message: string) => {
+		if (typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		toast(message);
+	};
+
+	const mutateTalentLabel = async (payload: {
+		talentId: string;
+		labelDefinitionId: string;
+		action: 'assign' | 'remove';
+	}) => {
+		if (!canManageTalentLabels || labelMutationByTalentId[payload.talentId]) return;
+
+		const labelDefinition = labelDefinitions.find(
+			(definition) => definition.id === payload.labelDefinitionId
+		);
+		if (!labelDefinition) return;
+
+		const previousLabels =
+			talentLabelsById[payload.talentId] ??
+			serverTalents.find((talent: Talent) => talent.id === payload.talentId)?.labels ??
+			[];
+		const optimisticLabels =
+			payload.action === 'assign'
+				? [...previousLabels, labelDefinition]
+				: previousLabels.filter((label) => label.id !== payload.labelDefinitionId);
+
+		setTalentLabels(payload.talentId, optimisticLabels);
+		setTalentLabelMutation(payload.talentId, true);
+
+		try {
+			const response = await fetch('/internal/api/resumes/talent-labels', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(payload)
+			});
+			const result = (await response.json().catch(() => null)) as
+				| { labels?: TalentLabelDefinition[]; message?: string }
+				| null;
+
+			if (!response.ok || !Array.isArray(result?.labels)) {
+				throw new Error(result?.message || 'Could not update labels.');
+			}
+
+			setTalentLabels(payload.talentId, result.labels);
+		} catch (error) {
+			setTalentLabels(payload.talentId, previousLabels);
+			showLabelMutationError(
+				error instanceof Error ? error.message : 'Could not update labels.'
+			);
+		} finally {
+			setTalentLabelMutation(payload.talentId, false);
+		}
+	};
+
+	const handleAssignTalentLabel = (talentId: string, labelDefinitionId: string) => {
+		void mutateTalentLabel({ talentId, labelDefinitionId, action: 'assign' });
+	};
+
+	const handleRemoveTalentLabel = (talentId: string, labelDefinitionId: string) => {
+		void mutateTalentLabel({ talentId, labelDefinitionId, action: 'remove' });
+	};
+
 	const clearFreeTextSearch = () => {
 		freeTextSearchInput = '';
 		freeTextSearchApplied = '';
@@ -299,6 +429,20 @@
 			if (!earliestDate) return false;
 			return earliestDate <= latestAllowedDate;
 		});
+	});
+	const selectedLabelDefinitions = $derived.by<TalentLabelDefinition[]>(() => {
+		if (selectedLabelIds.length === 0) return [];
+
+		const selectedSet = new Set(selectedLabelIds);
+		return labelDefinitions.filter((labelDefinition) => selectedSet.has(labelDefinition.id));
+	});
+	const labelFilteredTalents = $derived.by(() => {
+		if (selectedLabelIds.length === 0) return availabilityFilteredTalents;
+
+		const selectedSet = new Set(selectedLabelIds);
+		return availabilityFilteredTalents.filter((talent: Talent) =>
+			(talent.labels ?? []).some((label) => selectedSet.has(label.id))
+		);
 	});
 
 	const manualTechFilters = $derived.by<SelectedTechFilter[]>(() => {
@@ -700,6 +844,16 @@
 	};
 
 	$effect(() => {
+		const normalizedLabelIds = sanitizeLabelIds(selectedLabelIds);
+		const isSame =
+			normalizedLabelIds.length === selectedLabelIds.length &&
+			normalizedLabelIds.every((labelId, index) => labelId === selectedLabelIds[index]);
+		if (!isSame) {
+			selectedLabelIds = normalizedLabelIds;
+		}
+	});
+
+	$effect(() => {
 		const validKeys = new Set(selectedSearchFilters.map((filter) => filter.key));
 		const nextYearsByKey: Record<string, number> = {};
 
@@ -725,8 +879,8 @@
 	const talentById = $derived.by(
 		() => new Map<string, Talent>(allTalents.map((talent: Talent) => [talent.id, talent]))
 	);
-	const availabilityFilteredTalentIdSet = $derived.by(
-		() => new Set<string>(availabilityFilteredTalents.map((talent: Talent) => talent.id))
+	const labelFilteredTalentIdSet = $derived.by(
+		() => new Set<string>(labelFilteredTalents.map((talent: Talent) => talent.id))
 	);
 
 	const matchesNameFilter = (talent: Talent, rawQuery = searchQuery) => {
@@ -847,7 +1001,7 @@
 	const groupedTalents = $derived.by<TalentGroup[]>(() => {
 		if (!hasSelectedTechFilters || !techIndexReady) return [];
 
-		const scoredTalents: TalentWithScore[] = availabilityFilteredTalents
+		const scoredTalents: TalentWithScore[] = labelFilteredTalents
 			.map((talent: Talent) => ({
 				...talent,
 				...buildTechMatchSummary(talent.id)
@@ -892,7 +1046,7 @@
 			.map((searchResult) => {
 				const talent = talentById.get(searchResult.talentId);
 				if (!talent) return null;
-				if (!availabilityFilteredTalentIdSet.has(talent.id)) return null;
+				if (!labelFilteredTalentIdSet.has(talent.id)) return null;
 				if (!matchesNameFilter(talent)) return null;
 
 				const techMatchSummary = buildFreeTextTechMatchSummary(talent.id, searchResult);
@@ -929,7 +1083,7 @@
 		const searchFilterCount = hasFreeTextSearch
 			? Math.max(selectedSearchFilters.length, 1)
 			: selectedSearchFilters.length;
-		return searchFilterCount + (availabilityMode === 'all' ? 0 : 1);
+		return searchFilterCount + selectedLabelDefinitions.length + (availabilityMode === 'all' ? 0 : 1);
 	});
 
 	const filtersSummaryText = $derived.by(() => {
@@ -942,16 +1096,16 @@
 			if (hasSelectedTechFilters && techIndexError) {
 				return `Could not load tech matches: ${techIndexError}`;
 			}
-			return `${rankedFreeTextTalents.length} of ${availabilityFilteredTalents.length} consultants match.`;
+			return `${rankedFreeTextTalents.length} of ${labelFilteredTalents.length} consultants match.`;
 		}
 
 		if (hasSelectedTechFilters) {
 			if (techIndexIsLoadingForScope) return 'Loading tech matches...';
 			if (techIndexError) return `Could not load tech matches: ${techIndexError}`;
-			return `${totalMatches} of ${availabilityFilteredTalents.length} consultants match.`;
+			return `${totalMatches} of ${labelFilteredTalents.length} consultants match.`;
 		}
 
-		return `${availabilityFilteredTalents.length} consultants in current result set.`;
+		return `${labelFilteredTalents.length} consultants in current result set.`;
 	});
 
 	const showNameFilter = $derived(
@@ -980,6 +1134,12 @@
 
 	const setAvailabilityMode = (mode: AvailabilityMode) => {
 		availabilityMode = mode;
+	};
+	const handleSelectedLabelFilterChange = (selected: string[]) => {
+		selectedLabelIds = sanitizeLabelIds(selected);
+	};
+	const removeSelectedLabelFilter = (labelId: string) => {
+		selectedLabelIds = selectedLabelIds.filter((selectedId) => selectedId !== labelId);
 	};
 
 	const setSelectedTechs = (techs: string[]) => {
@@ -1015,6 +1175,7 @@
 	};
 
 	const clearSelectedSearchFilters = () => {
+		selectedLabelIds = [];
 		selectedTechs = [];
 		extractedSearchTerms = [];
 		requiredYearsByFilterKey = {};
@@ -1076,6 +1237,8 @@
 </script>
 
 <div class="relative space-y-6">
+	<Toaster />
+
 	<ResumesPageToolbar
 		{filtersOpen}
 		{activeFilterCount}
@@ -1102,6 +1265,11 @@
 		onAvailabilityWithinDaysInput={scheduleAvailabilityWithinDaysApply}
 		onAvailabilityWithinDaysCommit={applyAvailabilityWithinDaysNow}
 		onAvailabilityWithinDaysKeydown={handleAvailabilityWithinDaysKeydown}
+		{labelFilterOptions}
+		{selectedLabelIds}
+		{selectedLabelDefinitions}
+		onSelectedLabelIdsChange={handleSelectedLabelFilterChange}
+		onRemoveSelectedLabelFilter={removeSelectedLabelFilter}
 		{freeTextSearchInput}
 		{hasFreeTextSearch}
 		freeTextSearchLoading={freeTextSearchIsLoadingForKey}
@@ -1140,6 +1308,11 @@
 			title="No consultants match availability filter"
 			description="Try changing availability filter or extending days for availability window."
 		/>
+	{:else if labelFilteredTalents.length === 0}
+		<ResumeEmptyState
+			title="No consultants match label filter"
+			description="Try clearing one or more selected labels."
+		/>
 	{:else if hasFreeTextSearch}
 		{#if freeTextSearchIsLoadingForKey}
 			<ResumeEmptyState
@@ -1158,7 +1331,15 @@
 		{:else if hasSelectedTechFilters && techIndexError}
 			<ResumeEmptyState title="Could not load tech matches" description={techIndexError} />
 		{:else if rankedFreeTextTalents.length > 0}
-			<ResumeFreeTextResults talents={rankedFreeTextTalents} viewMode={resumesViewMode} />
+			<ResumeFreeTextResults
+				talents={rankedFreeTextTalents}
+				viewMode={resumesViewMode}
+				{labelDefinitions}
+				{canManageTalentLabels}
+				{labelMutationByTalentId}
+				onAssignTalentLabel={handleAssignTalentLabel}
+				onRemoveTalentLabel={handleRemoveTalentLabel}
+			/>
 		{:else}
 			<ResumeEmptyState
 				title="No consultants found"
@@ -1167,9 +1348,14 @@
 		{/if}
 	{:else if !hasSelectedTechFilters}
 		<ResumeDefaultResults
-			talents={availabilityFilteredTalents}
+			talents={labelFilteredTalents}
 			viewMode={resumesViewMode}
 			{searchQuery}
+			{labelDefinitions}
+			{canManageTalentLabels}
+			{labelMutationByTalentId}
+			onAssignTalentLabel={handleAssignTalentLabel}
+			onRemoveTalentLabel={handleRemoveTalentLabel}
 		/>
 	{:else if techIndexIsLoadingForScope}
 		<ResumeEmptyState
@@ -1179,7 +1365,15 @@
 	{:else if techIndexError}
 		<ResumeEmptyState title="Could not load tech matches" description={techIndexError} />
 	{:else if groupedTalents.length > 0}
-		<ResumeGroupedTechResults groups={groupedTalents} viewMode={resumesViewMode} />
+		<ResumeGroupedTechResults
+			groups={groupedTalents}
+			viewMode={resumesViewMode}
+			{labelDefinitions}
+			{canManageTalentLabels}
+			{labelMutationByTalentId}
+			onAssignTalentLabel={handleAssignTalentLabel}
+			onRemoveTalentLabel={handleRemoveTalentLabel}
+		/>
 	{:else}
 		<ResumeEmptyState
 			title="No consultants found"
@@ -1196,6 +1390,11 @@
 		}
 
 		:global(.mobile-logo-cell) {
+			width: auto !important;
+			flex: 0 0 auto !important;
+		}
+
+		:global(.mobile-label-cell) {
 			width: auto !important;
 			flex: 0 0 auto !important;
 		}

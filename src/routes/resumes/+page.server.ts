@@ -7,7 +7,18 @@ import {
 } from '$lib/server/consultantAvailability';
 import { getAccessibleTalentIds } from '$lib/server/access';
 import { resolveHomeOrganisationId } from '$lib/server/homeOrganisation';
+import {
+	buildResumesIndexCacheKey,
+	getCachedResumesIndex,
+	setCachedResumesIndex
+} from '$lib/server/resumesIndexCache';
+import {
+	canManageTalentLabelAssignments,
+	listTalentLabelsByTalentId,
+	listVisibleTalentLabelDefinitions
+} from '$lib/server/talentLabels';
 import type { ResumesTalentListItem } from '$lib/types/resumes';
+import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 const RESUMES_INDEX_CACHE_TTL_MS = 60_000;
@@ -17,33 +28,9 @@ type ResumesIndexCachePayload = {
 	talents: ResumesTalentListItem[];
 	organisationOptions: OrganisationOption[];
 	homeOrganisationId: string | null;
-};
-
-type ResumesIndexCacheEntry = {
-	expiresAt: number;
-	payload: ResumesIndexCachePayload;
-};
-
-const resumesIndexCache = new Map<string, ResumesIndexCacheEntry>();
-
-const buildActorScopeCacheKey = (actor: {
-	userId: string;
-	isAdmin: boolean;
-	roles: string[];
-	homeOrganisationId: string | null;
-	accessibleOrganisationIds: string[];
-	talentId: string | null;
-}) => {
-	const scope = actor.isAdmin
-		? 'admin'
-		: [
-				`roles:${actor.roles.join(',')}`,
-				`home:${actor.homeOrganisationId ?? ''}`,
-				`talent:${actor.talentId ?? ''}`,
-				`orgs:${[...actor.accessibleOrganisationIds].sort().join(',')}`
-			].join('|');
-
-	return `${actor.userId}:${scope}`;
+	labelDefinitions: TalentLabelDefinition[];
+	labelContextOrganisationId: string | null;
+	canManageTalentLabels: boolean;
 };
 
 const resolveStoragePublicUrl = (adminClient: SupabaseClient, value: string | null | undefined) => {
@@ -62,6 +49,9 @@ const emptyResult = {
 	talents: [] as ResumesTalentListItem[],
 	organisationOptions: [] as OrganisationOption[],
 	homeOrganisationId: null as string | null,
+	labelDefinitions: [] as TalentLabelDefinition[],
+	labelContextOrganisationId: null as string | null,
+	canManageTalentLabels: false,
 	meta: null as {
 		title: string;
 		description: string;
@@ -88,7 +78,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		homeOrganisationId: actor.homeOrganisationId,
 		talentId: actor.talentId
 	});
-	const cacheKey = buildActorScopeCacheKey({
+	const cacheKey = buildResumesIndexCacheKey({
 		userId: actor.userId,
 		isAdmin: actor.isAdmin,
 		roles: actor.roles,
@@ -97,8 +87,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		talentId: actor.talentId
 	});
 	const now = Date.now();
-	const cached = resumesIndexCache.get(cacheKey);
-	if (cached && cached.expiresAt > now) {
+	const cached = getCachedResumesIndex<ResumesIndexCachePayload>(cacheKey, now);
+	if (cached) {
 		return {
 			...cached.payload,
 			meta: {
@@ -108,9 +98,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 				path: '/resumes'
 			}
 		};
-	}
-	if (cached) {
-		resumesIndexCache.delete(cacheKey);
 	}
 
 	const accessibleOrgRowsPromise = actor.isAdmin
@@ -124,6 +111,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 					.order('name', { ascending: true });
 
 	const accessibleTalentIds = await getAccessibleTalentIds(adminClient, actor);
+	const labelActor = { ...actor, homeOrganisationId: effectiveHomeOrganisationId };
+	const labelDefinitionsPromise = listVisibleTalentLabelDefinitions({
+		adminClient,
+		actor: labelActor
+	});
 
 	const talentsResult =
 		accessibleTalentIds === null
@@ -161,8 +153,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 			avatar_url: string | null;
 		}> | null) ?? [];
 	const talentIds = talentRows.map((row) => row.id);
+	const labelDefinitions = await labelDefinitionsPromise;
+	const labelContextOrganisationId = canManageTalentLabelAssignments(labelActor)
+		? effectiveHomeOrganisationId
+		: null;
 
-	const [availabilityResult, orgMembershipsResult] =
+	const [availabilityResult, orgMembershipsResult, labelsByTalentId] =
 		talentIds.length === 0
 			? [
 					{
@@ -171,7 +167,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 						}>,
 						error: null
 					},
-					{ data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null }
+					{ data: [] as Array<{ talent_id: string; organisation_id: string }>, error: null },
+					new Map<string, TalentLabelDefinition[]>()
 				]
 			: await Promise.all([
 					adminClient
@@ -181,7 +178,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 					adminClient
 						.from('organisation_talents')
 						.select('talent_id, organisation_id')
-						.in('talent_id', talentIds)
+						.in('talent_id', talentIds),
+					listTalentLabelsByTalentId({
+						adminClient,
+						organisationId: labelContextOrganisationId,
+						talentIds,
+						definitions: labelDefinitions
+					})
 				]);
 
 	if (availabilityResult.error) {
@@ -250,7 +253,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 			availability: availabilityByTalentId.get(talent.id) ?? normalizeAvailabilityRow(null),
 			organisation_id: orgId,
 			organisation_name: org?.name ?? null,
-			organisation_logo_url: org?.logoUrl ?? null
+			organisation_logo_url: org?.logoUrl ?? null,
+			labels: labelsByTalentId.get(talent.id) ?? []
 		};
 	});
 
@@ -267,9 +271,12 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const payload: ResumesIndexCachePayload = {
 		talents,
 		organisationOptions,
-		homeOrganisationId: effectiveHomeOrganisationId
+		homeOrganisationId: effectiveHomeOrganisationId,
+		labelDefinitions,
+		labelContextOrganisationId,
+		canManageTalentLabels: canManageTalentLabelAssignments(labelActor)
 	};
-	resumesIndexCache.set(cacheKey, {
+	setCachedResumesIndex(cacheKey, {
 		expiresAt: now + RESUMES_INDEX_CACHE_TTL_MS,
 		payload
 	});
