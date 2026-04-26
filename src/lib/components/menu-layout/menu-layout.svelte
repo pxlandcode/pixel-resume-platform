@@ -20,7 +20,6 @@
 	} from '$lib/images/supabaseImage';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { QuickSearchResponse, QuickSearchSection } from '$lib/types/quickSearch';
-	import { getRoleLabel } from '$lib/types/roles';
 	import DesktopSidebar from './DesktopSidebar.svelte';
 	import MobileMenu from './MobileMenu.svelte';
 	import { menuNavSections, menuSettingsItem } from './config';
@@ -30,8 +29,6 @@
 		profile?: MenuProfile | null;
 		role?: AdminRole | null;
 		roles?: AdminRole[];
-		assignedRole?: AdminRole | null;
-		assignedRoles?: AdminRole[];
 		canToggleAdminMode?: boolean;
 		adminModeEnabled?: boolean;
 		currentTalentId?: string | null;
@@ -45,8 +42,6 @@
 		profile = null,
 		role = null,
 		roles = [],
-		assignedRole = null,
-		assignedRoles = [],
 		canToggleAdminMode = false,
 		adminModeEnabled = true,
 		currentTalentId = null,
@@ -103,15 +98,7 @@
 		const effectiveRoles = roles.length ? roles : role ? [role] : [];
 		return effectiveRoles.some((value) => allowed.includes(value));
 	};
-	const nonAdminAssignedRoles = $derived(
-		assignedRoles.filter((assignedAppRole) => assignedAppRole !== 'admin')
-	);
-	const adminModeStatusLabel = $derived.by(() => {
-		if (currentAdminModeEnabled) return 'Admin';
-		const fallbackRole = nonAdminAssignedRoles[0] ?? assignedRole ?? role;
-		return fallbackRole ? `${getRoleLabel(fallbackRole)} view` : 'Non-admin view';
-	});
-	const adminModeTooltipLabel = $derived(`Admin mode: ${adminModeStatusLabel}`);
+	const adminModeTooltipLabel = $derived(`Admin mode: ${currentAdminModeEnabled ? 'On' : 'Off'}`);
 
 	let isMobileMenuOpen = $state(false);
 	let previousPath = '';

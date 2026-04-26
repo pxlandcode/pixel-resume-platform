@@ -94,8 +94,6 @@
 	);
 	const layoutRole = $derived((data.role ?? null) as AdminRole | null);
 	const layoutRoles = $derived((data.roles ?? []) as AdminRole[]);
-	const layoutAssignedRole = $derived((data.assignedRole ?? null) as AdminRole | null);
-	const layoutAssignedRoles = $derived((data.assignedRoles ?? []) as AdminRole[]);
 	const canToggleAdminMode = $derived(Boolean(data.canToggleAdminMode));
 	const adminModeEnabled = $derived(
 		typeof data.adminModeEnabled === 'boolean' ? data.adminModeEnabled : true
@@ -491,8 +489,6 @@
 			profile={data.profile}
 			role={layoutRole}
 			roles={layoutRoles}
-			assignedRole={layoutAssignedRole}
-			assignedRoles={layoutAssignedRoles}
 			{canToggleAdminMode}
 			{adminModeEnabled}
 			currentTalentId={data.currentTalentId ?? null}
