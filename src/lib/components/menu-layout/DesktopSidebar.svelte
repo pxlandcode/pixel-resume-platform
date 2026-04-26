@@ -1,6 +1,15 @@
 <script lang="ts">
 	import { Input } from '@pixelcode_/blocks/components';
-	import { ChevronLeft, ChevronRight, LogOut, Moon, Search, Settings, Sun } from 'lucide-svelte';
+	import {
+		ChevronLeft,
+		ChevronRight,
+		LogOut,
+		Moon,
+		Search,
+		Settings,
+		Shield,
+		Sun
+	} from 'lucide-svelte';
 	import { mode, toggleMode } from 'mode-watcher';
 	import { ripple } from '$lib/utils/ripple';
 	import type { QuickSearchSection } from '$lib/types/quickSearch';
@@ -20,6 +29,10 @@
 		visibleNavSections: MenuNavSection[];
 		showSettingsLink: boolean;
 		settingsItem: MenuNavItem;
+		showAdminModeToggle: boolean;
+		adminModeEnabled: boolean;
+		adminModeTooltipLabel: string;
+		adminModePending?: boolean;
 		pixelcodeLogo: string;
 		andLogo: string;
 		searchContainerId: string;
@@ -33,6 +46,7 @@
 		quickSearchError?: string | null;
 		onavatarerror?: (event: Event) => void;
 		ontogglesidebar?: () => void;
+		ontoggleadminmode?: () => void;
 		onexpandsearch?: () => void;
 		onnavigate?: () => void;
 		onlogout?: () => void;
@@ -50,6 +64,10 @@
 		visibleNavSections,
 		showSettingsLink,
 		settingsItem,
+		showAdminModeToggle,
+		adminModeEnabled,
+		adminModeTooltipLabel,
+		adminModePending = false,
 		pixelcodeLogo,
 		andLogo,
 		searchContainerId,
@@ -63,6 +81,7 @@
 		quickSearchError = null,
 		onavatarerror,
 		ontogglesidebar,
+		ontoggleadminmode,
 		onexpandsearch,
 		onnavigate,
 		onlogout
@@ -217,6 +236,30 @@
 
 	<div class="border-border border-t px-3 py-4">
 		<div class="space-y-1.5">
+			{#if showAdminModeToggle}
+				<div class="sidebar-tooltip-anchor relative">
+					<button
+						type="button"
+						use:ripple={{ opacity: 0.14 }}
+						class={`sidebar-item sidebar-item--footer relative isolate flex h-9 w-full items-center rounded-sm px-3 transition-colors ${sidebarCollapsed ? 'sidebar-item--collapsed' : ''} ${
+							adminModeEnabled
+								? 'bg-primary/10 text-primary'
+								: 'text-secondary-text hover:bg-muted/60 hover:text-foreground'
+						} ${adminModePending ? 'cursor-wait opacity-70' : ''}`}
+						aria-pressed={adminModeEnabled}
+						aria-label={sidebarCollapsed ? adminModeTooltipLabel : undefined}
+						disabled={adminModePending}
+						onclick={() => ontoggleadminmode?.()}
+					>
+						<span class="sidebar-item__icon">
+							<Shield size={18} class="shrink-0" />
+						</span>
+						<span class="sidebar-item__label">Admin mode</span>
+					</button>
+					{#if sidebarCollapsed}<span class="sidebar-tooltip">{adminModeTooltipLabel}</span>{/if}
+				</div>
+			{/if}
+
 			{#if showSettingsLink}
 				<div class="sidebar-tooltip-anchor relative">
 					<a

@@ -5,6 +5,7 @@ import {
 	resolveOrganisationBrandingTheme,
 	type OrganisationBrandingTheme
 } from '$lib/branding/theme';
+import { normalizeUserSettings } from '$lib/types/userSettings';
 
 export type AppRole = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 export type ShareAccessLevel = 'none' | 'read' | 'write';
@@ -23,7 +24,7 @@ const KNOWN_ROLES = new Set<AppRole>([
 	'talent',
 	'employer'
 ]);
-const ACTOR_CONTEXT_CACHE_TTL_MS = 30_000;
+const RAW_ACTOR_CONTEXT_CACHE_TTL_MS = 30_000;
 
 type RoleJoinRow = {
 	roles?: { key?: string | null } | Array<{ key?: string | null }> | null;
@@ -63,11 +64,15 @@ export type ActorAccessContext = {
 	userId: string | null;
 	roles: AppRole[];
 	primaryRole: AppRole | null;
+	assignedRoles: AppRole[];
+	assignedPrimaryRole: AppRole | null;
 	isAdmin: boolean;
 	isOrganisationAdmin: boolean;
 	isBroker: boolean;
 	isEmployer: boolean;
 	isTalent: boolean;
+	canToggleAdminMode: boolean;
+	adminModeEnabled: boolean;
 	homeOrganisationId: string | null;
 	accessibleOrganisationIds: string[];
 	talentId: string | null;
@@ -130,9 +135,18 @@ export type ResolvedTemplateContext = {
 
 export type PrintTemplateMode = 'auto' | 'source' | 'target';
 
+type RawActorContext = {
+	userId: string;
+	assignedRoles: AppRole[];
+	assignedPrimaryRole: AppRole | null;
+	homeOrganisationId: string | null;
+	sharedSourceOrganisationIds: string[];
+	talentId: string | null;
+};
+
 type ActorContextCacheEntry = {
 	expiresAt: number;
-	value: ActorAccessContext;
+	value: RawActorContext;
 };
 
 const actorContextCache = new Map<string, ActorContextCacheEntry>();
@@ -148,11 +162,15 @@ const emptyActorContext = (): ActorAccessContext => ({
 	userId: null,
 	roles: [],
 	primaryRole: null,
+	assignedRoles: [],
+	assignedPrimaryRole: null,
 	isAdmin: false,
 	isOrganisationAdmin: false,
 	isBroker: false,
 	isEmployer: false,
 	isTalent: false,
+	canToggleAdminMode: false,
+	adminModeEnabled: true,
 	homeOrganisationId: null,
 	accessibleOrganisationIds: [],
 	talentId: null
@@ -200,6 +218,62 @@ const sortRolesByPriority = (roles: AppRole[]) => {
 	return [...roles].sort(
 		(a, b) => (priorityIndex.get(a) ?? ROLE_PRIORITY.length) - (priorityIndex.get(b) ?? ROLE_PRIORITY.length)
 	);
+};
+
+const resolveAdminModeEnabled = (
+	rawContext: RawActorContext,
+	requestedAdminModeEnabled: boolean
+) => {
+	const hasAdminRole = rawContext.assignedRoles.includes('admin');
+	const hasNonAdminRole = rawContext.assignedRoles.some((role) => role !== 'admin');
+	const canToggleAdminMode =
+		hasAdminRole && hasNonAdminRole && typeof rawContext.homeOrganisationId === 'string';
+
+	return {
+		canToggleAdminMode,
+		adminModeEnabled: canToggleAdminMode ? requestedAdminModeEnabled : true
+	};
+};
+
+const buildActorAccessContext = (
+	rawContext: RawActorContext,
+	requestedAdminModeEnabled: boolean
+): ActorAccessContext => {
+	const { canToggleAdminMode, adminModeEnabled } = resolveAdminModeEnabled(
+		rawContext,
+		requestedAdminModeEnabled
+	);
+	const roles = sortRolesByPriority(
+		adminModeEnabled
+			? rawContext.assignedRoles
+			: rawContext.assignedRoles.filter((role) => role !== 'admin')
+	);
+	const isAdmin = roles.includes('admin');
+	const isOrganisationAdmin = roles.includes('organisation_admin');
+	const isBroker = roles.includes('broker');
+	const isEmployer = roles.includes('employer');
+	const isTalent = roles.includes('talent');
+	const accessibleOrganisationIds = isAdmin
+		? []
+		: unique([rawContext.homeOrganisationId ?? '', ...rawContext.sharedSourceOrganisationIds]);
+
+	return {
+		userId: rawContext.userId,
+		roles,
+		primaryRole: roles[0] ?? null,
+		assignedRoles: rawContext.assignedRoles,
+		assignedPrimaryRole: rawContext.assignedPrimaryRole,
+		isAdmin,
+		isOrganisationAdmin,
+		isBroker,
+		isEmployer,
+		isTalent,
+		canToggleAdminMode,
+		adminModeEnabled,
+		homeOrganisationId: rawContext.homeOrganisationId,
+		accessibleOrganisationIds,
+		talentId: rawContext.talentId
+	};
 };
 
 const parseTemplateJson = (value: unknown): Record<string, unknown> => {
@@ -390,78 +464,79 @@ export const getActorAccessContext = async (
 	const userId = authUser.id;
 	const now = Date.now();
 	const cached = actorContextCache.get(userId);
-	if (cached && cached.expiresAt > now) {
-		return cached.value;
-	}
-	if (cached) {
-		actorContextCache.delete(userId);
-	}
+	const rawContextPromise =
+		cached && cached.expiresAt > now
+			? Promise.resolve(cached.value)
+			: (async () => {
+					const [roleResult, homeOrgResult, ownTalentResult] = await Promise.all([
+						adminClient.from('user_roles').select('roles(key)').eq('user_id', userId),
+						adminClient
+							.from('organisation_users')
+							.select('organisation_id')
+							.eq('user_id', userId)
+							.order('updated_at', { ascending: false })
+							.order('created_at', { ascending: false })
+							.limit(1)
+							.maybeSingle(),
+						adminClient.from('talents').select('id').eq('user_id', userId).limit(1).maybeSingle()
+					]);
 
-	const [roleResult, homeOrgResult, ownTalentResult] = await Promise.all([
-		adminClient.from('user_roles').select('roles(key)').eq('user_id', userId),
-		adminClient
-			.from('organisation_users')
-			.select('organisation_id')
-			.eq('user_id', userId)
-			.order('updated_at', { ascending: false })
-			.order('created_at', { ascending: false })
-			.limit(1)
-			.maybeSingle(),
-		adminClient.from('talents').select('id').eq('user_id', userId).limit(1).maybeSingle()
+					const rolesFromTable = normalizeRolesFromJoinRows(
+						(roleResult.data as RoleJoinRow[] | null) ?? []
+					);
+					const rolesFromMetadata = (
+						Array.isArray(authUser.app_metadata?.roles)
+							? (authUser.app_metadata.roles as string[])
+							: typeof authUser.app_metadata?.role === 'string'
+								? [authUser.app_metadata.role as string]
+								: []
+					)
+						.map((value) => normalizeRole(value))
+						.filter((role): role is AppRole => role !== null);
+					const assignedRoles = sortRolesByPriority(
+						Array.from(new Set([...rolesFromTable, ...rolesFromMetadata]))
+					);
+					const homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
+					const sharedSourceOrganisationIds =
+						homeOrganisationId &&
+						(assignedRoles.includes('broker') || assignedRoles.includes('employer'))
+							? await loadSharedSourceOrganisationIds(adminClient, homeOrganisationId)
+							: [];
+
+					const value: RawActorContext = {
+						userId,
+						assignedRoles,
+						assignedPrimaryRole: assignedRoles[0] ?? null,
+						homeOrganisationId,
+						sharedSourceOrganisationIds,
+						talentId: ownTalentResult.data?.id ?? null
+					};
+					actorContextCache.set(userId, {
+						expiresAt: now + RAW_ACTOR_CONTEXT_CACHE_TTL_MS,
+						value
+					});
+					return value;
+				})();
+
+	const requestedAdminModePromise = adminClient
+		.from('user_settings')
+		.select('settings')
+		.eq('user_id', userId)
+		.maybeSingle()
+		.then((result) => {
+			if (result.error) {
+				console.warn('[access] could not resolve user settings', result.error);
+				return true;
+			}
+			return normalizeUserSettings(result.data?.settings).roleMode.adminEnabled;
+		});
+
+	const [rawContext, requestedAdminModeEnabled] = await Promise.all([
+		rawContextPromise,
+		requestedAdminModePromise
 	]);
 
-	const rolesFromTable = normalizeRolesFromJoinRows(
-		(roleResult.data as RoleJoinRow[] | null) ?? []
-	);
-	const rolesFromMetadata = (
-		Array.isArray(authUser.app_metadata?.roles)
-			? (authUser.app_metadata.roles as string[])
-			: typeof authUser.app_metadata?.role === 'string'
-				? [authUser.app_metadata.role as string]
-				: []
-	)
-		.map((value) => normalizeRole(value))
-		.filter((role): role is AppRole => role !== null);
-
-	const roles = sortRolesByPriority(Array.from(new Set([...rolesFromTable, ...rolesFromMetadata])));
-	const isAdmin = roles.includes('admin');
-	const isOrganisationAdmin = roles.includes('organisation_admin');
-	const isBroker = roles.includes('broker');
-	const isEmployer = roles.includes('employer');
-	const isTalent = roles.includes('talent');
-	const homeOrganisationId = homeOrgResult.data?.organisation_id ?? null;
-
-	let sharedSourceOrganisationIds: string[] = [];
-	if (!isAdmin && (isBroker || isEmployer) && homeOrganisationId) {
-		sharedSourceOrganisationIds = await loadSharedSourceOrganisationIds(
-			adminClient,
-			homeOrganisationId
-		);
-	}
-
-	const accessibleOrganisationIds = isAdmin
-		? []
-		: unique([homeOrganisationId ?? '', ...sharedSourceOrganisationIds]);
-
-	const value: ActorAccessContext = {
-		userId,
-		roles,
-		primaryRole: roles[0] ?? null,
-		isAdmin,
-		isOrganisationAdmin,
-		isBroker,
-		isEmployer,
-		isTalent,
-		homeOrganisationId,
-		accessibleOrganisationIds,
-		talentId: ownTalentResult.data?.id ?? null
-	};
-	actorContextCache.set(userId, {
-		expiresAt: now + ACTOR_CONTEXT_CACHE_TTL_MS,
-		value
-	});
-
-	return value;
+	return buildActorAccessContext(rawContext, requestedAdminModeEnabled);
 };
 
 export const getAccessibleTalentAccess = async (

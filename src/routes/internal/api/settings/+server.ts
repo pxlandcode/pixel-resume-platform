@@ -8,6 +8,7 @@ import {
 	type UserSettingsNavigationPatch,
 	type UserSettingsPatch,
 	type UserSettingsOrganisationFiltersPatch,
+	type UserSettingsRoleModePatch,
 	type UserSettingsViewsPatch
 } from '$lib/types/userSettings';
 
@@ -149,6 +150,41 @@ const parseNavigationPatch = (
 	return { ok: true, patch };
 };
 
+const parseRoleModePatch = (
+	value: unknown
+):
+	| { ok: true; patch: UserSettingsRoleModePatch }
+	| {
+			ok: false;
+			message: string;
+	  } => {
+	if (!isRecord(value)) {
+		return { ok: false, message: '"roleMode" must be an object.' };
+	}
+
+	const allowedKeys = new Set(['adminEnabled']);
+	const keys = Object.keys(value);
+	if (keys.length === 0) {
+		return { ok: false, message: '"roleMode" requires at least one key.' };
+	}
+
+	const patch: UserSettingsRoleModePatch = {};
+	for (const key of keys) {
+		if (!allowedKeys.has(key)) {
+			return { ok: false, message: `Unsupported role mode key "${key}".` };
+		}
+
+		if (key === 'adminEnabled') {
+			if (typeof value.adminEnabled !== 'boolean') {
+				return { ok: false, message: '"roleMode.adminEnabled" must be a boolean.' };
+			}
+			patch.adminEnabled = value.adminEnabled;
+		}
+	}
+
+	return { ok: true, patch };
+};
+
 const parseSettingsPatch = (
 	value: unknown
 ):
@@ -162,7 +198,7 @@ const parseSettingsPatch = (
 	}
 
 	const topLevelKeys = Object.keys(value);
-	const allowedTopLevelKeys = new Set(['views', 'organisationFilters', 'navigation']);
+	const allowedTopLevelKeys = new Set(['views', 'organisationFilters', 'navigation', 'roleMode']);
 	if (topLevelKeys.length === 0) {
 		return { ok: false, message: 'At least one settings field is required.' };
 	}
@@ -189,6 +225,12 @@ const parseSettingsPatch = (
 			const parsed = parseNavigationPatch(value.navigation);
 			if (!parsed.ok) return parsed;
 			patch.navigation = parsed.patch;
+		}
+
+		if (key === 'roleMode') {
+			const parsed = parseRoleModePatch(value.roleMode);
+			if (!parsed.ok) return parsed;
+			patch.roleMode = parsed.patch;
 		}
 	}
 
