@@ -10,7 +10,7 @@ const requireAdminBillingContext = async (locals: App.Locals) => {
 	if (!adminClient || !actor.userId) {
 		throw error(401, 'Unauthorized');
 	}
-	if (actor.isOrganisationAdmin && actor.homeOrganisationId) {
+	if (!actor.isAdmin && actor.isOrganisationAdmin && actor.homeOrganisationId) {
 		throw redirect(302, `/billing/${actor.homeOrganisationId}`);
 	}
 	if (!actor.isAdmin) {
