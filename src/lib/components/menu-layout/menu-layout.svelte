@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { browser } from '$app/environment';
+	import { invalidateAll } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { Button } from '@pixelcode_/blocks/components';
 	import { Menu } from 'lucide-svelte';
@@ -28,6 +29,8 @@
 		profile?: MenuProfile | null;
 		role?: AdminRole | null;
 		roles?: AdminRole[];
+		canToggleAdminMode?: boolean;
+		adminModeEnabled?: boolean;
 		currentTalentId?: string | null;
 		userEmail?: string | null;
 		unauthorizedMessage?: string | null;
@@ -39,6 +42,8 @@
 		profile = null,
 		role = null,
 		roles = [],
+		canToggleAdminMode = false,
+		adminModeEnabled = true,
 		currentTalentId = null,
 		userEmail = null,
 		unauthorizedMessage = null,
@@ -51,6 +56,8 @@
 
 	const activePath = $derived($page.url.pathname);
 	let modeHydrated = $state(false);
+	let currentAdminModeEnabled = $state(adminModeEnabled);
+	let adminModePending = $state(false);
 	const displayName = $derived(
 		profile
 			? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || userEmail || 'User'
@@ -91,6 +98,7 @@
 		const effectiveRoles = roles.length ? roles : role ? [role] : [];
 		return effectiveRoles.some((value) => allowed.includes(value));
 	};
+	const adminModeTooltipLabel = $derived(`Admin mode: ${currentAdminModeEnabled ? 'On' : 'Off'}`);
 
 	let isMobileMenuOpen = $state(false);
 	let previousPath = '';
@@ -270,6 +278,21 @@
 		onlogout?.();
 	};
 
+	const toggleAdminMode = async () => {
+		if (!canToggleAdminMode || adminModePending) return;
+
+		adminModePending = true;
+		const nextAdminModeEnabled = !currentAdminModeEnabled;
+		const ok = await userSettingsStore.setAdminModeEnabled(nextAdminModeEnabled);
+		if (ok) {
+			currentAdminModeEnabled = nextAdminModeEnabled;
+			await invalidateAll();
+		} else {
+			console.warn('[menu] could not persist admin mode toggle');
+		}
+		adminModePending = false;
+	};
+
 	$effect(() => {
 		if (!browser) return;
 		document.body.classList.toggle('overflow-hidden', isMobileMenuOpen);
@@ -343,6 +366,10 @@
 		if (!browser) return;
 		modeHydrated = true;
 	});
+
+	$effect(() => {
+		currentAdminModeEnabled = adminModeEnabled;
+	});
 </script>
 
 <svelte:window on:keydown={handleMenuKeydown} />
@@ -362,6 +389,10 @@
 		{visibleNavSections}
 		{showSettingsLink}
 		settingsItem={menuSettingsItem}
+		showAdminModeToggle={canToggleAdminMode}
+		adminModeEnabled={currentAdminModeEnabled}
+		adminModeTooltipLabel={adminModeTooltipLabel}
+		adminModePending={adminModePending}
 		{pixelcodeLogo}
 		{andLogo}
 		searchContainerId={DESKTOP_SEARCH_CONTAINER_ID}
@@ -375,6 +406,7 @@
 		{quickSearchError}
 		onavatarerror={handleUserAvatarError}
 		ontogglesidebar={toggleDesktopSidebar}
+		ontoggleadminmode={toggleAdminMode}
 		onexpandsearch={expandAndFocusSearch}
 		onnavigate={handleMenuNavClick}
 		{onlogout}
@@ -421,6 +453,9 @@
 		{visibleNavSections}
 		{showSettingsLink}
 		settingsItem={menuSettingsItem}
+		showAdminModeToggle={canToggleAdminMode}
+		adminModeEnabled={currentAdminModeEnabled}
+		adminModePending={adminModePending}
 		{pixelcodeLogo}
 		bind:searchQuery
 		{hasSearchQuery}
@@ -432,6 +467,7 @@
 		{quickSearchError}
 		onavatarerror={handleUserAvatarError}
 		onclose={closeMobileMenu}
+		ontoggleadminmode={toggleAdminMode}
 		onnavigate={handleMenuNavClick}
 		onlogout={handleMobileLogout}
 	/>

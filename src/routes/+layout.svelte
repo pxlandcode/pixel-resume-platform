@@ -94,6 +94,10 @@
 	);
 	const layoutRole = $derived((data.role ?? null) as AdminRole | null);
 	const layoutRoles = $derived((data.roles ?? []) as AdminRole[]);
+	const canToggleAdminMode = $derived(Boolean(data.canToggleAdminMode));
+	const adminModeEnabled = $derived(
+		typeof data.adminModeEnabled === 'boolean' ? data.adminModeEnabled : true
+	);
 	const authenticatedUserId = $derived(typeof data.user?.id === 'string' ? data.user.id : null);
 	const brandingThemeFromData = $derived(
 		resolveOrganisationBrandingTheme(data.brandingTheme ?? null)
@@ -485,6 +489,8 @@
 			profile={data.profile}
 			role={layoutRole}
 			roles={layoutRoles}
+			{canToggleAdminMode}
+			{adminModeEnabled}
 			currentTalentId={data.currentTalentId ?? null}
 			userEmail={data.user?.email ?? null}
 			{unauthorizedMessage}

@@ -28,6 +28,10 @@ type LoadResult = {
 	profile: Profile | null;
 	role: Role | null;
 	roles: Role[];
+	assignedRole: Role | null;
+	assignedRoles: Role[];
+	canToggleAdminMode: boolean;
+	adminModeEnabled: boolean;
 	currentTalentId: string | null;
 	effectiveHomeOrganisationId: string | null;
 	brandingTheme: OrganisationBrandingTheme;
@@ -168,6 +172,10 @@ const buildAnonymousResult = () => {
 		profile: null,
 		role: null,
 		roles: [],
+		assignedRole: null,
+		assignedRoles: [],
+		canToggleAdminMode: false,
+		adminModeEnabled: true,
 		currentTalentId: null,
 		effectiveHomeOrganisationId: null,
 		brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
@@ -207,6 +215,7 @@ export const load: LayoutServerLoad = async ({ cookies, locals }) => {
 		const userId = authUser.id;
 		const actorContext = await requestContext.getActorContext();
 		const roles = actorContext.roles as Role[];
+		const assignedRoles = actorContext.assignedRoles as Role[];
 		const effectiveRoles: Role[] = roles.length > 0 ? roles : ['talent'];
 		const primaryRole = (actorContext.primaryRole as Role | null) ?? effectiveRoles[0] ?? 'talent';
 		const adminClient = requestContext.getAdminClient();
@@ -228,6 +237,11 @@ export const load: LayoutServerLoad = async ({ cookies, locals }) => {
 			profile,
 			role: primaryRole,
 			roles: effectiveRoles,
+			assignedRole:
+				(actorContext.assignedPrimaryRole as Role | null) ?? assignedRoles[0] ?? null,
+			assignedRoles,
+			canToggleAdminMode: actorContext.canToggleAdminMode,
+			adminModeEnabled: actorContext.adminModeEnabled,
 			currentTalentId: actorContext.talentId,
 			effectiveHomeOrganisationId: homeOrganisationId,
 			brandingTheme: branding.theme,

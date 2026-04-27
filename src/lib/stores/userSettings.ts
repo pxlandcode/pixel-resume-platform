@@ -197,7 +197,7 @@ function createUserSettingsStore() {
 		requestUserId: string,
 		requestSequence: number,
 		patch: UserSettingsPatch
-	) => {
+	): Promise<boolean> => {
 		try {
 			const response = await fetch('/internal/api/settings', {
 				method: 'PATCH',
@@ -208,14 +208,14 @@ function createUserSettingsStore() {
 
 			if (!response.ok) {
 				console.warn('[settings] could not persist settings patch', response.status);
-				return;
+				return false;
 			}
 
 			const payload = (await response.json()) as {
 				settings?: unknown;
 				updatedAt?: unknown;
 			};
-			if (requestSequence !== patchSequence || activeUserId !== requestUserId) return;
+			if (requestSequence !== patchSequence || activeUserId !== requestUserId) return true;
 
 			const settings = normalizeUserSettings(payload.settings);
 			const updatedAt =
@@ -236,8 +236,10 @@ function createUserSettingsStore() {
 						}
 					: state
 			);
+			return true;
 		} catch (error) {
 			console.warn('[settings] settings patch request failed', error);
+			return false;
 		}
 	};
 
@@ -340,6 +342,20 @@ function createUserSettingsStore() {
 		await persistPatch(requestUserId, requestSequence, patch);
 	};
 
+	const setAdminModeEnabled = async (enabled: boolean): Promise<boolean> => {
+		const current = getState();
+		if (!current.userId) return false;
+
+		const patch: UserSettingsPatch = {
+			roleMode: {
+				adminEnabled: enabled
+			}
+		};
+		const requestUserId = current.userId;
+		const requestSequence = ++patchSequence;
+		return persistPatch(requestUserId, requestSequence, patch);
+	};
+
 	const reset = () => {
 		activeUserId = null;
 		patchSequence += 1;
@@ -353,6 +369,7 @@ function createUserSettingsStore() {
 		setViewMode,
 		setOrganisationFilters,
 		setSidebarCollapsed,
+		setAdminModeEnabled,
 		reset
 	};
 }

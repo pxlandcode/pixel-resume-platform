@@ -18,20 +18,27 @@ export type UserSettingsNavigation = {
 	sidebarCollapsed: boolean;
 };
 
+export type UserSettingsRoleMode = {
+	adminEnabled: boolean;
+};
+
 export type UserSettings = {
 	views: UserSettingsViews;
 	organisationFilters: UserSettingsOrganisationFilters;
 	navigation: UserSettingsNavigation;
+	roleMode: UserSettingsRoleMode;
 };
 
 export type UserSettingsViewsPatch = Partial<UserSettingsViews>;
 export type UserSettingsOrganisationFiltersPatch = Partial<UserSettingsOrganisationFilters>;
 export type UserSettingsNavigationPatch = Partial<UserSettingsNavigation>;
+export type UserSettingsRoleModePatch = Partial<UserSettingsRoleMode>;
 
 export type UserSettingsPatch = {
 	views?: UserSettingsViewsPatch;
 	organisationFilters?: UserSettingsOrganisationFiltersPatch;
 	navigation?: UserSettingsNavigationPatch;
+	roleMode?: UserSettingsRoleModePatch;
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -49,6 +56,9 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
 	},
 	navigation: {
 		sidebarCollapsed: false
+	},
+	roleMode: {
+		adminEnabled: true
 	}
 };
 
@@ -73,6 +83,9 @@ export const cloneUserSettings = (settings: UserSettings): UserSettings => ({
 	},
 	navigation: {
 		sidebarCollapsed: settings.navigation.sidebarCollapsed
+	},
+	roleMode: {
+		adminEnabled: settings.roleMode.adminEnabled
 	}
 });
 
@@ -97,6 +110,7 @@ export const normalizeUserSettings = (value: unknown): UserSettings => {
 	const views = isRecord(value.views) ? value.views : {};
 	const organisationFilters = isRecord(value.organisationFilters) ? value.organisationFilters : {};
 	const navigation = isRecord(value.navigation) ? value.navigation : {};
+	const roleMode = isRecord(value.roleMode) ? value.roleMode : {};
 
 	return {
 		views: {
@@ -116,6 +130,12 @@ export const normalizeUserSettings = (value: unknown): UserSettings => {
 				typeof navigation.sidebarCollapsed === 'boolean'
 					? navigation.sidebarCollapsed
 					: defaults.navigation.sidebarCollapsed
+		},
+		roleMode: {
+			adminEnabled:
+				typeof roleMode.adminEnabled === 'boolean'
+					? roleMode.adminEnabled
+					: defaults.roleMode.adminEnabled
 		}
 	};
 };
@@ -138,6 +158,9 @@ export const applyUserSettingsViewsPatch = (
 	},
 	navigation: {
 		sidebarCollapsed: settings.navigation.sidebarCollapsed
+	},
+	roleMode: {
+		adminEnabled: settings.roleMode.adminEnabled
 	}
 });
 
@@ -171,5 +194,8 @@ export const applyUserSettingsPatch = (
 	},
 	navigation: {
 		sidebarCollapsed: patch.navigation?.sidebarCollapsed ?? settings.navigation.sidebarCollapsed
+	},
+	roleMode: {
+		adminEnabled: patch.roleMode?.adminEnabled ?? settings.roleMode.adminEnabled
 	}
 });
