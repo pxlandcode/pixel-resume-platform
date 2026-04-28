@@ -8,12 +8,20 @@ import {
 	loadBillingPlanVersions,
 	loadOrganisationBillingMonthView,
 	normalizePeriodMonth,
+	removeOrganisationBillingAssignmentForward,
 	saveOrganisationBillingReview,
 	upsertOrganisationBillingAddon,
 	upsertOrganisationBillingAssignment,
 	deleteOrganisationBillingAddon
 } from '$lib/server/billing';
-import type { BillingMetricKey, BillingReviewMetricDecision } from '$lib/types/billing';
+import type {
+	BillingAddonVersion,
+	BillingMetricKey,
+	BillingPlanVersion,
+	BillingReviewMetricDecision
+} from '$lib/types/billing';
+
+const NO_PLAN_OPTION_VALUE = '__no_plan__';
 
 const parseRequiredString = (formData: FormData, key: string) => {
 	const value = formData.get(key);
@@ -54,6 +62,82 @@ const parsePositiveInteger = (value: string | null, fallback = 1) => {
 		throw new Error('Quantity must be at least 1.');
 	}
 	return parsed;
+};
+
+const getPlanVersionGroupKey = (planVersion: BillingPlanVersion) =>
+	`${planVersion.planFamily}:${planVersion.planCode}`;
+
+const getAddonVersionGroupKey = (addonVersion: BillingAddonVersion) => addonVersion.addonCode;
+
+const getSelectablePlanVersions = (
+	planVersions: BillingPlanVersion[],
+	selectedPlanVersionId: string | null
+) => {
+	const groups = new Map<string, BillingPlanVersion[]>();
+	const order: string[] = [];
+
+	for (const planVersion of planVersions) {
+		const key = getPlanVersionGroupKey(planVersion);
+		if (!groups.has(key)) {
+			groups.set(key, []);
+			order.push(key);
+		}
+		groups.get(key)?.push(planVersion);
+	}
+
+	const selectable: BillingPlanVersion[] = [];
+
+	for (const key of order) {
+		const versions = groups.get(key) ?? [];
+		const latestActiveVersion = versions.find((planVersion) => planVersion.isActive) ?? null;
+		const selectedVersion = selectedPlanVersionId
+			? (versions.find((planVersion) => planVersion.id === selectedPlanVersionId) ?? null)
+			: null;
+
+		if (latestActiveVersion) {
+			selectable.push(latestActiveVersion);
+		}
+
+		if (
+			selectedVersion &&
+			(!latestActiveVersion || selectedVersion.id !== latestActiveVersion.id)
+		) {
+			selectable.push(selectedVersion);
+		}
+	}
+
+	return selectable;
+};
+
+const getSelectableAddonVersions = (addonVersions: BillingAddonVersion[]) => {
+	const groups = new Map<string, BillingAddonVersion[]>();
+	const order: string[] = [];
+
+	for (const addonVersion of addonVersions) {
+		const key = getAddonVersionGroupKey(addonVersion);
+		if (!groups.has(key)) {
+			groups.set(key, []);
+			order.push(key);
+		}
+		groups.get(key)?.push(addonVersion);
+	}
+
+	return order
+		.map((key) => groups.get(key)?.find((addonVersion) => addonVersion.isActive) ?? null)
+		.filter((addonVersion): addonVersion is BillingAddonVersion => addonVersion !== null);
+};
+
+const getAssignmentActionErrorMessage = (caught: unknown, fallback: string) => {
+	if (!(caught instanceof Error)) return fallback;
+
+	if (
+		caught.message.includes('null value in column "plan_version_id"') &&
+		caught.message.includes('organisation_billing_assignments')
+	) {
+		return 'Selecting "No plan" requires the billing migration 20260428113000_allow_billing_plan_removal.sql to be applied to the database.';
+	}
+
+	return caught.message;
 };
 
 const requireBillingContext = async (
@@ -121,6 +205,12 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 	if (organisationResult.error) throw error(500, organisationResult.error.message);
 	if (!organisationResult.data) throw error(404, 'Organisation not found.');
 
+	const selectablePlanVersions = getSelectablePlanVersions(
+		planVersions,
+		monthView.plan?.planVersionId ?? null
+	);
+	const selectableAddonVersions = getSelectableAddonVersions(addonVersions);
+
 	const recentMonths = Array.from(
 		new Set(
 			[...listRecentBillingMonths(12), selectedMonth].sort((left, right) =>
@@ -135,8 +225,8 @@ export const load: PageServerLoad = async ({ locals, params, url }) => {
 		selectedMonth,
 		recentMonths,
 		canManageBilling: actor.isAdmin,
-		planVersions,
-		addonVersions
+		planVersions: selectablePlanVersions,
+		addonVersions: selectableAddonVersions
 	};
 };
 
@@ -180,12 +270,29 @@ export const actions: Actions = {
 				true
 			);
 			const formData = await request.formData();
+			const planVersionId = parseRequiredString(formData, 'plan_version_id');
+			const effectiveMonth = parseRequiredString(formData, 'effective_month');
+
+			if (planVersionId === NO_PLAN_OPTION_VALUE) {
+				await removeOrganisationBillingAssignmentForward({
+					adminClient,
+					organisationId: params.organisationId,
+					effectiveMonth,
+					createdByUserId: actor.userId
+				});
+
+				return {
+					type: 'upsertAssignment',
+					ok: true,
+					message: 'Plan removed from the selected month forward.'
+				};
+			}
 
 			await upsertOrganisationBillingAssignment({
 				adminClient,
 				organisationId: params.organisationId,
-				planVersionId: parseRequiredString(formData, 'plan_version_id'),
-				effectiveMonth: parseRequiredString(formData, 'effective_month'),
+				planVersionId,
+				effectiveMonth,
 				priceOverrideOre: parseMoneyOre(parseOptionalString(formData, 'price_override')),
 				includedTalentProfilesOverride: parseNullableInteger(
 					parseOptionalString(formData, 'included_talent_profiles_override')
@@ -206,7 +313,37 @@ export const actions: Actions = {
 			return fail(400, {
 				type: 'upsertAssignment',
 				ok: false,
-				message: caught instanceof Error ? caught.message : 'Could not update plan assignment.'
+				message: getAssignmentActionErrorMessage(caught, 'Could not update plan assignment.')
+			});
+		}
+	},
+	deleteAssignment: async ({ request, locals, params }) => {
+		try {
+			const { adminClient, actor } = await requireBillingContext(
+				locals,
+				params.organisationId,
+				true
+			);
+			const formData = await request.formData();
+
+			await removeOrganisationBillingAssignmentForward({
+				adminClient,
+				organisationId: params.organisationId,
+				effectiveMonth: parseRequiredString(formData, 'effective_month'),
+				createdByUserId: actor.userId
+			});
+
+			return {
+				type: 'deleteAssignment',
+				ok: true,
+				message: 'Plan removed from the selected month forward.'
+			};
+		} catch (caught) {
+			if (caught instanceof Response) throw caught;
+			return fail(400, {
+				type: 'deleteAssignment',
+				ok: false,
+				message: getAssignmentActionErrorMessage(caught, 'Could not remove plan assignment.')
 			});
 		}
 	},

@@ -6,6 +6,7 @@ import {
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
 import { getActorAccessContext } from '$lib/server/access';
+import { syncUserAndLinkedTalentHomeOrganisation } from '$lib/server/userAccounts';
 
 type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 const KNOWN_ROLES = new Set<Role>(['admin', 'organisation_admin', 'broker', 'talent', 'employer']);
@@ -256,19 +257,6 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 		throw error(500, 'User created but role assignment failed.');
 	}
 
-	if (targetOrganisationId) {
-		const { error: membershipError } = await admin.from('organisation_users').insert({
-			organisation_id: targetOrganisationId,
-			user_id: userId
-		});
-
-		if (membershipError) {
-			console.error('[create-user] organisation membership insert error', membershipError);
-			await admin.auth.admin.deleteUser(userId);
-			throw error(500, 'User creation was rolled back because organisation linking failed.');
-		}
-	}
-
 	if (linkedTalentId) {
 		const { error: linkTalentError } = await admin
 			.from('talents')
@@ -283,6 +271,21 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 			}
 			throw error(500, 'User creation was rolled back because talent linking failed.');
 		}
+	}
+
+	try {
+		await syncUserAndLinkedTalentHomeOrganisation(admin, {
+			userId,
+			organisationId: targetOrganisationId ?? null,
+			linkedTalentId
+		});
+	} catch (syncError) {
+		console.error('[create-user] organisation sync error', syncError);
+		if (linkedTalentId) {
+			await admin.from('talents').update({ user_id: null }).eq('id', linkedTalentId);
+		}
+		await admin.auth.admin.deleteUser(userId);
+		throw error(500, 'User creation was rolled back because organisation linking failed.');
 	}
 
 	return json({

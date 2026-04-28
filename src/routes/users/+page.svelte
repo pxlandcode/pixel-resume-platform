@@ -131,14 +131,6 @@
 		).filterOrganisationOptions ?? []) as OrganisationOption[]
 	);
 	const usersViewMode = $derived($userSettingsStore.settings.views.users);
-	const homeOrganisationId = $derived.by(() => {
-		const value = (
-			data as typeof data & {
-				homeOrganisationId?: unknown;
-			}
-		).homeOrganisationId;
-		return typeof value === 'string' ? value : null;
-	});
 
 	const normalizeRoles = (roles: string[] | null | undefined): Role[] => {
 		const allowed = new Set<Role>(['admin', 'organisation_admin', 'broker', 'talent', 'employer']);
@@ -307,9 +299,6 @@
 		const savedUser = event.detail?.user ?? null;
 		if (savedUser) {
 			users = sortUsers([...users.filter((candidate) => candidate.id !== savedUser.id), savedUser]);
-		}
-
-		if (event.detail.mode === 'create' && savedUser) {
 			const filterValue = getOrganisationFilterValue(savedUser);
 			if (!selectedOrganisationIds.includes(filterValue)) {
 				void userSettingsStore.setOrganisationFilters('users', [
@@ -437,15 +426,7 @@
 			$userSettingsStore.settings.organisationFilters.users
 		);
 		if (configured.length > 0) return configured;
-
-		if (homeOrganisationId && availableOrganisationIds.includes(homeOrganisationId)) {
-			return [homeOrganisationId];
-		}
-
-		const firstNamedOrganisation = availableOrganisationIds.find(
-			(id) => id !== UNASSIGNED_ORGANISATION_FILTER
-		);
-		return firstNamedOrganisation ? [firstNamedOrganisation] : [availableOrganisationIds[0]];
+		return [...availableOrganisationIds];
 	});
 
 	const filteredUsers = $derived.by(() => {
@@ -578,18 +559,7 @@
 	const handleOrganisationFilterChange = (selected: string[]) => {
 		let next = sanitizeOrganisationIds(selected);
 		if (next.length === 0) {
-			if (homeOrganisationId && availableOrganisationIds.includes(homeOrganisationId)) {
-				next = [homeOrganisationId];
-			} else {
-				const firstNamedOrganisation = availableOrganisationIds.find(
-					(id) => id !== UNASSIGNED_ORGANISATION_FILTER
-				);
-				if (firstNamedOrganisation) {
-					next = [firstNamedOrganisation];
-				} else if (availableOrganisationIds[0]) {
-					next = [availableOrganisationIds[0]];
-				}
-			}
+			next = [...availableOrganisationIds];
 		}
 		void userSettingsStore.setOrganisationFilters('users', next);
 	};

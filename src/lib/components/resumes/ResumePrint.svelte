@@ -519,22 +519,18 @@
 			</div>
 		{/if}
 
-		<!-- Worldclass image at bottom -->
-		<div class="mt-8 flex justify-center border-t border-slate-200 pt-6">
-			<img
-				src={resolvedEndLogo}
-				alt="Worldclass Tech, Worldclass People"
-				class="max-h-[200px] w-auto object-contain"
-			/>
-		</div>
-		<!-- Ampersand at bottom left -->
-		<div class="ampersand-container">
-			<img
-				src={resolvedAccentLogo}
-				class="ampersand-logo h-20 w-auto opacity-80"
-				alt="Brand accent logo"
-			/>
-			<p class="ampersand-url">{resolvedHomepage}</p>
+		<div class="brand-outro">
+			<div class="brand-outro-accent">
+				<img src={resolvedAccentLogo} class="ampersand-logo" alt="Brand accent logo" />
+				<p class="ampersand-url">{resolvedHomepage}</p>
+			</div>
+			<div class="brand-outro-end">
+				<img
+					src={resolvedEndLogo}
+					alt="Worldclass Tech, Worldclass People"
+					class="brand-outro-end-logo"
+				/>
+			</div>
 		</div>
 	</div>
 </div>
@@ -572,15 +568,64 @@
 		left: 15mm;
 		z-index: 10;
 		display: flex;
+		width: 34mm;
+		max-width: calc(100% - 30mm);
 		flex-direction: column;
 		align-items: center;
 		gap: 2mm;
+	}
+
+	.ampersand-logo {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		height: auto;
+		max-height: 20mm;
+		object-fit: contain;
+		object-position: center bottom;
+		opacity: 0.8;
 	}
 
 	.ampersand-url {
 		margin: 0;
 		font-size: 8px;
 		color: rgb(148 163 184);
+		text-align: center;
+	}
+
+	.brand-outro {
+		margin-top: 8mm;
+		padding-top: 6mm;
+		border-top: 1px solid rgb(226 232 240);
+		display: grid;
+		grid-template-columns: 34mm minmax(0, 1fr) 34mm;
+		align-items: end;
+		column-gap: 12mm;
+	}
+
+	.brand-outro-accent {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		align-items: center;
+		gap: 2mm;
+	}
+
+	.brand-outro-end {
+		display: flex;
+		min-width: 0;
+		align-items: end;
+		justify-content: center;
+	}
+
+	.brand-outro-end-logo {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		height: auto;
+		max-height: 45mm;
+		object-fit: contain;
+		object-position: center bottom;
 	}
 
 	:global(body) {

@@ -1,6 +1,10 @@
 import { error, redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
-import { getCurrentBillingPeriodMonth, loadOrganisationBillingListRows } from '$lib/server/billing';
+import {
+	getCurrentBillingPeriodMonth,
+	loadOrganisationBillingListRows,
+	normalizePeriodMonth
+} from '$lib/server/billing';
 
 const requireAdminBillingContext = async (locals: App.Locals) => {
 	const requestContext = locals.requestContext;
@@ -20,12 +24,15 @@ const requireAdminBillingContext = async (locals: App.Locals) => {
 	return { adminClient };
 };
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const { adminClient } = await requireAdminBillingContext(locals);
-	const rows = await loadOrganisationBillingListRows(adminClient);
+	const currentMonth = getCurrentBillingPeriodMonth();
+	const selectedMonth = normalizePeriodMonth(url.searchParams.get('month')) ?? currentMonth;
+	const rows = await loadOrganisationBillingListRows(adminClient, selectedMonth);
 
 	return {
 		rows,
-		currentMonth: getCurrentBillingPeriodMonth()
+		currentMonth,
+		selectedMonth
 	};
 };

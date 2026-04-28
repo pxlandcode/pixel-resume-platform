@@ -109,10 +109,7 @@
 				hidden: item.hidden === true
 			})
 		)}`;
-	const buildHighlightedExperienceId = (
-		item: HighlightedExperience,
-		index: number
-	): string =>
+	const buildHighlightedExperienceId = (item: HighlightedExperience, index: number): string =>
 		`highlighted-${hashString(
 			JSON.stringify({
 				index,
@@ -914,25 +911,23 @@
 	<!-- Footer -->
 	<ResumeFooter bind:footerNote={editingData.footerNote} {isEditing} language={componentLanguage} />
 
-	<!-- Worldclass Image -->
-	<div class="border-border mt-8 flex justify-center border-t pt-6">
-		<img
-			src={resolvedEndLogo}
-			alt="Brand end logo"
-			class="max-h-[200px] w-auto object-contain"
-			loading="lazy"
-		/>
-	</div>
-
-	<div class="border-border/70 mt-4 flex justify-start border-t pt-4">
-		<div class="inline-flex items-end gap-3">
+	<div class="resume-brand-outro border-border mt-8 border-t pt-6">
+		<div class="resume-brand-accent">
 			<img
 				src={resolvedAccentLogo}
-				class="h-16 w-auto object-contain opacity-85"
+				class="resume-brand-accent-logo"
 				alt="Brand accent logo"
 				loading="lazy"
 			/>
-			<p class="text-foreground pb-1 text-xs">{resolvedHomepage}</p>
+			<p class="resume-brand-homepage text-foreground">{resolvedHomepage}</p>
+		</div>
+		<div class="resume-brand-end">
+			<img
+				src={resolvedEndLogo}
+				alt="Brand end logo"
+				class="resume-brand-end-logo"
+				loading="lazy"
+			/>
 		</div>
 	</div>
 </div>
@@ -942,5 +937,55 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
+	}
+
+	.resume-brand-outro {
+		display: grid;
+		grid-template-columns: minmax(5.5rem, 9rem) minmax(0, 1fr) minmax(5.5rem, 9rem);
+		align-items: end;
+		gap: 1.5rem;
+	}
+
+	.resume-brand-accent {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.resume-brand-accent-logo {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		height: auto;
+		max-height: 4.5rem;
+		object-fit: contain;
+		object-position: center bottom;
+		opacity: 0.85;
+	}
+
+	.resume-brand-homepage {
+		margin: 0;
+		font-size: 0.75rem;
+		line-height: 1;
+		text-align: center;
+	}
+
+	.resume-brand-end {
+		display: flex;
+		min-width: 0;
+		align-items: end;
+		justify-content: center;
+	}
+
+	.resume-brand-end-logo {
+		display: block;
+		width: 100%;
+		max-width: 100%;
+		height: auto;
+		max-height: 12.5rem;
+		object-fit: contain;
+		object-position: center bottom;
 	}
 </style>

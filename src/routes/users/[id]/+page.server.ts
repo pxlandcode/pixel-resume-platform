@@ -4,6 +4,11 @@ import {
 	createSupabaseServerClient,
 	getSupabaseAdminClient
 } from '$lib/server/supabase';
+import {
+	getLinkedTalentIdForUser,
+	getUserHomeOrganisationId,
+	syncUserAndLinkedTalentHomeOrganisation
+} from '$lib/server/userAccounts';
 import type { Actions, PageServerLoad } from './$types';
 import { getActorAccessContext } from '$lib/server/access';
 
@@ -518,6 +523,8 @@ export const actions: Actions = {
 			avatar_url: string | null;
 		} | null = null;
 		let selectedOrganisation: { id: string } | null = null;
+		let existingHomeOrganisationId: string | null = null;
+		let existingLinkedTalentId: string | null = null;
 
 		if (linkedTalentRaw !== null && linkedTalentId) {
 			const { data, error: selectedTalentError } = await adminClient
@@ -596,6 +603,22 @@ export const actions: Actions = {
 			selectedOrganisation = data;
 		}
 
+		try {
+			[existingHomeOrganisationId, existingLinkedTalentId] = await Promise.all([
+				getUserHomeOrganisationId(adminClient, userId),
+				getLinkedTalentIdForUser(adminClient, userId)
+			]);
+		} catch (stateError) {
+			return fail(500, {
+				type: 'updateUser',
+				ok: false,
+				message:
+					stateError instanceof Error
+						? stateError.message
+						: 'Could not load the current user organisation.'
+			});
+		}
+
 		const updates: Parameters<typeof adminClient.auth.admin.updateUserById>[1] = {
 			app_metadata: { active, roles, role: roles[0] },
 			user_metadata: { first_name, last_name },
@@ -663,43 +686,6 @@ export const actions: Actions = {
 			return fail(500, { type: 'updateUser', ok: false, message: roleError.message });
 		}
 
-		if (organisationRaw !== null) {
-			const { error: clearMembershipsError } = await adminClient
-				.from('organisation_users')
-				.delete()
-				.eq('user_id', userId);
-
-			if (clearMembershipsError) {
-				return fail(500, {
-					type: 'updateUser',
-					ok: false,
-					message: clearMembershipsError.message
-				});
-			}
-
-			if (organisationId) {
-				if (!selectedOrganisation) {
-					return fail(404, {
-						type: 'updateUser',
-						ok: false,
-						message: 'Selected organisation was not found.'
-					});
-				}
-
-				const { error: assignOrganisationError } = await adminClient
-					.from('organisation_users')
-					.insert({ organisation_id: selectedOrganisation.id, user_id: userId });
-
-				if (assignOrganisationError) {
-					return fail(500, {
-						type: 'updateUser',
-						ok: false,
-						message: assignOrganisationError.message
-					});
-				}
-			}
-		}
-
 		if (linkedTalentRaw !== null) {
 			if (linkedTalentId) {
 				if (!selectedTalent) {
@@ -749,6 +735,28 @@ export const actions: Actions = {
 					return fail(500, { type: 'updateUser', ok: false, message: unlinkTalentError.message });
 				}
 			}
+		}
+
+		const effectiveOrganisationId =
+			organisationRaw !== null ? (selectedOrganisation?.id ?? organisationId) : existingHomeOrganisationId;
+		const effectiveLinkedTalentId =
+			linkedTalentRaw !== null ? linkedTalentId : existingLinkedTalentId;
+
+		try {
+			await syncUserAndLinkedTalentHomeOrganisation(adminClient, {
+				userId,
+				organisationId: effectiveOrganisationId,
+				linkedTalentId: effectiveLinkedTalentId
+			});
+		} catch (syncError) {
+			return fail(500, {
+				type: 'updateUser',
+				ok: false,
+				message:
+					syncError instanceof Error
+						? syncError.message
+						: 'Could not sync organisation memberships.'
+			});
 		}
 
 		return { type: 'updateUser', ok: true, message: 'User updated.' };

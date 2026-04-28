@@ -76,7 +76,8 @@
 		value.length > 0 ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : value;
 	const formatMetric = ({ currentUsage, limit }: MetricCellValue) =>
 		limit === null ? `${currentUsage}` : `${currentUsage} / ${limit}`;
-	const getOrganisationBillingHref = (organisationId: string) => `/billing/${organisationId}`;
+	const getOrganisationBillingHref = (organisationId: string, periodMonth: string) =>
+		`/billing/${organisationId}?month=${encodeURIComponent(periodMonth.slice(0, 7))}`;
 
 	const getStatusBadgeVariant = (
 		status: BillingDisplayStatus
@@ -162,14 +163,14 @@
 
 	$: tableRevenueTotalOre = rows.reduce((total, row) => total + row.totals.totalOre, 0);
 
-	const openOrganisationBilling = (organisationId: string) => {
-		void goto(getOrganisationBillingHref(organisationId));
+	const openOrganisationBilling = (organisationId: string, periodMonth: string) => {
+		void goto(getOrganisationBillingHref(organisationId, periodMonth));
 	};
 
-	const handleRowKeydown = (event: KeyboardEvent, organisationId: string) => {
+	const handleRowKeydown = (event: KeyboardEvent, organisationId: string, periodMonth: string) => {
 		if (event.key !== 'Enter' && event.key !== ' ') return;
 		event.preventDefault();
-		openOrganisationBilling(organisationId);
+		openOrganisationBilling(organisationId, periodMonth);
 	};
 </script>
 
@@ -181,8 +182,8 @@
 				role="link"
 				tabindex="0"
 				aria-label={`Open billing for ${row.displayName}`}
-				onclick={() => openOrganisationBilling(row.organisationId)}
-				onkeydown={(event) => handleRowKeydown(event, row.organisationId)}
+				onclick={() => openOrganisationBilling(row.organisationId, row.periodMonth)}
+				onkeydown={(event) => handleRowKeydown(event, row.organisationId, row.periodMonth)}
 			>
 				<Cell.Value class="py-3 align-middle">
 					<span class="text-foreground text-sm font-semibold">

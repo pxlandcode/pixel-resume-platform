@@ -14,9 +14,17 @@
 	import { Drawer, Dropdown } from '$lib/components';
 	import MonthInputDatepicker from '$lib/components/month-input-datepicker.svelte';
 	import { ArrowLeft, ClipboardCheck, Download, Pencil } from 'lucide-svelte';
-	import { getBillingDisplayStatusLabel, getBillingMetricDisplayStatus } from '$lib/types/billing';
+	import {
+		getBillingDisplayStatusLabel,
+		getBillingMetricDisplayStatus,
+		getBillingPriceSuffix,
+		getBillingQuantityUnitLabel,
+		type BillingPlanVersion
+	} from '$lib/types/billing';
 
 	let { data, form } = $props();
+
+	const NO_PLAN_OPTION_VALUE = '__no_plan__';
 
 	const formatSek = (ore: number) =>
 		new Intl.NumberFormat('sv-SE', {
@@ -25,6 +33,15 @@
 			maximumFractionDigits: 0
 		}).format(ore / 100);
 	const formatMonthInput = (value: string) => value.slice(0, 7);
+	const formatPriceWithMetadata = (ore: number, metadata: Record<string, unknown> | undefined) =>
+		`${formatSek(ore)}${getBillingPriceSuffix(metadata)}`;
+	const formatQuantityWithMetadata = (
+		quantity: number,
+		metadata: Record<string, unknown> | undefined
+	) => {
+		const unitLabel = getBillingQuantityUnitLabel(metadata);
+		return unitLabel ? `${quantity} ${unitLabel}` : String(quantity);
+	};
 	const getStatusVariant = (value: string) =>
 		value === 'billable' || value === 'upgrade_recommended'
 			? 'destructive'
@@ -95,12 +112,59 @@
 		{ label: 'Upgrade recommended', value: 'upgrade_recommended' },
 		{ label: 'Manual override', value: 'manual_override' }
 	];
-	const planVersionOptions = $derived(
-		data.planVersions.map((planVersion) => ({
-			label: `${planVersion.planName} (${planVersion.planFamily}) v${planVersion.versionNumber}`,
+	const getPlanVersionGroupKey = (
+		planVersion: Pick<BillingPlanVersion, 'planFamily' | 'planCode'>
+	) => `${planVersion.planFamily}:${planVersion.planCode}`;
+	const planVersionGroups = $derived.by(() => {
+		const groups = new Map<string, BillingPlanVersion[]>();
+
+		for (const planVersion of data.planVersions as BillingPlanVersion[]) {
+			const key = getPlanVersionGroupKey(planVersion);
+			if (!groups.has(key)) {
+				groups.set(key, []);
+			}
+			groups.get(key)?.push(planVersion);
+		}
+
+		return groups;
+	});
+	const currentPlanShowsVersion = $derived.by(() => {
+		if (!data.monthView.plan) return false;
+
+		const groupKey = getPlanVersionGroupKey(data.monthView.plan);
+		const versions = planVersionGroups.get(groupKey) ?? [];
+		if (versions.length < 2) return false;
+
+		return versions[0]?.id !== data.monthView.plan.planVersionId;
+	});
+	const shouldShowPlanVersionOption = (planVersion: BillingPlanVersion) => {
+		if (!data.monthView.plan) return false;
+
+		const groupKey = getPlanVersionGroupKey(planVersion);
+		const currentGroupKey = getPlanVersionGroupKey(data.monthView.plan);
+		if (groupKey !== currentGroupKey) return false;
+
+		const versions = planVersionGroups.get(groupKey) ?? [];
+		if (versions.length < 2) return false;
+
+		const latestVersion = versions[0];
+		if (!latestVersion || latestVersion.id === data.monthView.plan.planVersionId) {
+			return false;
+		}
+
+		return (
+			planVersion.id === data.monthView.plan.planVersionId || planVersion.id === latestVersion.id
+		);
+	};
+	const planVersionOptions = $derived([
+		{ label: 'No plan', value: NO_PLAN_OPTION_VALUE },
+		...(data.planVersions as BillingPlanVersion[]).map((planVersion) => ({
+			label: `${planVersion.planName} (${planVersion.planFamily})${
+				shouldShowPlanVersionOption(planVersion) ? ` v${planVersion.versionNumber}` : ''
+			}`,
 			value: planVersion.id
 		}))
-	);
+	]);
 	const addonVersionOptions = $derived(
 		data.addonVersions.map((addonVersion) => ({
 			label: `${addonVersion.addonName} (${addonVersion.billingType}) v${addonVersion.versionNumber}`,
@@ -109,6 +173,7 @@
 	);
 
 	let assignmentEffectiveMonth = $state(formatMonthInput(data.selectedMonth));
+	let selectedPlanVersionId = $state(data.monthView.plan?.planVersionId ?? NO_PLAN_OPTION_VALUE);
 	let addonEffectiveMonth = $state(formatMonthInput(data.selectedMonth));
 	let addonEndMonth = $state('');
 
@@ -123,6 +188,7 @@
 			selectedMonth
 		});
 		assignmentEffectiveMonth = selectedMonth;
+		selectedPlanVersionId = data.monthView.plan?.planVersionId ?? NO_PLAN_OPTION_VALUE;
 		addonEffectiveMonth = selectedMonth;
 		addonEndMonth = '';
 		selectedMonthValue = selectedMonth;
@@ -230,7 +296,9 @@
 					<div>
 						<p class="text-muted-fg text-[11px] font-medium uppercase tracking-wide">Plan name</p>
 						<p class="text-foreground mt-0.5 text-sm font-semibold">
-							{data.monthView.plan.planName}
+							{data.monthView.plan.planName}{currentPlanShowsVersion
+								? ` v${data.monthView.plan.versionNumber}`
+								: ''}
 						</p>
 					</div>
 					<div>
@@ -321,7 +389,10 @@
 							<div class="min-w-0">
 								<p class="text-sm font-medium">{addOn.addonName}</p>
 								<p class="text-muted-fg text-xs">
-									{addOn.quantity} × {formatSek(addOn.unitPriceOre)}
+									{formatQuantityWithMetadata(addOn.quantity, addOn.metadata)} × {formatPriceWithMetadata(
+										addOn.unitPriceOre,
+										addOn.metadata
+									)}
 								</p>
 							</div>
 							<p class="shrink-0 text-sm font-semibold">{formatSek(addOn.totalPriceOre)}</p>
@@ -372,8 +443,12 @@
 								{/if}
 							</td>
 							<td class="text-muted-fg px-4 py-3 capitalize">{lineItem.kind}</td>
-							<td class="px-4 py-3">{lineItem.quantity}</td>
-							<td class="px-4 py-3">{formatSek(lineItem.unitPriceOre)}</td>
+							<td class="px-4 py-3">
+								{formatQuantityWithMetadata(lineItem.quantity, lineItem.metadata)}
+							</td>
+							<td class="px-4 py-3">
+								{formatPriceWithMetadata(lineItem.unitPriceOre, lineItem.metadata)}
+							</td>
 							<td class="px-4 py-3 text-right font-medium">{formatSek(lineItem.totalPriceOre)}</td>
 						</tr>
 					{:else}
@@ -473,8 +548,8 @@
 				<Dropdown
 					name="plan_version_id"
 					options={planVersionOptions}
-					value={data.monthView.plan?.planVersionId ?? data.planVersions[0]?.id ?? ''}
-					placeholder="No plan versions available"
+					bind:value={selectedPlanVersionId}
+					placeholder="Select a plan"
 					disabled={planVersionOptions.length === 0}
 					search={planVersionOptions.length > 8}
 				/>
@@ -487,6 +562,7 @@
 						min="0"
 						step="1"
 						value={data.monthView.plan ? String(data.monthView.plan.monthlyPriceOre / 100) : ''}
+						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
 				<FormControl label="Profiles override" class="gap-2 text-sm">
@@ -495,6 +571,7 @@
 						type="number"
 						min="0"
 						value={data.monthView.plan?.includedTalentProfiles ?? ''}
+						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
 				<FormControl label="Talent users override" class="gap-2 text-sm">
@@ -503,6 +580,7 @@
 						type="number"
 						min="0"
 						value={data.monthView.plan?.includedTalentUserSeats ?? ''}
+						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
 				<FormControl label="Admin seats override" class="gap-2 text-sm">
@@ -511,14 +589,38 @@
 						type="number"
 						min="0"
 						value={data.monthView.plan?.includedAdminSeats ?? ''}
+						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
 			</div>
 			<FormControl label="Notes" class="gap-2 text-sm">
-				<TextArea name="assignment_notes" rows={3} value={data.monthView.plan?.notes ?? ''} />
+				<TextArea
+					name="assignment_notes"
+					rows={3}
+					value={data.monthView.plan?.notes ?? ''}
+					disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
+				/>
 			</FormControl>
-			<div class="border-border/20 sticky bottom-0 flex justify-end border-t pt-4">
-				<Button type="submit" size="sm">Save assignment</Button>
+			<div
+				class="border-border/20 sticky bottom-0 flex items-center justify-between gap-3 border-t pt-4"
+			>
+				<div class="text-muted-fg text-xs">
+					Removing a plan clears the current assignment and any scheduled plan changes from the
+					selected month onward.
+				</div>
+				<div class="flex items-center gap-2">
+					<Button
+						type="submit"
+						size="sm"
+						variant="destructive"
+						formaction="?/deleteAssignment"
+						formnovalidate
+						disabled={!data.monthView.plan}
+					>
+						Remove from this month forward
+					</Button>
+					<Button type="submit" size="sm">Save assignment</Button>
+				</div>
 			</div>
 		</form>
 	</Drawer>
@@ -538,7 +640,10 @@
 						<div>
 							<p class="text-sm font-medium">{addOn.addonName}</p>
 							<p class="text-muted-fg text-xs">
-								{addOn.quantity} × {formatSek(addOn.unitPriceOre)} · {addOn.billingType}
+								{formatQuantityWithMetadata(addOn.quantity, addOn.metadata)} × {formatPriceWithMetadata(
+									addOn.unitPriceOre,
+									addOn.metadata
+								)} · {addOn.billingType}
 							</p>
 						</div>
 						<form method="POST" action="?/deleteAddon">

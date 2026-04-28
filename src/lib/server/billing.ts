@@ -81,7 +81,7 @@ type BillingAddonVersionRow = {
 type OrganisationBillingAssignmentRow = {
 	id: string;
 	organisation_id: string;
-	plan_version_id: string;
+	plan_version_id: string | null;
 	effective_month: string;
 	price_override_ore: number | string | null;
 	included_talent_profiles_override: number | null;
@@ -154,10 +154,8 @@ const toNullableInteger = (value: number | string | null | undefined) => {
 	return Math.trunc(toNumber(value));
 };
 
-const normalizeBrokerTalentUserSeatLimit = (
-	planFamily: BillingPlanFamily,
-	limit: number | null
-) => (planFamily === 'broker' && limit === null ? 0 : limit);
+const normalizeBrokerTalentUserSeatLimit = (planFamily: BillingPlanFamily, limit: number | null) =>
+	planFamily === 'broker' && limit === null ? 0 : limit;
 
 const normalizeResolvedBillingPlan = (
 	plan: ResolvedBillingPlan | null
@@ -586,6 +584,8 @@ const loadResolvedBillingPlan = async (
 	if (!assignmentData) return null;
 
 	const assignment = assignmentData as OrganisationBillingAssignmentRow;
+	if (!assignment.plan_version_id) return null;
+
 	const { data: planVersionData, error: planVersionError } = await adminClient
 		.from('billing_plan_versions')
 		.select('*')
@@ -879,7 +879,8 @@ const computeLiveBillingMonthView = async (
 			unitPriceOre: plan.monthlyPriceOre,
 			totalPriceOre: plan.monthlyPriceOre,
 			billingType: 'monthly',
-			notes: plan.notes
+			notes: plan.notes,
+			metadata: plan.metadata
 		});
 	}
 	for (const addOn of addOns) {
@@ -891,7 +892,8 @@ const computeLiveBillingMonthView = async (
 			unitPriceOre: addOn.unitPriceOre,
 			totalPriceOre: addOn.totalPriceOre,
 			billingType: addOn.billingType,
-			notes: addOn.notes
+			notes: addOn.notes,
+			metadata: addOn.metadata
 		});
 	}
 
@@ -1216,6 +1218,47 @@ export const upsertOrganisationBillingAssignment = async (payload: {
 	if (error) throw new Error(error.message);
 };
 
+export const removeOrganisationBillingAssignmentForward = async (payload: {
+	adminClient: SupabaseClient;
+	organisationId: string;
+	effectiveMonth: string;
+	createdByUserId: string | null;
+	now?: Date;
+}) => {
+	const normalizedMonth = normalizePeriodMonth(payload.effectiveMonth);
+	if (!normalizedMonth) throw new Error('Invalid effective month.');
+
+	const timestamp = (payload.now ?? new Date()).toISOString();
+
+	const { error: upsertError } = await payload.adminClient
+		.from('organisation_billing_assignments')
+		.upsert(
+			{
+				organisation_id: payload.organisationId,
+				plan_version_id: null,
+				effective_month: normalizedMonth,
+				price_override_ore: null,
+				included_talent_profiles_override: null,
+				included_talent_user_seats_override: null,
+				included_admin_seats_override: null,
+				notes: null,
+				created_by_user_id: payload.createdByUserId,
+				updated_at: timestamp
+			},
+			{ onConflict: 'organisation_id,effective_month' }
+		);
+
+	if (upsertError) throw new Error(upsertError.message);
+
+	const { error: deleteError } = await payload.adminClient
+		.from('organisation_billing_assignments')
+		.delete()
+		.eq('organisation_id', payload.organisationId)
+		.gt('effective_month', normalizedMonth);
+
+	if (deleteError) throw new Error(deleteError.message);
+};
+
 export const upsertOrganisationBillingAddon = async (payload: {
 	adminClient: SupabaseClient;
 	organisationId: string;
@@ -1418,9 +1461,12 @@ export const setBillingAddonVersionActiveState = async (payload: {
 };
 
 export const loadOrganisationBillingListRows = async (
-	adminClient: SupabaseClient
+	adminClient: SupabaseClient,
+	periodMonth = getCurrentBillingPeriodMonth()
 ): Promise<OrganisationBillingListRow[]> => {
-	const currentMonth = getCurrentBillingPeriodMonth();
+	const selectedMonth = normalizePeriodMonth(periodMonth);
+	if (!selectedMonth) throw new Error('Invalid billing period month.');
+
 	const { data, error } = await adminClient
 		.from('organisations')
 		.select('id, name')
@@ -1468,7 +1514,7 @@ export const loadOrganisationBillingListRows = async (
 			const monthView = await loadOrganisationBillingMonthView(
 				adminClient,
 				organisation.id,
-				currentMonth
+				selectedMonth
 			);
 
 			return {
@@ -1477,7 +1523,7 @@ export const loadOrganisationBillingListRows = async (
 				organisationLogoUrl: organisationLogoUrlById.get(organisation.id) ?? null,
 				planName: monthView.plan?.planName ?? null,
 				planFamily: monthView.plan?.planFamily ?? null,
-				periodMonth: currentMonth,
+				periodMonth: selectedMonth,
 				metrics: monthView.metrics,
 				totals: monthView.totals
 			} satisfies OrganisationBillingListRow;

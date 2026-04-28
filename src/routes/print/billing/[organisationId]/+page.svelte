@@ -1,7 +1,9 @@
 <script lang="ts">
 	import {
 		getBillingDisplayStatusLabel,
-		getBillingMetricDisplayStatus
+		getBillingMetricDisplayStatus,
+		getBillingPriceSuffix,
+		getBillingQuantityUnitLabel
 	} from '$lib/types/billing';
 
 	let { data } = $props();
@@ -12,6 +14,15 @@
 			currency: 'SEK',
 			maximumFractionDigits: 0
 		}).format(ore / 100);
+	const formatPriceWithMetadata = (ore: number, metadata: Record<string, unknown> | undefined) =>
+		`${formatSek(ore)}${getBillingPriceSuffix(metadata)}`;
+	const formatQuantityWithMetadata = (
+		quantity: number,
+		metadata: Record<string, unknown> | undefined
+	) => {
+		const unitLabel = getBillingQuantityUnitLabel(metadata);
+		return unitLabel ? `${quantity} ${unitLabel}` : String(quantity);
+	};
 	const formatHours = (hours: number) =>
 		new Intl.NumberFormat('sv-SE', { maximumFractionDigits: 1 }).format(hours);
 	const formatStatus = (value: string) =>
@@ -119,8 +130,8 @@
 							{/if}
 						</td>
 						<td>{lineItem.kind}</td>
-						<td>{lineItem.quantity}</td>
-						<td>{formatSek(lineItem.unitPriceOre)}</td>
+						<td>{formatQuantityWithMetadata(lineItem.quantity, lineItem.metadata)}</td>
+						<td>{formatPriceWithMetadata(lineItem.unitPriceOre, lineItem.metadata)}</td>
 						<td>{formatSek(lineItem.totalPriceOre)}</td>
 					</tr>
 				{:else}

@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import { cubicOut } from 'svelte/easing';
 	import { slide } from 'svelte/transition';
 	import { Badge, Button, Card, Input } from '@pixelcode_/blocks/components';
 	import BillingTable from '$lib/components/admin/BillingTable.svelte';
 	import { DropdownCheckbox } from '$lib/components/dropdown-checkbox';
+	import MonthInputDatepicker from '$lib/components/month-input-datepicker.svelte';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import {
 		getBillingDisplayStatusLabel,
@@ -52,17 +55,20 @@
 
 	let { data } = $props();
 
-	let filtersOpen = $state(false);
-	let searchQuery = $state('');
-	let selectedPlanFamilies = $state<BillingPlanFamilyFilter[]>([]);
-	let selectedStatusFilters = $state<BillingDisplayStatus[]>([]);
-
-	const billingViewMode = $derived($userSettingsStore.settings.views.billing);
 	const formatMonth = (value: string) => value.slice(0, 7);
 	const formatMonthShort = (value: string) =>
 		new Intl.DateTimeFormat('en-US', { month: 'short', timeZone: 'UTC' }).format(
 			new Date(`${value}T00:00:00Z`)
 		);
+
+	let filtersOpen = $state(false);
+	let searchQuery = $state('');
+	let selectedPlanFamilies = $state<BillingPlanFamilyFilter[]>([]);
+	let selectedStatusFilters = $state<BillingDisplayStatus[]>([]);
+	let pendingMonthNavigation = $state<string | null>(null);
+	let selectedMonthValue = $state(formatMonth(data.selectedMonth));
+
+	const billingViewMode = $derived($userSettingsStore.settings.views.billing);
 	const formatSek = (ore: number) =>
 		new Intl.NumberFormat('sv-SE', {
 			style: 'currency',
@@ -167,7 +173,7 @@
 		);
 	};
 
-	const currentMonthShort = $derived(formatMonthShort(data.currentMonth));
+	const selectedMonthShort = $derived(formatMonthShort(data.selectedMonth));
 
 	const selectedOrganisationIds = $derived.by(() =>
 		sanitizeOrganisationIds($userSettingsStore.settings.organisationFilters.billing)
@@ -248,6 +254,34 @@
 	const handleStatusFilterChange = (selected: string[]) => {
 		selectedStatusFilters = sanitizeStatusFilters(selected);
 	};
+
+	const buildOrganisationBillingHref = (organisationId: string, periodMonth: string) =>
+		`/billing/${organisationId}?month=${encodeURIComponent(formatMonth(periodMonth))}`;
+
+	const handleMonthSwitcherHide = (isAnimationComplete: boolean) => {
+		if (!isAnimationComplete || !pendingMonthNavigation) return;
+
+		const target = new URL($page.url);
+		target.searchParams.set('month', pendingMonthNavigation);
+		pendingMonthNavigation = null;
+
+		void goto(`${target.pathname}${target.search}`, { noScroll: true });
+	};
+
+	$effect(() => {
+		const selectedMonth = formatMonth(data.selectedMonth);
+		selectedMonthValue = selectedMonth;
+	});
+
+	$effect(() => {
+		const current = formatMonth(data.selectedMonth);
+		if (selectedMonthValue && selectedMonthValue !== current) {
+			pendingMonthNavigation = selectedMonthValue;
+			return;
+		}
+
+		pendingMonthNavigation = null;
+	});
 </script>
 
 <svelte:head>
@@ -301,7 +335,7 @@
 	<header>
 		<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Billing</h1>
 		<p class="text-muted-fg mt-3 text-lg">
-			Live billing status for {formatMonth(data.currentMonth)} across all organisations.
+			Live billing status for {formatMonth(data.selectedMonth)} across all organisations.
 		</p>
 	</header>
 
@@ -310,7 +344,7 @@
 			transition:slide={{ duration: 300, easing: cubicOut }}
 			class="border-border bg-card rounded-none border p-6"
 		>
-			<div class="grid gap-6 md:grid-cols-3">
+			<div class="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
 				{#if organisationFilterOptions.length > 0}
 					<div>
 						<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">
@@ -366,6 +400,17 @@
 						/>
 					</div>
 				</div>
+
+				<div>
+					<h2 class="text-muted-fg mb-3 text-xs font-semibold uppercase tracking-wide">Month</h2>
+					<div class="w-64 max-w-full">
+						<MonthInputDatepicker
+							debugLabel="billing-overview-month"
+							bind:value={selectedMonthValue}
+							onPickerHide={handleMonthSwitcherHide}
+						/>
+					</div>
+				</div>
 			</div>
 		</div>
 	{/if}
@@ -403,7 +448,10 @@
 					{@const talentUsers = getMetricValue(row.metrics, 'talent_user_seats')}
 					{@const adminSeats = getMetricValue(row.metrics, 'admin_seats')}
 
-					<a href={`/billing/${row.organisationId}`} class="group block">
+					<a
+						href={buildOrganisationBillingHref(row.organisationId, row.periodMonth)}
+						class="group block"
+					>
 						<Card
 							class="flex h-full min-h-[17rem] cursor-pointer flex-col rounded-none p-4 transition-all group-hover:shadow-md sm:aspect-square"
 						>
@@ -497,7 +545,7 @@
 							>
 								<div class="min-w-0">
 									<p class="text-muted-fg text-xs font-medium uppercase tracking-wide">
-										{currentMonthShort} cost
+										{selectedMonthShort} cost
 									</p>
 									<p class="text-foreground truncate text-sm font-semibold">
 										{formatSek(row.totals.totalOre)}
@@ -509,7 +557,7 @@
 				{/each}
 			</div>
 		{:else}
-			<BillingTable rows={searchFilteredRows} monthShortLabel={currentMonthShort} />
+			<BillingTable rows={searchFilteredRows} monthShortLabel={selectedMonthShort} />
 		{/if}
 	{/if}
 </div>

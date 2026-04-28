@@ -21,7 +21,10 @@ const BILLING_STATUS_SEVERITY: Record<BillingMetricStatus, number> = {
 	unlimited: -1
 };
 
-const BILLING_DISPLAY_STATUS_SEVERITY: Record<Exclude<BillingDisplayStatus, 'unlimited'>, number> = {
+const BILLING_DISPLAY_STATUS_SEVERITY: Record<
+	Exclude<BillingDisplayStatus, 'unlimited'>,
+	number
+> = {
 	within_plan: 0,
 	ignore: 1,
 	warning: 2,
@@ -30,6 +33,11 @@ const BILLING_DISPLAY_STATUS_SEVERITY: Record<Exclude<BillingDisplayStatus, 'unl
 };
 
 export type BillingCurrencyCode = 'SEK' | string;
+
+const getMetadataString = (metadata: Record<string, unknown> | null | undefined, key: string) => {
+	const value = metadata?.[key];
+	return typeof value === 'string' && value.trim().length > 0 ? value.trim() : '';
+};
 
 export type BillingPlanVersion = {
 	id: string;
@@ -76,6 +84,7 @@ export type BillingLineItem = {
 	totalPriceOre: number;
 	billingType: BillingAddonBillingType | 'monthly';
 	notes: string | null;
+	metadata?: Record<string, unknown>;
 };
 
 export type ResolvedBillingPlan = {
@@ -184,12 +193,19 @@ export const getOverallBillingStatus = (metrics: BillingUsageMetric[]) =>
 			: current;
 	}, 'ignore' as BillingMetricStatus);
 
+export const getBillingPricePrefix = (metadata: Record<string, unknown> | null | undefined) =>
+	metadata?.minimum_price === true ? 'från ' : '';
+
+export const getBillingPriceSuffix = (metadata: Record<string, unknown> | null | undefined) =>
+	getMetadataString(metadata, 'price_suffix');
+
+export const getBillingQuantityUnitLabel = (metadata: Record<string, unknown> | null | undefined) =>
+	getMetadataString(metadata, 'unit_label');
+
 export const hasBillingMetricOverage = (metric: BillingUsageMetric) =>
 	metric.limit !== null && metric.maxUsage > metric.limit;
 
-export const getBillingMetricDisplayStatus = (
-	metric: BillingUsageMetric
-): BillingDisplayStatus => {
+export const getBillingMetricDisplayStatus = (metric: BillingUsageMetric): BillingDisplayStatus => {
 	if (metric.limit === null) return 'unlimited';
 	if (!hasBillingMetricOverage(metric)) return 'within_plan';
 	return metric.status;
@@ -222,13 +238,10 @@ export const getOverallBillingDisplayStatus = (
 		return 'unlimited';
 	}
 
-	return displayStatuses.reduce<Exclude<BillingDisplayStatus, 'unlimited'>>(
-		(current, status) => {
-			if (status === 'unlimited') return current;
-			return BILLING_DISPLAY_STATUS_SEVERITY[status] > BILLING_DISPLAY_STATUS_SEVERITY[current]
-				? status
-				: current;
-		},
-		'within_plan'
-	);
+	return displayStatuses.reduce<Exclude<BillingDisplayStatus, 'unlimited'>>((current, status) => {
+		if (status === 'unlimited') return current;
+		return BILLING_DISPLAY_STATUS_SEVERITY[status] > BILLING_DISPLAY_STATUS_SEVERITY[current]
+			? status
+			: current;
+	}, 'within_plan');
 };

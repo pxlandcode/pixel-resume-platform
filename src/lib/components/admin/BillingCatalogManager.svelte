@@ -1,7 +1,15 @@
 <script lang="ts">
+	import { SvelteSet } from 'svelte/reactivity';
 	import { Badge, Button, Card, FormControl, Input, TextArea } from '@pixelcode_/blocks/components';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
-	import type { BillingAddonVersion, BillingPlanVersion } from '$lib/types/billing';
+	import ChevronDown from 'lucide-svelte/icons/chevron-down';
+	import ChevronRight from 'lucide-svelte/icons/chevron-right';
+	import {
+		getBillingPricePrefix,
+		getBillingPriceSuffix,
+		type BillingAddonVersion,
+		type BillingPlanVersion
+	} from '$lib/types/billing';
 
 	type Panel = 'plans' | 'addons' | 'create-plan' | 'create-addon' | null;
 
@@ -10,6 +18,18 @@
 		ok?: boolean;
 		message?: string;
 	} | null;
+
+	type PlanCatalogGroup = {
+		key: string;
+		latest: BillingPlanVersion;
+		olderVersions: BillingPlanVersion[];
+	};
+
+	type AddonCatalogGroup = {
+		key: string;
+		latest: BillingAddonVersion;
+		olderVersions: BillingAddonVersion[];
+	};
 
 	let {
 		planVersions = [],
@@ -30,6 +50,62 @@
 	const formatBillingType = (value: string) => (value === 'one_time' ? 'One time' : 'Monthly');
 	const formatPlanFamily = (value: string) =>
 		value.length > 0 ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : value;
+	const formatCatalogPrice = (ore: number, metadata: Record<string, unknown>) =>
+		`${getBillingPricePrefix(metadata)}${formatSek(ore)}${getBillingPriceSuffix(metadata)}`;
+	const formatVersionSuffix = (versionNumber: number, showVersion: boolean) =>
+		showVersion ? ` v${versionNumber}` : '';
+	const getPlanGroupKey = (plan: BillingPlanVersion) => `${plan.planFamily}:${plan.planCode}`;
+	const getAddonGroupKey = (addon: BillingAddonVersion) => addon.addonCode;
+	const buildPlanCatalogGroups = (versions: BillingPlanVersion[]) => {
+		const groups: PlanCatalogGroup[] = [];
+		const groupIndexByKey = new Map<string, number>();
+
+		for (const version of versions) {
+			const key = getPlanGroupKey(version);
+			const existingIndex = groupIndexByKey.get(key);
+			if (existingIndex === undefined) {
+				groupIndexByKey.set(key, groups.length);
+				groups.push({
+					key,
+					latest: version,
+					olderVersions: []
+				});
+				continue;
+			}
+
+			groups[existingIndex].olderVersions.push(version);
+		}
+
+		return groups;
+	};
+	const buildAddonCatalogGroups = (versions: BillingAddonVersion[]) => {
+		const groups: AddonCatalogGroup[] = [];
+		const groupIndexByKey = new Map<string, number>();
+
+		for (const version of versions) {
+			const key = getAddonGroupKey(version);
+			const existingIndex = groupIndexByKey.get(key);
+			if (existingIndex === undefined) {
+				groupIndexByKey.set(key, groups.length);
+				groups.push({
+					key,
+					latest: version,
+					olderVersions: []
+				});
+				continue;
+			}
+
+			groups[existingIndex].olderVersions.push(version);
+		}
+
+		return groups;
+	};
+	const formatOlderVersionLabel = (count: number) =>
+		count === 1 ? '1 older version' : `${count} older versions`;
+	const hasActiveOlderPlanVersion = (group: PlanCatalogGroup) =>
+		group.olderVersions.some((plan) => plan.isActive);
+	const hasActiveOlderAddonVersion = (group: AddonCatalogGroup) =>
+		group.olderVersions.some((addon) => addon.isActive);
 	const panelFromActionType = (value: string | undefined): Panel => {
 		switch (value) {
 			case 'setPlanVersionState':
@@ -47,6 +123,11 @@
 
 	let activePanel = $state<Panel>(panelFromActionType(form?.type));
 	let drawerOpen = $state(panelFromActionType(form?.type) !== null);
+	let expandedPlanHistoryKeys = new SvelteSet<string>();
+	let expandedAddonHistoryKeys = new SvelteSet<string>();
+
+	const planCatalogGroups = $derived(buildPlanCatalogGroups(planVersions));
+	const addonCatalogGroups = $derived(buildAddonCatalogGroups(addonVersions));
 
 	const activePanelMeta = $derived.by(() => {
 		switch (activePanel) {
@@ -78,12 +159,38 @@
 		}
 	});
 
-	const activePlanCount = $derived(planVersions.filter((plan) => plan.isActive).length);
-	const activeAddonCount = $derived(addonVersions.filter((addon) => addon.isActive).length);
+	const activePlanCount = $derived(
+		planCatalogGroups.filter(
+			(group) => group.latest.isActive || group.olderVersions.some((plan) => plan.isActive)
+		).length
+	);
+	const activeAddonCount = $derived(
+		addonCatalogGroups.filter(
+			(group) => group.latest.isActive || group.olderVersions.some((addon) => addon.isActive)
+		).length
+	);
 
 	function openPanel(panel: Exclude<Panel, null>) {
 		activePanel = panel;
 		drawerOpen = true;
+	}
+
+	function togglePlanHistory(groupKey: string) {
+		if (expandedPlanHistoryKeys.has(groupKey)) {
+			expandedPlanHistoryKeys.delete(groupKey);
+			return;
+		}
+
+		expandedPlanHistoryKeys.add(groupKey);
+	}
+
+	function toggleAddonHistory(groupKey: string) {
+		if (expandedAddonHistoryKeys.has(groupKey)) {
+			expandedAddonHistoryKeys.delete(groupKey);
+			return;
+		}
+
+		expandedAddonHistoryKeys.add(groupKey);
 	}
 
 	$effect(() => {
@@ -165,29 +272,90 @@
 		{#if activePanel === 'plans'}
 			<Card class="border-border/20 bg-card space-y-4 rounded-sm p-5">
 				<div class="space-y-3">
-					{#each planVersions as plan (plan.id)}
+					{#each planCatalogGroups as group (group.key)}
 						<div
 							class="border-border/20 flex flex-wrap items-center justify-between gap-3 rounded-sm border p-4"
 						>
 							<div class="space-y-1">
 								<div class="flex flex-wrap items-center gap-2">
-									<p class="font-medium">{plan.planName}</p>
-									<Badge size="xs">{formatPlanFamily(plan.planFamily)}</Badge>
-									<Badge size="xs" variant={plan.isActive ? 'success' : 'default'}>
-										{plan.isActive ? 'Active' : 'Inactive'}
+									<p class="font-medium">{group.latest.planName}</p>
+									<Badge size="xs">{formatPlanFamily(group.latest.planFamily)}</Badge>
+									<Badge size="xs">Latest</Badge>
+									<Badge size="xs" variant={group.latest.isActive ? 'success' : 'default'}>
+										{group.latest.isActive ? 'Active' : 'Inactive'}
 									</Badge>
 								</div>
 								<p class="text-muted-fg text-sm">
-									{plan.planCode} v{plan.versionNumber} • {formatSek(plan.monthlyPriceOre)}
+									{group.latest.planCode}{formatVersionSuffix(
+										group.latest.versionNumber,
+										hasActiveOlderPlanVersion(group)
+									)} • {formatCatalogPrice(group.latest.monthlyPriceOre, group.latest.metadata)}
 								</p>
 							</div>
-							<form method="POST" action="?/setPlanVersionState">
-								<input type="hidden" name="plan_version_id" value={plan.id} />
-								<input type="hidden" name="is_active" value={plan.isActive ? 'false' : 'true'} />
-								<Button type="submit" size="sm" variant="outline">
-									{plan.isActive ? 'Deactivate' : 'Activate'}
-								</Button>
-							</form>
+							<div class="flex flex-wrap items-center gap-2">
+								{#if group.olderVersions.length > 0}
+									<Button
+										type="button"
+										size="sm"
+										variant="ghost"
+										onclick={() => togglePlanHistory(group.key)}
+									>
+										{#if expandedPlanHistoryKeys.has(group.key)}
+											<ChevronDown size={14} class="mr-1.5" />
+											Hide older versions
+										{:else}
+											<ChevronRight size={14} class="mr-1.5" />
+											Show {formatOlderVersionLabel(group.olderVersions.length)}
+										{/if}
+									</Button>
+								{/if}
+								<form method="POST" action="?/setPlanVersionState">
+									<input type="hidden" name="plan_version_id" value={group.latest.id} />
+									<input
+										type="hidden"
+										name="is_active"
+										value={group.latest.isActive ? 'false' : 'true'}
+									/>
+									<Button type="submit" size="sm" variant="outline">
+										{group.latest.isActive ? 'Deactivate' : 'Activate'}
+									</Button>
+								</form>
+							</div>
+
+							{#if expandedPlanHistoryKeys.has(group.key)}
+								<div class="border-border/20 mt-2 w-full space-y-3 border-t pt-4">
+									{#each group.olderVersions as plan (plan.id)}
+										<div class="flex flex-wrap items-center justify-between gap-3 rounded-sm">
+											<div class="space-y-1">
+												<div class="flex flex-wrap items-center gap-2">
+													<p class="font-medium">{plan.planName}</p>
+													<Badge size="xs">{formatPlanFamily(plan.planFamily)}</Badge>
+													<Badge size="xs" variant={plan.isActive ? 'success' : 'default'}>
+														{plan.isActive ? 'Active' : 'Inactive'}
+													</Badge>
+												</div>
+												<p class="text-muted-fg text-sm">
+													{plan.planCode} v{plan.versionNumber} • {formatCatalogPrice(
+														plan.monthlyPriceOre,
+														plan.metadata
+													)}
+												</p>
+											</div>
+											<form method="POST" action="?/setPlanVersionState">
+												<input type="hidden" name="plan_version_id" value={plan.id} />
+												<input
+													type="hidden"
+													name="is_active"
+													value={plan.isActive ? 'false' : 'true'}
+												/>
+												<Button type="submit" size="sm" variant="outline">
+													{plan.isActive ? 'Deactivate' : 'Activate'}
+												</Button>
+											</form>
+										</div>
+									{/each}
+								</div>
+							{/if}
 						</div>
 					{/each}
 				</div>
@@ -195,29 +363,90 @@
 		{:else if activePanel === 'addons'}
 			<Card class="border-border/20 bg-card space-y-4 rounded-sm p-5">
 				<div class="space-y-3">
-					{#each addonVersions as addon (addon.id)}
+					{#each addonCatalogGroups as group (group.key)}
 						<div
 							class="border-border/20 flex flex-wrap items-center justify-between gap-3 rounded-sm border p-4"
 						>
 							<div class="space-y-1">
 								<div class="flex flex-wrap items-center gap-2">
-									<p class="font-medium">{addon.addonName}</p>
-									<Badge size="xs">{formatBillingType(addon.billingType)}</Badge>
-									<Badge size="xs" variant={addon.isActive ? 'success' : 'default'}>
-										{addon.isActive ? 'Active' : 'Inactive'}
+									<p class="font-medium">{group.latest.addonName}</p>
+									<Badge size="xs">{formatBillingType(group.latest.billingType)}</Badge>
+									<Badge size="xs">Latest</Badge>
+									<Badge size="xs" variant={group.latest.isActive ? 'success' : 'default'}>
+										{group.latest.isActive ? 'Active' : 'Inactive'}
 									</Badge>
 								</div>
 								<p class="text-muted-fg text-sm">
-									{addon.addonCode} v{addon.versionNumber} • {formatSek(addon.unitPriceOre)}
+									{group.latest.addonCode}{formatVersionSuffix(
+										group.latest.versionNumber,
+										hasActiveOlderAddonVersion(group)
+									)} • {formatCatalogPrice(group.latest.unitPriceOre, group.latest.metadata)}
 								</p>
 							</div>
-							<form method="POST" action="?/setAddonVersionState">
-								<input type="hidden" name="addon_version_id" value={addon.id} />
-								<input type="hidden" name="is_active" value={addon.isActive ? 'false' : 'true'} />
-								<Button type="submit" size="sm" variant="outline">
-									{addon.isActive ? 'Deactivate' : 'Activate'}
-								</Button>
-							</form>
+							<div class="flex flex-wrap items-center gap-2">
+								{#if group.olderVersions.length > 0}
+									<Button
+										type="button"
+										size="sm"
+										variant="ghost"
+										onclick={() => toggleAddonHistory(group.key)}
+									>
+										{#if expandedAddonHistoryKeys.has(group.key)}
+											<ChevronDown size={14} class="mr-1.5" />
+											Hide older versions
+										{:else}
+											<ChevronRight size={14} class="mr-1.5" />
+											Show {formatOlderVersionLabel(group.olderVersions.length)}
+										{/if}
+									</Button>
+								{/if}
+								<form method="POST" action="?/setAddonVersionState">
+									<input type="hidden" name="addon_version_id" value={group.latest.id} />
+									<input
+										type="hidden"
+										name="is_active"
+										value={group.latest.isActive ? 'false' : 'true'}
+									/>
+									<Button type="submit" size="sm" variant="outline">
+										{group.latest.isActive ? 'Deactivate' : 'Activate'}
+									</Button>
+								</form>
+							</div>
+
+							{#if expandedAddonHistoryKeys.has(group.key)}
+								<div class="border-border/20 mt-2 w-full space-y-3 border-t pt-4">
+									{#each group.olderVersions as addon (addon.id)}
+										<div class="flex flex-wrap items-center justify-between gap-3 rounded-sm">
+											<div class="space-y-1">
+												<div class="flex flex-wrap items-center gap-2">
+													<p class="font-medium">{addon.addonName}</p>
+													<Badge size="xs">{formatBillingType(addon.billingType)}</Badge>
+													<Badge size="xs" variant={addon.isActive ? 'success' : 'default'}>
+														{addon.isActive ? 'Active' : 'Inactive'}
+													</Badge>
+												</div>
+												<p class="text-muted-fg text-sm">
+													{addon.addonCode} v{addon.versionNumber} • {formatCatalogPrice(
+														addon.unitPriceOre,
+														addon.metadata
+													)}
+												</p>
+											</div>
+											<form method="POST" action="?/setAddonVersionState">
+												<input type="hidden" name="addon_version_id" value={addon.id} />
+												<input
+													type="hidden"
+													name="is_active"
+													value={addon.isActive ? 'false' : 'true'}
+												/>
+												<Button type="submit" size="sm" variant="outline">
+													{addon.isActive ? 'Deactivate' : 'Activate'}
+												</Button>
+											</form>
+										</div>
+									{/each}
+								</div>
+							{/if}
 						</div>
 					{/each}
 				</div>
