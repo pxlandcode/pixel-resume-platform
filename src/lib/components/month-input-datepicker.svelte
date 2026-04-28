@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AirDatepicker from 'air-datepicker';
+	import 'air-datepicker/air-datepicker.css';
 	import localeSv from 'air-datepicker/locale/sv';
 	import { Input } from '@pixelcode_/blocks/components';
 	import { Calendar } from 'lucide-svelte';
