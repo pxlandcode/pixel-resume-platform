@@ -350,6 +350,7 @@
 	bind:open={isBrandingDrawerOpen}
 	organisation={brandingOrganisation}
 	template={brandingTemplate}
+	canManagePixelCode={true}
 />
 
 <OrganisationMembershipDrawer

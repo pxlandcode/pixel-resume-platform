@@ -111,6 +111,21 @@ export const domainActionError = (actionType: string, domainError: unknown) => {
 	return fail(status, { type: actionType, ok: false, message });
 };
 
+const resolveIsPixelCodeFromBrandSettings = (brandSettings: unknown) => {
+	if (!brandSettings || typeof brandSettings !== 'object' || Array.isArray(brandSettings)) {
+		return false;
+	}
+
+	const value = (brandSettings as Record<string, unknown>).isPixelCode;
+	if (typeof value === 'boolean') return value;
+	if (typeof value === 'string') {
+		const normalized = value.trim().toLowerCase();
+		return normalized === 'true' || normalized === '1';
+	}
+	if (typeof value === 'number') return value === 1;
+	return false;
+};
+
 const normalizeFontKey = (value: FormDataEntryValue | null): OrganisationMainFontKey => {
 	if (typeof value !== 'string') return DEFAULT_ORGANISATION_MAIN_FONT_KEY;
 	const normalized = value.trim().toLowerCase();
@@ -655,8 +670,9 @@ export const handleUpdateOrganisationBranding = async (
 		...(uploadedFontUpdate ? { uploadedFont: uploadedFontUpdate } : {})
 	});
 
-	const isPixelCodeRaw = formData.get('is_pixel_code');
-	const isPixelCode = isPixelCodeRaw === 'true';
+	const isPixelCode = context.actor.isAdmin
+		? formData.get('is_pixel_code') === 'true'
+		: resolveIsPixelCodeFromBrandSettings(organisationRow.brand_settings);
 	mergedBrandSettings.isPixelCode = isPixelCode;
 
 	const { error: updateError } = await context.adminClient

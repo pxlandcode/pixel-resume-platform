@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, isRedirect, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import {
 	canAccessOrganisationBilling,
@@ -138,6 +138,15 @@ const getAssignmentActionErrorMessage = (caught: unknown, fallback: string) => {
 	}
 
 	return caught.message;
+};
+
+const redirectToBillingMonth = (organisationId: string, periodMonth: string) => {
+	const normalizedMonth = normalizePeriodMonth(periodMonth);
+	if (!normalizedMonth) throw new Error('Invalid effective month.');
+	throw redirect(
+		303,
+		`/billing/${encodeURIComponent(organisationId)}?month=${encodeURIComponent(normalizedMonth)}`
+	);
 };
 
 const requireBillingContext = async (
@@ -281,11 +290,7 @@ export const actions: Actions = {
 					createdByUserId: actor.userId
 				});
 
-				return {
-					type: 'upsertAssignment',
-					ok: true,
-					message: 'Plan removed from the selected month forward.'
-				};
+				redirectToBillingMonth(params.organisationId, effectiveMonth);
 			}
 
 			await upsertOrganisationBillingAssignment({
@@ -307,9 +312,9 @@ export const actions: Actions = {
 				createdByUserId: actor.userId
 			});
 
-			return { type: 'upsertAssignment', ok: true, message: 'Plan assignment updated.' };
+			redirectToBillingMonth(params.organisationId, effectiveMonth);
 		} catch (caught) {
-			if (caught instanceof Response) throw caught;
+			if (isRedirect(caught) || caught instanceof Response) throw caught;
 			return fail(400, {
 				type: 'upsertAssignment',
 				ok: false,
@@ -325,21 +330,18 @@ export const actions: Actions = {
 				true
 			);
 			const formData = await request.formData();
+			const effectiveMonth = parseRequiredString(formData, 'effective_month');
 
 			await removeOrganisationBillingAssignmentForward({
 				adminClient,
 				organisationId: params.organisationId,
-				effectiveMonth: parseRequiredString(formData, 'effective_month'),
+				effectiveMonth,
 				createdByUserId: actor.userId
 			});
 
-			return {
-				type: 'deleteAssignment',
-				ok: true,
-				message: 'Plan removed from the selected month forward.'
-			};
+			redirectToBillingMonth(params.organisationId, effectiveMonth);
 		} catch (caught) {
-			if (caught instanceof Response) throw caught;
+			if (isRedirect(caught) || caught instanceof Response) throw caught;
 			return fail(400, {
 				type: 'deleteAssignment',
 				ok: false,

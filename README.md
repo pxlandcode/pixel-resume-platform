@@ -64,6 +64,27 @@ For browser/client usage, set:
 - `PUBLIC_SUPABASE_URL`
 - `PUBLIC_SUPABASE_PUBLISHABLE_KEY` (or legacy `PUBLIC_SUPABASE_ANON_KEY`)
 
+### Demo organisation
+
+The migration `20260429100000_demo_organisation_reset.sql` adds a resettable `Demo Organisation`
+organisation with slug `demo`. It seeds one organisation admin user link, one talent user link,
+one full talent profile, availability, and one main resume. The demo admin is also assigned the
+`employer` role.
+
+Run this after applying migrations to create/update the two Supabase Auth users and seed the demo:
+
+```bash
+DEMO_ADMIN_EMAIL=demo.admin@test.se \
+DEMO_ADMIN_PASSWORD='set-a-stable-password' \
+DEMO_TALENT_EMAIL=demo.talent@test.se \
+DEMO_TALENT_PASSWORD='set-a-stable-password' \
+npm run demo:setup
+```
+
+The reset function is `public.reset_demo_organisation(admin_email, talent_email)`. If `pg_cron`
+is available in the database, the migration schedules it nightly at `0 2 * * *`; otherwise run the
+function from Supabase Scheduled Functions/cron with the service role.
+
 Create the leaderboard table with this schema:
 
 ```sql

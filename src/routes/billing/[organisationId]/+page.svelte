@@ -33,6 +33,13 @@
 			maximumFractionDigits: 0
 		}).format(ore / 100);
 	const formatMonthInput = (value: string) => value.slice(0, 7);
+	const formatPriceInput = (ore: number | null | undefined) => {
+		if (ore == null) return '';
+		const sek = ore / 100;
+		return Number.isInteger(sek) ? String(sek) : sek.toFixed(2);
+	};
+	const formatQuantityInput = (quantity: number | null | undefined) =>
+		quantity == null ? '' : String(quantity);
 	const formatPriceWithMetadata = (ore: number, metadata: Record<string, unknown> | undefined) =>
 		`${formatSek(ore)}${getBillingPriceSuffix(metadata)}`;
 	const formatQuantityWithMetadata = (
@@ -174,6 +181,17 @@
 
 	let assignmentEffectiveMonth = $state(formatMonthInput(data.selectedMonth));
 	let selectedPlanVersionId = $state(data.monthView.plan?.planVersionId ?? NO_PLAN_OPTION_VALUE);
+	let assignmentPriceOverride = $state(formatPriceInput(data.monthView.plan?.monthlyPriceOre));
+	let assignmentTalentProfilesOverride = $state(
+		formatQuantityInput(data.monthView.plan?.includedTalentProfiles)
+	);
+	let assignmentTalentUserSeatsOverride = $state(
+		formatQuantityInput(data.monthView.plan?.includedTalentUserSeats)
+	);
+	let assignmentAdminSeatsOverride = $state(
+		formatQuantityInput(data.monthView.plan?.includedAdminSeats)
+	);
+	let assignmentNotes = $state(data.monthView.plan?.notes ?? '');
 	let addonEffectiveMonth = $state(formatMonthInput(data.selectedMonth));
 	let addonEndMonth = $state('');
 
@@ -182,6 +200,47 @@
 	let addonsDrawerOpen = $state(false);
 	let lastFeedbackToastKey = $state<string | null>(null);
 
+	const hydrateAssignmentFieldsFromCurrentPlan = () => {
+		assignmentPriceOverride = formatPriceInput(data.monthView.plan?.monthlyPriceOre);
+		assignmentTalentProfilesOverride = formatQuantityInput(data.monthView.plan?.includedTalentProfiles);
+		assignmentTalentUserSeatsOverride = formatQuantityInput(
+			data.monthView.plan?.includedTalentUserSeats
+		);
+		assignmentAdminSeatsOverride = formatQuantityInput(data.monthView.plan?.includedAdminSeats);
+		assignmentNotes = data.monthView.plan?.notes ?? '';
+	};
+	const hydrateAssignmentFieldsFromPlanVersion = (planVersionId: string) => {
+		if (planVersionId === NO_PLAN_OPTION_VALUE) {
+			assignmentPriceOverride = '';
+			assignmentTalentProfilesOverride = '';
+			assignmentTalentUserSeatsOverride = '';
+			assignmentAdminSeatsOverride = '';
+			assignmentNotes = '';
+			return;
+		}
+
+		if (planVersionId === data.monthView.plan?.planVersionId) {
+			hydrateAssignmentFieldsFromCurrentPlan();
+			return;
+		}
+
+		const planVersion = (data.planVersions as BillingPlanVersion[]).find(
+			(version) => version.id === planVersionId
+		);
+		assignmentPriceOverride = formatPriceInput(planVersion?.monthlyPriceOre);
+		assignmentTalentProfilesOverride = formatQuantityInput(planVersion?.includedTalentProfiles);
+		assignmentTalentUserSeatsOverride = formatQuantityInput(planVersion?.includedTalentUserSeats);
+		assignmentAdminSeatsOverride = formatQuantityInput(planVersion?.includedAdminSeats);
+		assignmentNotes = '';
+	};
+	const assignmentActionMonth = $derived(assignmentEffectiveMonth || selectedMonthValue);
+	const upsertAssignmentAction = $derived(
+		`?month=${encodeURIComponent(assignmentActionMonth)}&/upsertAssignment`
+	);
+	const deleteAssignmentAction = $derived(
+		`?month=${encodeURIComponent(assignmentActionMonth)}&/deleteAssignment`
+	);
+
 	$effect(() => {
 		const selectedMonth = formatMonthInput(data.selectedMonth);
 		logMonthNavigation('sync-from-data', {
@@ -189,6 +248,7 @@
 		});
 		assignmentEffectiveMonth = selectedMonth;
 		selectedPlanVersionId = data.monthView.plan?.planVersionId ?? NO_PLAN_OPTION_VALUE;
+		hydrateAssignmentFieldsFromCurrentPlan();
 		addonEffectiveMonth = selectedMonth;
 		addonEndMonth = '';
 		selectedMonthValue = selectedMonth;
@@ -533,7 +593,7 @@
 		subtitle="Assign a plan version and optional overrides."
 		class="mr-0 w-full max-w-xl"
 	>
-		<form method="POST" action="?/upsertAssignment" class="space-y-4">
+		<form method="POST" action={upsertAssignmentAction} class="space-y-4">
 			<FormControl label="Effective month" class="gap-2 text-sm">
 				<MonthInputDatepicker
 					id="assignment-effective-month"
@@ -549,6 +609,7 @@
 					name="plan_version_id"
 					options={planVersionOptions}
 					bind:value={selectedPlanVersionId}
+					onchange={(value) => hydrateAssignmentFieldsFromPlanVersion(String(value))}
 					placeholder="Select a plan"
 					disabled={planVersionOptions.length === 0}
 					search={planVersionOptions.length > 8}
@@ -560,8 +621,8 @@
 						name="price_override"
 						type="number"
 						min="0"
-						step="1"
-						value={data.monthView.plan ? String(data.monthView.plan.monthlyPriceOre / 100) : ''}
+						step="0.01"
+						bind:value={assignmentPriceOverride}
 						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
@@ -570,7 +631,7 @@
 						name="included_talent_profiles_override"
 						type="number"
 						min="0"
-						value={data.monthView.plan?.includedTalentProfiles ?? ''}
+						bind:value={assignmentTalentProfilesOverride}
 						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
@@ -579,7 +640,7 @@
 						name="included_talent_user_seats_override"
 						type="number"
 						min="0"
-						value={data.monthView.plan?.includedTalentUserSeats ?? ''}
+						bind:value={assignmentTalentUserSeatsOverride}
 						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
@@ -588,7 +649,7 @@
 						name="included_admin_seats_override"
 						type="number"
 						min="0"
-						value={data.monthView.plan?.includedAdminSeats ?? ''}
+						bind:value={assignmentAdminSeatsOverride}
 						disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 					/>
 				</FormControl>
@@ -597,7 +658,7 @@
 				<TextArea
 					name="assignment_notes"
 					rows={3}
-					value={data.monthView.plan?.notes ?? ''}
+					bind:value={assignmentNotes}
 					disabled={selectedPlanVersionId === NO_PLAN_OPTION_VALUE}
 				/>
 			</FormControl>
@@ -613,7 +674,7 @@
 						type="submit"
 						size="sm"
 						variant="destructive"
-						formaction="?/deleteAssignment"
+						formaction={deleteAssignmentAction}
 						formnovalidate
 						disabled={!data.monthView.plan}
 					>

@@ -511,7 +511,7 @@
 	{title}
 	subtitle={mode === 'create'
 		? 'Provision a new user with access, role, and optional links.'
-		: 'Update role, activation status, talent link, and organisation.'}
+		: 'Update email, role, activation status, talent link, and organisation.'}
 	class="mr-0 w-full max-w-2xl"
 	dismissable
 >
@@ -550,7 +550,6 @@
 				required
 				class="bg-input text-foreground"
 				value={initial.email}
-				readonly={mode === 'edit'}
 			/>
 		</FormControl>
 

@@ -169,6 +169,7 @@
 	const sourceTalentOptions = $derived(
 		(data.sourceTalentOptions as SourceTalentOption[] | undefined) ?? []
 	);
+	const canManagePixelCode = $derived(((data.roles ?? []) as Role[]).includes('admin'));
 	const organisation = $derived((data.organisation as Organisation | null | undefined) ?? null);
 	const organisationShareRules = $derived(
 		(data.organisationShareRules as OrganisationShareRule[] | undefined) ?? []
@@ -1453,6 +1454,7 @@
 	bind:open={isBrandingDrawerOpen}
 	organisation={brandingOrganisation}
 	template={brandingTemplate}
+	{canManagePixelCode}
 	{form}
 />
 

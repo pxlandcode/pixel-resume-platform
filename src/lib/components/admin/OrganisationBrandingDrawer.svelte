@@ -119,12 +119,14 @@
 		open = $bindable(false),
 		organisation = undefined,
 		template = undefined,
-		form = undefined
+		form = undefined,
+		canManagePixelCode = false
 	}: {
 		open: boolean;
 		organisation?: Organisation;
 		template?: Template;
 		form?: { type?: string; ok?: boolean; message?: string } | null;
+		canManagePixelCode?: boolean;
 	} = $props();
 
 	const templateImageUrl = (slot: TemplateAssetSlot) => {
@@ -210,7 +212,9 @@
 		>
 			<input type="hidden" name="organisation_id" value={organisation.id} />
 			<input type="hidden" name="main_font_key" value={actualMainFontKey} />
-			<input type="hidden" name="is_pixel_code" value={isPixelCode ? 'true' : 'false'} />
+			{#if canManagePixelCode}
+				<input type="hidden" name="is_pixel_code" value={isPixelCode ? 'true' : 'false'} />
+			{/if}
 
 			<!-- Main Font Section -->
 			<div class="space-y-4">
@@ -272,7 +276,9 @@
 					<Checkbox bind:checked={useUploadedFont} disabled={isPixelCode}
 						>Upload custom font</Checkbox
 					>
-					<Checkbox bind:checked={isPixelCode}>Is pixel&code_</Checkbox>
+					{#if canManagePixelCode}
+						<Checkbox bind:checked={isPixelCode}>Is pixel&code_</Checkbox>
+					{/if}
 				</div>
 				{#if typography.uploadedFont}
 					<p class="text-muted-fg text-xs">

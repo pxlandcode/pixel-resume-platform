@@ -171,6 +171,9 @@
 	const membershipTalentRows = $derived(organisationContext?.membershipsTalents ?? []);
 	const usersWithHomeOrg = $derived(new Set(organisationContext?.usersWithHomeOrgIds ?? []));
 	const talentsWithHomeOrg = $derived(new Set(organisationContext?.talentsWithHomeOrgIds ?? []));
+	const canManagePixelCode = $derived(
+		(Array.isArray(data.roles) ? data.roles : []).includes('admin')
+	);
 	const brandingOrganisation = $derived({
 		id: organisation.id,
 		name: organisation.name,
@@ -286,6 +289,7 @@
 	bind:open={isBrandingDrawerOpen}
 	organisation={brandingOrganisation}
 	template={brandingTemplate}
+	{canManagePixelCode}
 	{form}
 />
 

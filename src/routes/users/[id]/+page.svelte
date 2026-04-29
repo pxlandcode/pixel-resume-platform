@@ -420,7 +420,6 @@
 						required
 						class="bg-input text-foreground"
 						value={user.email ?? ''}
-						readonly
 					/>
 				</FormControl>
 
