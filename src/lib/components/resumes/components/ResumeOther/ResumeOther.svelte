@@ -6,6 +6,7 @@
 	let {
 		languages = $bindable(),
 		education = $bindable(),
+		certificates = $bindable(),
 		portfolio = $bindable([]),
 		isEditing = false,
 		language = 'sv',
@@ -13,11 +14,14 @@
 		onRemoveLanguage,
 		onAddEducation,
 		onRemoveEducation,
+		onAddCertificate,
+		onRemoveCertificate,
 		onAddPortfolioUrl,
 		onRemovePortfolioUrl
 	}: {
 		languages: LabeledItem[];
 		education: LabeledItem[];
+		certificates: LabeledItem[];
 		portfolio?: string[];
 		isEditing?: boolean;
 		language?: Language;
@@ -25,33 +29,35 @@
 		onRemoveLanguage?: (index: number) => void;
 		onAddEducation?: () => void;
 		onRemoveEducation?: (index: number) => void;
+		onAddCertificate?: () => void;
+		onRemoveCertificate?: (index: number) => void;
 		onAddPortfolioUrl?: () => void;
 		onRemovePortfolioUrl?: (index: number) => void;
 	} = $props();
 </script>
 
-{#if isEditing || languages.length > 0 || education.length > 0 || (portfolio && portfolio.length > 0)}
+{#if isEditing || languages.length > 0 || education.length > 0 || certificates.length > 0 || (portfolio && portfolio.length > 0)}
 	<section class="resume-print-section mt-8">
 		<!-- Section Header with dividers -->
 		<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-			<h2 class="text-base font-bold text-foreground uppercase">
+			<h2 class="text-foreground text-base font-bold uppercase">
 				{language === 'sv' ? 'Övrigt' : 'Other'}
 			</h2>
 			<div class="flex items-center">
-				<div class="h-px flex-1 bg-border"></div>
+				<div class="bg-border h-px flex-1"></div>
 			</div>
 		</div>
 
 		<div class="mt-4 space-y-4">
 			{#if isEditing}
 				<!-- Languages Editor -->
-				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-secondary-text">
+				<div class="rounded-xs border-border bg-muted border p-4">
+					<p class="text-secondary-text mb-2 text-sm font-semibold">
 						{language === 'sv' ? 'Språk' : 'Languages'}
 					</p>
 					<div class="space-y-3">
 						{#each languages as lang, index}
-							<div class="rounded-xs border border-border bg-card p-3">
+							<div class="rounded-xs border-border bg-card border p-3">
 								<div class="mb-2 flex justify-end">
 									<Button variant="ghost" size="sm" onclick={() => onRemoveLanguage?.(index)}
 										>Remove</Button
@@ -98,13 +104,13 @@
 				</div>
 
 				<!-- Education Editor -->
-				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-secondary-text">
+				<div class="rounded-xs border-border bg-muted border p-4">
+					<p class="text-secondary-text mb-2 text-sm font-semibold">
 						{language === 'sv' ? 'Utbildning' : 'Education'}
 					</p>
 					<div class="space-y-3">
 						{#each education as edu, index}
-							<div class="rounded-xs border border-border bg-card p-3">
+							<div class="rounded-xs border-border bg-card border p-3">
 								<div class="mb-2 flex justify-end">
 									<Button variant="ghost" size="sm" onclick={() => onRemoveEducation?.(index)}
 										>Remove</Button
@@ -140,9 +146,63 @@
 					</div>
 				</div>
 
+				<!-- Certificates Editor -->
+				<div class="rounded-xs border-border bg-muted border p-4">
+					<p class="text-secondary-text mb-2 text-sm font-semibold">
+						{language === 'sv' ? 'Certifikat' : 'Certificates'}
+					</p>
+					<div class="space-y-3">
+						{#each certificates as certificate, index}
+							<div class="rounded-xs border-border bg-card border p-3">
+								<div class="mb-2 flex justify-end">
+									<Button variant="ghost" size="sm" onclick={() => onRemoveCertificate?.(index)}
+										>Remove</Button
+									>
+								</div>
+								<div class="grid grid-cols-2 gap-4">
+									<Input
+										value={typeof certificate.label === 'string'
+											? certificate.label
+											: certificate.label.sv}
+										oninput={(e) => (certificate.label = e.currentTarget.value)}
+										placeholder="Issuer"
+										class="border-border bg-card"
+									/>
+									<div class="space-y-2">
+										<Input
+											value={getLocalizedValue(certificate.value, 'sv')}
+											oninput={(e) =>
+												(certificate.value = setLocalizedValue(
+													certificate.value,
+													'sv',
+													e.currentTarget.value
+												))}
+											placeholder="Certificate (SV)"
+											class="border-border bg-card"
+										/>
+										<Input
+											value={getLocalizedValue(certificate.value, 'en')}
+											oninput={(e) =>
+												(certificate.value = setLocalizedValue(
+													certificate.value,
+													'en',
+													e.currentTarget.value
+												))}
+											placeholder="Certificate (EN)"
+											class="border-border bg-card"
+										/>
+									</div>
+								</div>
+							</div>
+						{/each}
+						<Button variant="outline" size="sm" onclick={onAddCertificate}>+ Add Certificate</Button
+						>
+					</div>
+				</div>
+
 				<!-- Portfolio Editor -->
-				<div class="rounded-xs border border-border bg-muted p-4">
-					<p class="mb-2 text-sm font-semibold text-secondary-text">Portfolio</p>
+				<div class="rounded-xs border-border bg-muted border p-4">
+					<p class="text-secondary-text mb-2 text-sm font-semibold">Portfolio</p>
 					<div class="space-y-2">
 						{#each portfolio ?? [] as url, index}
 							<div class="flex gap-2">
@@ -152,7 +212,7 @@
 										portfolio[index] = e.currentTarget.value;
 									}}
 									placeholder="https://..."
-									class="flex-1 border-border bg-card"
+									class="border-border bg-card flex-1"
 								/>
 								<Button variant="ghost" size="sm" onclick={() => onRemovePortfolioUrl?.(index)}
 									>Remove</Button
@@ -166,10 +226,10 @@
 				{#if languages.length > 0}
 					<!-- Languages Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
+						<p class="text-secondary-text pt-1 text-xs font-bold uppercase tracking-wide">
 							{language === 'sv' ? 'Språk' : 'Languages'}
 						</p>
-						<div class="flex flex-col gap-1 text-sm text-foreground">
+						<div class="text-foreground flex flex-col gap-1 text-sm">
 							{#each languages as lang}
 								<p>
 									<span class="font-bold">{t(lang.label, language)}</span>: {t(
@@ -185,14 +245,33 @@
 				{#if education.length > 0}
 					<!-- Education Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">
+						<p class="text-secondary-text pt-1 text-xs font-bold uppercase tracking-wide">
 							{language === 'sv' ? 'Utbildning' : 'Education'}
 						</p>
-						<div class="flex flex-col gap-1 text-sm text-foreground">
+						<div class="text-foreground flex flex-col gap-1 text-sm">
 							{#each education as edu}
 								<p>
-									<span class="font-semibold">{t(edu.label, language)}</span>
-									{#if t(edu.value, language)}<span>: {t(edu.value, language)}</span>{/if}
+									<span class="font-semibold">{t(edu.label, language)}</span
+									>{#if t(edu.value, language)}<span>: {t(edu.value, language)}</span>{/if}
+								</p>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				{#if certificates.length > 0}
+					<!-- Certificates Row -->
+					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+						<p class="text-secondary-text pt-1 text-xs font-bold uppercase tracking-wide">
+							{language === 'sv' ? 'Certifikat' : 'Certificates'}
+						</p>
+						<div class="text-foreground flex flex-col gap-1 text-sm">
+							{#each certificates as certificate}
+								<p>
+									<span class="font-semibold">{t(certificate.label, language)}</span
+									>{#if t(certificate.value, language)}<span
+											>: {t(certificate.value, language)}</span
+										>{/if}
 								</p>
 							{/each}
 						</div>
@@ -202,8 +281,10 @@
 				{#if portfolio && portfolio.length > 0}
 					<!-- Portfolio Row -->
 					<div class="grid gap-6 md:grid-cols-[18%_1fr]">
-						<p class="pt-1 text-xs font-bold tracking-wide text-secondary-text uppercase">Portfolio</p>
-						<div class="flex flex-wrap gap-2 text-sm text-foreground">
+						<p class="text-secondary-text pt-1 text-xs font-bold uppercase tracking-wide">
+							Portfolio
+						</p>
+						<div class="text-foreground flex flex-wrap gap-2 text-sm">
 							{#each portfolio as url}
 								<a
 									href={url}

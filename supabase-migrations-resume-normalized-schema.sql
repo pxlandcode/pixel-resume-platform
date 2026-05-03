@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS public.resume_skill_items (
 CREATE TABLE IF NOT EXISTS public.resume_labeled_items (
 	id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	resume_id uuid NOT NULL REFERENCES public.resumes(id) ON DELETE CASCADE,
-	kind text NOT NULL CHECK (kind IN ('language', 'education')),
+	kind text NOT NULL CHECK (kind IN ('language', 'education', 'certificate')),
 	position integer NOT NULL,
 	label_sv text NOT NULL DEFAULT '',
 	label_en text NOT NULL DEFAULT '',

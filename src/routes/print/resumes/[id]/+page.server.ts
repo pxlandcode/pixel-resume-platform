@@ -96,6 +96,7 @@ const summarizeResumeData = (data: ResumeData) => ({
 	methodsCount: data.methods.length,
 	languagesCount: data.languages.length,
 	educationCount: data.education.length,
+	certificatesCount: data.certificates.length,
 	portfolioCount: data.portfolio?.length ?? 0
 });
 

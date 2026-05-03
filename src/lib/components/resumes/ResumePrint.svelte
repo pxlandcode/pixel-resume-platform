@@ -444,8 +444,8 @@
 			</section>
 		{/if}
 
-		<!-- Other Section (Languages, Education, Portfolio - matching SkillsCategorized) -->
-		{#if data.languages.length > 0 || data.education.length > 0 || (data.portfolio && data.portfolio.length > 0)}
+		<!-- Other Section (Languages, Education, Certificates, Portfolio - matching SkillsCategorized) -->
+		{#if data.languages.length > 0 || data.education.length > 0 || data.certificates.length > 0 || (data.portfolio && data.portfolio.length > 0)}
 			<section class="resume-print-section mb-8">
 				<!-- Section Header with dividers -->
 				<div class="grid gap-6 md:grid-cols-[18%_1fr]">
@@ -483,8 +483,26 @@
 							<div class="flex flex-col gap-1 text-sm text-slate-800">
 								{#each data.education as edu}
 									<p>
-										<span class="font-semibold">{t(edu.label)}</span>
-										{#if t(edu.value)}<span>: {t(edu.value)}</span>{/if}
+										<span class="font-semibold">{t(edu.label)}</span>{#if t(edu.value)}<span
+												>: {t(edu.value)}</span
+											>{/if}
+									</p>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if data.certificates.length > 0}
+						<!-- Certificates Row (matching SkillsCategorized isEducation) -->
+						<div class="grid gap-6 md:grid-cols-[18%_1fr]">
+							<p class="pt-1 text-xs font-bold uppercase tracking-wide text-slate-700">
+								{language === 'sv' ? 'Certifikat' : 'Certificates'}
+							</p>
+							<div class="flex flex-col gap-1 text-sm text-slate-800">
+								{#each data.certificates as certificate}
+									<p>
+										<span class="font-semibold">{t(certificate.label)}</span
+										>{#if t(certificate.value)}<span>: {t(certificate.value)}</span>{/if}
 									</p>
 								{/each}
 							</div>

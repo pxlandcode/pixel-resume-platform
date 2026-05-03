@@ -135,6 +135,10 @@
 		}));
 	const cloneResumeData = (source: ResumeData): ResumeData => {
 		const cloned = cloneResumeDataValue(source);
+		cloned.languages = Array.isArray(cloned.languages) ? cloned.languages : [];
+		cloned.education = Array.isArray(cloned.education) ? cloned.education : [];
+		cloned.certificates = Array.isArray(cloned.certificates) ? cloned.certificates : [];
+		cloned.portfolio = Array.isArray(cloned.portfolio) ? cloned.portfolio : [];
 		cloned.experiences = ensureExperienceIds(cloned.experiences);
 		cloned.highlightedExperiences = ensureHighlightedExperienceIds(cloned.highlightedExperiences);
 		return cloned;
@@ -384,6 +388,23 @@
 			.slice(0, 10);
 		if (educationLines.length > 0) {
 			lines.push(`Education: ${educationLines.join(' | ')}`);
+		}
+
+		const certificateLines = editingData.certificates
+			.map((entry) => {
+				const issuer = clip(
+					typeof entry.label === 'string'
+						? entry.label
+						: getLocalized(entry.label as LocalizedText, targetLanguage),
+					80
+				);
+				const certificate = clip(getLocalized(entry.value, targetLanguage), 120);
+				return [issuer, certificate].filter(Boolean).join(': ');
+			})
+			.filter(Boolean)
+			.slice(0, 10);
+		if (certificateLines.length > 0) {
+			lines.push(`Certificates: ${certificateLines.join(' | ')}`);
 		}
 
 		return lines.join('\n');
@@ -691,6 +712,19 @@
 		editingData.education = editingData.education.filter((_, i) => i !== index);
 	};
 
+	// Certificate management
+	const addCertificate = () => {
+		const newCertificate: LabeledItem = {
+			label: '',
+			value: { sv: '', en: '' }
+		};
+		editingData.certificates = [...editingData.certificates, newCertificate];
+	};
+
+	const removeCertificate = (index: number) => {
+		editingData.certificates = editingData.certificates.filter((_, i) => i !== index);
+	};
+
 	// Portfolio management
 	const addPortfolioUrl = () => {
 		editingData.portfolio = [...(editingData.portfolio ?? []), ''];
@@ -897,6 +931,7 @@
 	<ResumeOther
 		bind:languages={editingData.languages}
 		bind:education={editingData.education}
+		bind:certificates={editingData.certificates}
 		portfolio={editingData.portfolio ?? []}
 		{isEditing}
 		language={componentLanguage}
@@ -904,6 +939,8 @@
 		onRemoveLanguage={removeLanguage}
 		onAddEducation={addEducation}
 		onRemoveEducation={removeEducation}
+		onAddCertificate={addCertificate}
+		onRemoveCertificate={removeCertificate}
 		onAddPortfolioUrl={addPortfolioUrl}
 		onRemovePortfolioUrl={removePortfolioUrl}
 	/>

@@ -7,7 +7,7 @@
  * 3. Highlighted Experiences (1-2 featured)
  * 4. Previous Experience (list)
  * 5. Skills (Techniques + Methods)
- * 6. Other (Languages + Education + Portfolio)
+ * 6. Other (Languages + Education + Certificates + Portfolio)
  * 7. Footer
  */
 
@@ -91,6 +91,7 @@ export type ResumeData = {
 	// Other section
 	languages: LabeledItem[];
 	education: LabeledItem[];
+	certificates: LabeledItem[];
 	portfolio?: string[];
 
 	// Footer

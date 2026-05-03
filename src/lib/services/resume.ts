@@ -1,6 +1,6 @@
 import { getSupabaseAdminClient } from '$lib/server/supabase';
 import { emptyResumeData, loadResumeData } from '$lib/server/resumes/store';
-import type { Person, Resume, ResumeData, LocalizedText } from '$lib/types/resume';
+import type { Person, Resume, ResumeData, LocalizedText, LabeledItem } from '$lib/types/resume';
 
 export type Language = 'sv' | 'en';
 
@@ -79,11 +79,41 @@ const normalizeStringArray = (value: unknown): string[] =>
 				.filter(Boolean)
 		: [];
 
+const isLikelyCertificateItem = (item: LabeledItem) => {
+	const label =
+		typeof item.label === 'string'
+			? { sv: item.label, en: item.label }
+			: { sv: normalizeText(item.label?.sv), en: normalizeText(item.label?.en) };
+	const values = [label.sv, label.en].map((value) => value.toLowerCase().trim()).filter(Boolean);
+	return values.some((value) =>
+		[
+			'certifiering',
+			'certifieringar',
+			'certifikat',
+			'certification',
+			'certifications',
+			'certificate',
+			'certificates'
+		].includes(value)
+	);
+};
+
 const normalizeLegacyResumeData = (value: unknown): ResumeData | null => {
 	if (!value || typeof value !== 'object') return null;
 	const raw = value as Record<string, unknown>;
 	const source =
 		raw && raw.data && typeof raw.data === 'object' ? (raw.data as Record<string, unknown>) : raw;
+	const rawEducation = Array.isArray(source.education)
+		? (source.education as ResumeData['education'])
+		: [];
+	const rawCertificates = Array.isArray(source.certificates)
+		? (source.certificates as ResumeData['certificates'])
+		: [];
+	const education = rawEducation.filter((item) => !isLikelyCertificateItem(item));
+	const certificates = [
+		...rawCertificates,
+		...rawEducation.filter((item) => isLikelyCertificateItem(item))
+	];
 
 	const data: ResumeData = {
 		...emptyResumeData(normalizeText(source.name)),
@@ -107,7 +137,8 @@ const normalizeLegacyResumeData = (value: unknown): ResumeData | null => {
 		techniques: normalizeStringArray(source.techniques),
 		methods: normalizeStringArray(source.methods),
 		languages: Array.isArray(source.languages) ? (source.languages as ResumeData['languages']) : [],
-		education: Array.isArray(source.education) ? (source.education as ResumeData['education']) : [],
+		education,
+		certificates,
 		portfolio: normalizeStringArray(source.portfolio),
 		footerNote: normalizeLocalized(source.footerNote)
 	};
@@ -134,6 +165,7 @@ const hasResumeContent = (data: ResumeData): boolean => {
 			data.methods.length > 0 ||
 			data.languages.length > 0 ||
 			data.education.length > 0 ||
+			data.certificates.length > 0 ||
 			(data.portfolio?.length ?? 0) > 0 ||
 			hasLocalizedValue(data.footerNote)
 	);

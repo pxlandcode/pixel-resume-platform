@@ -96,6 +96,7 @@ Output quality requirements:
 - Make sure the highlighted roles are also represented in experiences.
 - Keep descriptions factual and close to source meaning.
 - Keep technologies as concrete tool/platform names.
+- Put certifications and certificates in certificates, not education.
 - title must be a professional resume headline (role-focused), never a person's name.
 - Always write summary and description in third person.
 - Use this profile first name for consultant references when needed: ${personFirstName}.
@@ -234,6 +235,7 @@ const resumeImportSchema = {
 		'methods',
 		'languages',
 		'education',
+		'certificates',
 		'portfolio',
 		'footerNote'
 	],
@@ -318,6 +320,10 @@ const resumeImportSchema = {
 			items: labeledItemSchema
 		},
 		education: {
+			type: 'array',
+			items: labeledItemSchema
+		},
+		certificates: {
 			type: 'array',
 			items: labeledItemSchema
 		},
@@ -802,6 +808,7 @@ const sanitizeImportedPayload = (
 		methods: sanitizeStringArray(payload.methods, 80, 80),
 		languages: sanitizeLabeledItems(payload.languages),
 		education: sanitizeLabeledItems(payload.education),
+		certificates: sanitizeLabeledItems(payload.certificates),
 		portfolio: sanitizeStringArray(payload.portfolio, 20, 260),
 		footerNote: sanitizeLocalized(payload.footerNote, 2_000)
 	};

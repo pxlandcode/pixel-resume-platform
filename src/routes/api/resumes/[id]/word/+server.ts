@@ -154,6 +154,12 @@ const renderHtmlSection = (
 				`<li><strong>${typeof item.label === 'string' ? item.label : localize(item.label, lang)}</strong>: ${localize(item.value, lang)}</li>`
 		)
 		.join('');
+	const certificates = resume.certificates
+		.map(
+			(item) =>
+				`<li><strong>${typeof item.label === 'string' ? item.label : localize(item.label, lang)}</strong>: ${localize(item.value, lang)}</li>`
+		)
+		.join('');
 
 	const portfolio = resume.portfolio?.length
 		? `<section><h3>Portfolio</h3><ul>${resume.portfolio
@@ -206,10 +212,22 @@ const renderHtmlSection = (
 	</section>
 
 	${renderLabeledItems(resume.languages, lang, lang === 'sv' ? 'Språk' : 'Languages')}
-	<section>
+	${
+		education
+			? `<section>
 		<h3>${lang === 'sv' ? 'Utbildning' : 'Education'}</h3>
 		<ul>${education}</ul>
-	</section>
+	</section>`
+			: ''
+	}
+	${
+		certificates
+			? `<section>
+		<h3>${lang === 'sv' ? 'Certifikat' : 'Certificates'}</h3>
+		<ul>${certificates}</ul>
+	</section>`
+			: ''
+	}
 	${portfolio}
 
 	${resume.footerNote ? `<footer class="muted">${localize(resume.footerNote, lang)}</footer>` : ''}

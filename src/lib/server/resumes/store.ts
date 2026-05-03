@@ -264,6 +264,7 @@ export const emptyResumeData = (name = ''): ResumeData => ({
 	methods: [],
 	languages: [],
 	education: [],
+	certificates: [],
 	portfolio: [],
 	footerNote: ''
 });
@@ -350,7 +351,7 @@ const saveSimpleSections = async (
 
 	const labeledRows: Array<{
 		resume_id: string;
-		kind: 'language' | 'education';
+		kind: 'language' | 'education' | 'certificate';
 		position: number;
 		label_sv: string;
 		label_en: string;
@@ -358,7 +359,7 @@ const saveSimpleSections = async (
 		value_en: string;
 	}> = [];
 
-	const toLabeledRows = (items: LabeledItem[], kind: 'language' | 'education') => {
+	const toLabeledRows = (items: LabeledItem[], kind: 'language' | 'education' | 'certificate') => {
 		for (const [index, item] of items.entries()) {
 			const label = asLanguagePair(item.label);
 			const value = asLanguagePair(item.value);
@@ -376,6 +377,7 @@ const saveSimpleSections = async (
 
 	toLabeledRows(Array.isArray(data.languages) ? data.languages : [], 'language');
 	toLabeledRows(Array.isArray(data.education) ? data.education : [], 'education');
+	toLabeledRows(Array.isArray(data.certificates) ? data.certificates : [], 'certificate');
 
 	if (labeledRows.length > 0) {
 		const { error: insertLabelsError } = await adminClient
@@ -834,6 +836,18 @@ export const loadResumeData = async (
 				(row as { value_en: unknown }).value_en
 			)
 		}));
+	const certificates: LabeledItem[] = labeledRows
+		.filter((row) => (row as { kind: string }).kind === 'certificate')
+		.map((row) => ({
+			label: localizedFromColumns(
+				(row as { label_sv: unknown }).label_sv,
+				(row as { label_en: unknown }).label_en
+			),
+			value: localizedFromColumns(
+				(row as { value_sv: unknown }).value_sv,
+				(row as { value_en: unknown }).value_en
+			)
+		}));
 
 	const basics = basicsResult.data;
 	const name = normalizeString(basics?.name);
@@ -858,6 +872,7 @@ export const loadResumeData = async (
 		methods,
 		languages,
 		education,
+		certificates,
 		portfolio: (portfolioResult.data ?? [])
 			.map((row) => normalizeString((row as { url: unknown }).url))
 			.filter(Boolean),
