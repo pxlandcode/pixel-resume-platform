@@ -203,7 +203,7 @@ export const getBillingQuantityUnitLabel = (metadata: Record<string, unknown> | 
 	getMetadataString(metadata, 'unit_label');
 
 export const hasBillingMetricOverage = (metric: BillingUsageMetric) =>
-	metric.limit !== null && metric.maxUsage > metric.limit;
+	metric.limit !== null && metric.currentUsage > metric.limit;
 
 export const getBillingMetricDisplayStatus = (metric: BillingUsageMetric): BillingDisplayStatus => {
 	if (metric.limit === null) return 'unlimited';

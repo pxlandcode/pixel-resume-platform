@@ -96,10 +96,14 @@
 		selectedOrganisation ? (contextErrorByOrgId[selectedOrganisation.id] ?? null) : null
 	);
 
-	const loadOrganisationContext = async (organisationId: string) => {
+	const loadOrganisationContext = async (
+		organisationId: string,
+		options: { force?: boolean } = {}
+	) => {
 		if (!organisationId) return;
 		if (contextStatusByOrgId[organisationId] === 'loading') return;
 		if (
+			!options.force &&
 			contextStatusByOrgId[organisationId] === 'ready' &&
 			organisationContextById[organisationId]
 		) {
@@ -175,7 +179,7 @@
 	const openBrandingDrawer = (organisation: Organisation) => {
 		selectedOrganisation = organisation;
 		isBrandingDrawerOpen = true;
-		void loadOrganisationContext(organisation.id);
+		void loadOrganisationContext(organisation.id, { force: true });
 	};
 
 	const openMembershipDrawer = (organisation: Organisation) => {
@@ -195,14 +199,16 @@
 		new Set(selectedOrganisationContext?.talentsWithHomeOrgIds ?? [])
 	);
 	const brandingOrganisation = $derived.by(() => {
-		if (!selectedOrganisation) return undefined;
+		if (!selectedOrganisation || selectedContextStatus !== 'ready') return undefined;
 		return {
 			id: selectedOrganisation.id,
 			name: selectedOrganisation.name,
 			brand_settings: selectedOrganisationContext?.organisation.brand_settings ?? null
 		};
 	});
-	const brandingTemplate = $derived(selectedOrganisationContext?.template ?? undefined);
+	const brandingTemplate = $derived(
+		selectedContextStatus === 'ready' ? (selectedOrganisationContext?.template ?? undefined) : undefined
+	);
 
 	type OrgListRow = {
 		id: string;
@@ -238,6 +244,13 @@
 		if (lastActionToastKey === key) return;
 		lastActionToastKey = key;
 		showToast(actionFailed ? 'error' : 'success', actionMessage);
+	});
+
+	$effect(() => {
+		if (form?.type !== 'updateOrganisationBranding' || form.ok === false || !selectedOrganisation) {
+			return;
+		}
+		void loadOrganisationContext(selectedOrganisation.id, { force: true });
 	});
 </script>
 
@@ -351,6 +364,7 @@
 	organisation={brandingOrganisation}
 	template={brandingTemplate}
 	canManagePixelCode={true}
+	{form}
 />
 
 <OrganisationMembershipDrawer

@@ -20,6 +20,10 @@
 	let uploadError = $state<string | null>(null);
 	let isUploading = $state(false);
 
+	$effect(() => {
+		previewUrl = initialUrl ?? '';
+	});
+
 	const triggerSelect = () => {
 		if (isUploading) return;
 		fileInput?.click();

@@ -19,6 +19,7 @@
 		getBillingMetricDisplayStatus,
 		getBillingPriceSuffix,
 		getBillingQuantityUnitLabel,
+		hasBillingMetricOverage,
 		type BillingPlanVersion
 	} from '$lib/types/billing';
 
@@ -65,7 +66,7 @@
 		if (limit === null) return 'bg-primary/60';
 		if (limit === 0) return current > 0 ? 'bg-destructive' : 'bg-primary/40';
 		const pct = current / limit;
-		if (pct >= 1) return 'bg-destructive';
+		if (pct > 1) return 'bg-destructive';
 		if (pct >= 0.8) return 'bg-warning';
 		return 'bg-primary/60';
 	};
@@ -406,7 +407,7 @@
 									<div class="bg-primary/40 h-full w-full rounded-full"></div>
 								{/if}
 							</div>
-							{#if metric.durationAboveLimitHours > 0}
+							{#if hasBillingMetricOverage(metric) && metric.durationAboveLimitHours > 0}
 								<div class="mt-1.5">
 									<Badge size="xs" variant="destructive">Has been over limit</Badge>
 								</div>

@@ -16,7 +16,7 @@
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import OrganisationTemplateImageUpload from './OrganisationTemplateImageUpload.svelte';
 	import Dropdown from '$lib/components/dropdown/Dropdown.svelte';
-	import { Info, ChevronDown, Check } from 'lucide-svelte';
+	import { Info, ChevronDown, Check, Upload } from 'lucide-svelte';
 	import { clickOutside } from '$lib/utils/clickOutside';
 
 	type Organisation = {
@@ -38,6 +38,12 @@
 	type TemplateAssetSlot = 'main_logotype_path' | 'accent_logo_path' | 'end_logo_path';
 
 	type FontUploadMode = 'variable' | 'static';
+	type FontInputName =
+		| 'uploaded_font_variable'
+		| 'uploaded_font_regular'
+		| 'uploaded_font_italic'
+		| 'uploaded_font_bold'
+		| 'uploaded_font_bold_italic';
 
 	const templateAssetLabels: Array<{ slot: TemplateAssetSlot; label: string }> = [
 		{ slot: 'main_logotype_path', label: 'Main logotype' },
@@ -97,6 +103,13 @@
 	let useUploadedFont = $state(false);
 	let selectedBuiltInFont = $state('inter');
 	let fontUploadMode = $state<FontUploadMode>('variable');
+	let selectedFontFileNames = $state<Record<FontInputName, string | null>>({
+		uploaded_font_variable: null,
+		uploaded_font_regular: null,
+		uploaded_font_italic: null,
+		uploaded_font_bold: null,
+		uploaded_font_bold_italic: null
+	});
 
 	// pixel&code_ branding flag
 	let isPixelCode = $state(false);
@@ -104,6 +117,22 @@
 	const selectedFontLabel = $derived(
 		ORGANISATION_MAIN_FONT_OPTIONS.find((opt) => opt.key === selectedBuiltInFont)?.label ??
 			'Select font'
+	);
+	const activeFontLabel = $derived.by(() => {
+		if (isPixelCode) return 'Montserrat (pixel&code_ default)';
+		if (useUploadedFont) {
+			return typography.uploadedFont
+				? `${typography.uploadedFont.family} (${typography.uploadedFont.mode})`
+				: 'Custom uploaded font';
+		}
+		return selectedFontLabel;
+	});
+	const activeFontPreviewStyle = $derived(
+		isPixelCode
+			? `font-family: ${fontFamilyMap.montserrat}`
+			: useUploadedFont
+				? ''
+				: `font-family: ${fontFamilyMap[selectedBuiltInFont]}`
 	);
 
 	const closeFontDropdown = () => {
@@ -114,6 +143,22 @@
 		selectedBuiltInFont = key;
 		fontDropdownOpen = false;
 	};
+
+	const setSelectedFontFileName = (
+		event: Event & { currentTarget: EventTarget & HTMLInputElement },
+		fieldName: FontInputName
+	) => {
+		selectedFontFileNames = {
+			...selectedFontFileNames,
+			[fieldName]: event.currentTarget.files?.[0]?.name ?? null
+		};
+	};
+
+	const selectedOrCurrentFontFileLabel = (
+		fieldName: FontInputName,
+		emptyLabel: string,
+		currentLabel: string
+	) => selectedFontFileNames[fieldName] ?? (typography.uploadedFont ? currentLabel : emptyLabel);
 
 	let {
 		open = $bindable(false),
@@ -218,7 +263,20 @@
 
 			<!-- Main Font Section -->
 			<div class="space-y-4">
-				<h3 class="text-foreground text-sm font-semibold">Main font</h3>
+				<div class="space-y-2">
+					<h3 class="text-foreground text-sm font-semibold">Main font</h3>
+					<div
+						class="border-border bg-muted/40 flex items-center justify-between gap-3 rounded-sm border px-3 py-2"
+					>
+						<span class="text-muted-fg text-xs font-medium uppercase">Active font</span>
+						<span
+							class="text-foreground min-w-0 truncate text-right text-sm font-semibold"
+							style={activeFontPreviewStyle}
+						>
+							{activeFontLabel}
+						</span>
+					</div>
+				</div>
 
 				{#if !useUploadedFont && !isPixelCode}
 					<FormControl label="Select font" class="gap-2 text-sm">
@@ -326,45 +384,136 @@
 						{#if fontUploadMode === 'variable'}
 							<FormControl label="Variable font file" class="gap-2 text-sm">
 								<input
+									id="uploaded-font-variable"
 									type="file"
 									name="uploaded_font_variable"
 									accept=".ttf,.otf,.woff,.woff2"
-									class="border-border bg-input text-foreground w-full rounded border px-2 py-2 text-xs"
+									class="sr-only"
+									onchange={(event) => setSelectedFontFileName(event, 'uploaded_font_variable')}
 								/>
+								<label
+									for="uploaded-font-variable"
+									class="border-border bg-input text-foreground hover:bg-muted/50 flex cursor-pointer items-center justify-between gap-3 rounded border px-3 py-2 text-xs transition-colors"
+								>
+									<span class="flex min-w-0 items-center gap-2">
+										<Upload class="text-muted-fg h-4 w-4 shrink-0" />
+										<span class="truncate">
+											{selectedOrCurrentFontFileLabel(
+												'uploaded_font_variable',
+												'Choose variable font',
+												'Keep current variable font'
+											)}
+										</span>
+									</span>
+									<span class="text-muted-fg shrink-0">Browse</span>
+								</label>
 							</FormControl>
 						{:else}
 							<div class="grid gap-3 sm:grid-cols-2">
 								<FormControl label="Regular (400)" class="gap-2 text-sm">
 									<input
+										id="uploaded-font-regular"
 										type="file"
 										name="uploaded_font_regular"
 										accept=".ttf,.otf,.woff,.woff2"
-										class="border-border bg-input text-foreground w-full rounded border px-2 py-2 text-xs"
+										class="sr-only"
+										onchange={(event) => setSelectedFontFileName(event, 'uploaded_font_regular')}
 									/>
+									<label
+										for="uploaded-font-regular"
+										class="border-border bg-input text-foreground hover:bg-muted/50 flex cursor-pointer items-center justify-between gap-3 rounded border px-3 py-2 text-xs transition-colors"
+									>
+										<span class="flex min-w-0 items-center gap-2">
+											<Upload class="text-muted-fg h-4 w-4 shrink-0" />
+											<span class="truncate">
+												{selectedOrCurrentFontFileLabel(
+													'uploaded_font_regular',
+													'Choose regular font',
+													'Keep current regular font'
+												)}
+											</span>
+										</span>
+										<span class="text-muted-fg shrink-0">Browse</span>
+									</label>
 								</FormControl>
 								<FormControl label="Italic (400)" class="gap-2 text-sm">
 									<input
+										id="uploaded-font-italic"
 										type="file"
 										name="uploaded_font_italic"
 										accept=".ttf,.otf,.woff,.woff2"
-										class="border-border bg-input text-foreground w-full rounded border px-2 py-2 text-xs"
+										class="sr-only"
+										onchange={(event) => setSelectedFontFileName(event, 'uploaded_font_italic')}
 									/>
+									<label
+										for="uploaded-font-italic"
+										class="border-border bg-input text-foreground hover:bg-muted/50 flex cursor-pointer items-center justify-between gap-3 rounded border px-3 py-2 text-xs transition-colors"
+									>
+										<span class="flex min-w-0 items-center gap-2">
+											<Upload class="text-muted-fg h-4 w-4 shrink-0" />
+											<span class="truncate">
+												{selectedOrCurrentFontFileLabel(
+													'uploaded_font_italic',
+													'Choose italic font',
+													'Keep current italic font'
+												)}
+											</span>
+										</span>
+										<span class="text-muted-fg shrink-0">Browse</span>
+									</label>
 								</FormControl>
 								<FormControl label="Bold (700)" class="gap-2 text-sm">
 									<input
+										id="uploaded-font-bold"
 										type="file"
 										name="uploaded_font_bold"
 										accept=".ttf,.otf,.woff,.woff2"
-										class="border-border bg-input text-foreground w-full rounded border px-2 py-2 text-xs"
+										class="sr-only"
+										onchange={(event) => setSelectedFontFileName(event, 'uploaded_font_bold')}
 									/>
+									<label
+										for="uploaded-font-bold"
+										class="border-border bg-input text-foreground hover:bg-muted/50 flex cursor-pointer items-center justify-between gap-3 rounded border px-3 py-2 text-xs transition-colors"
+									>
+										<span class="flex min-w-0 items-center gap-2">
+											<Upload class="text-muted-fg h-4 w-4 shrink-0" />
+											<span class="truncate">
+												{selectedOrCurrentFontFileLabel(
+													'uploaded_font_bold',
+													'Choose bold font',
+													'Keep current bold font'
+												)}
+											</span>
+										</span>
+										<span class="text-muted-fg shrink-0">Browse</span>
+									</label>
 								</FormControl>
 								<FormControl label="Bold Italic (700)" class="gap-2 text-sm">
 									<input
+										id="uploaded-font-bold-italic"
 										type="file"
 										name="uploaded_font_bold_italic"
 										accept=".ttf,.otf,.woff,.woff2"
-										class="border-border bg-input text-foreground w-full rounded border px-2 py-2 text-xs"
+										class="sr-only"
+										onchange={(event) =>
+											setSelectedFontFileName(event, 'uploaded_font_bold_italic')}
 									/>
+									<label
+										for="uploaded-font-bold-italic"
+										class="border-border bg-input text-foreground hover:bg-muted/50 flex cursor-pointer items-center justify-between gap-3 rounded border px-3 py-2 text-xs transition-colors"
+									>
+										<span class="flex min-w-0 items-center gap-2">
+											<Upload class="text-muted-fg h-4 w-4 shrink-0" />
+											<span class="truncate">
+												{selectedOrCurrentFontFileLabel(
+													'uploaded_font_bold_italic',
+													'Choose bold italic font',
+													'Keep current bold italic font'
+												)}
+											</span>
+										</span>
+										<span class="text-muted-fg shrink-0">Browse</span>
+									</label>
 								</FormControl>
 							</div>
 						{/if}
@@ -382,10 +531,6 @@
 			<div class="space-y-4">
 				<div>
 					<h3 class="text-foreground text-sm font-semibold">Organisation colors</h3>
-					<p class="text-muted-fg text-xs">
-						Saved in JSONB as theme values. Users in this organisation automatically get this
-						branding.
-					</p>
 				</div>
 
 				<div class="grid gap-4 lg:grid-cols-2">
