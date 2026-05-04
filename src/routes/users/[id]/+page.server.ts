@@ -139,12 +139,13 @@ export const load: PageServerLoad = async ({ params, cookies }) => {
 
 	// Check visibility for non-admins
 	if (!actor.isAdmin) {
+		const userAccountOrganisationIds = actor.homeOrganisationId ? [actor.homeOrganisationId] : [];
 		const visibleUserIds = new Set<string>([actor.userId]);
-		if (actor.accessibleOrganisationIds.length > 0) {
+		if (userAccountOrganisationIds.length > 0) {
 			const { data: scopedMembershipRows } = await adminClient
 				.from('organisation_users')
 				.select('user_id')
-				.in('organisation_id', actor.accessibleOrganisationIds);
+				.in('organisation_id', userAccountOrganisationIds);
 			for (const row of scopedMembershipRows ?? []) {
 				if (typeof row.user_id === 'string' && row.user_id.length > 0) {
 					visibleUserIds.add(row.user_id);

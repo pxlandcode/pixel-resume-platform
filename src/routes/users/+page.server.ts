@@ -164,12 +164,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const canManageLinkedTalent = canActorEditUsers(actor);
 	const canManageOrganisationAssignment = actor.isAdmin;
 	const allowedCreateRoles = getAllowedCreateRoles(actor);
+	const userAccountOrganisationIds =
+		actor.isAdmin || !actor.homeOrganisationId ? [] : [actor.homeOrganisationId];
 	const allOrganisationsPromise = actor.isAdmin
 		? adminClient.from('organisations').select('id, name').order('name', { ascending: true })
 		: null;
 	const filterOrganisationsPromise =
 		allOrganisationsPromise ??
-		(actor.accessibleOrganisationIds.length === 0
+		(userAccountOrganisationIds.length === 0
 			? Promise.resolve({
 					data: [] as Array<{ id: string; name: string }>,
 					error: null
@@ -177,7 +179,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			: adminClient
 					.from('organisations')
 					.select('id, name')
-					.in('id', actor.accessibleOrganisationIds)
+					.in('id', userAccountOrganisationIds)
 					.order('name', { ascending: true }));
 	const editableOrganisationsPromise =
 		allOrganisationsPromise ??
@@ -187,11 +189,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 		});
 
 	const visibleUserIdsForNonAdmin = new Set<string>([actor.userId]);
-	if (!actor.isAdmin && actor.accessibleOrganisationIds.length > 0) {
+	if (!actor.isAdmin && userAccountOrganisationIds.length > 0) {
 		const { data: scopedMembershipRows } = await adminClient
 			.from('organisation_users')
 			.select('user_id')
-			.in('organisation_id', actor.accessibleOrganisationIds);
+			.in('organisation_id', userAccountOrganisationIds);
 		for (const row of scopedMembershipRows ?? []) {
 			if (typeof row.user_id === 'string' && row.user_id.length > 0) {
 				visibleUserIdsForNonAdmin.add(row.user_id);
