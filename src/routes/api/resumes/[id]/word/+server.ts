@@ -324,7 +324,9 @@ export const GET: RequestHandler = async ({ params, url, cookies }) => {
 		data: anonymizedExport?.resumeData ?? resume.data
 	};
 	const exportPerson = anonymizedExport?.person ?? person;
-	const profileSkills = exportPerson?.techStack ?? [];
+	const profileSkills = Array.isArray(exportResume.data.techStack)
+		? exportResume.data.techStack
+		: (exportPerson?.techStack ?? []);
 	const translations: Record<string, { sv: string; en: string }> = {
 		frontend: { sv: 'Frontend', en: 'Frontend' },
 		backend: { sv: 'Backend', en: 'Backend' },

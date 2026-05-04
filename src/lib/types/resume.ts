@@ -85,6 +85,7 @@ export type ResumeData = {
 	experiences: ExperienceItem[];
 
 	// Skills section
+	techStack?: TechCategory[];
 	techniques: string[];
 	methods: string[];
 

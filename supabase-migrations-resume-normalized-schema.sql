@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS public.resume_basics (
 	title_en text NOT NULL DEFAULT '',
 	summary_sv text NOT NULL DEFAULT '',
 	summary_en text NOT NULL DEFAULT '',
+	tech_stack jsonb,
 	footer_note_sv text NOT NULL DEFAULT '',
 	footer_note_en text NOT NULL DEFAULT '',
 	created_at timestamptz NOT NULL DEFAULT now(),

@@ -134,6 +134,9 @@ const normalizeLegacyResumeData = (value: unknown): ResumeData | null => {
 		experiences: Array.isArray(source.experiences)
 			? (source.experiences as ResumeData['experiences'])
 			: [],
+		...(Array.isArray(source.techStack)
+			? { techStack: source.techStack as ResumeData['techStack'] }
+			: {}),
 		techniques: normalizeStringArray(source.techniques),
 		methods: normalizeStringArray(source.methods),
 		languages: Array.isArray(source.languages) ? (source.languages as ResumeData['languages']) : [],

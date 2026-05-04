@@ -92,7 +92,9 @@
 		};
 	});
 
-	let profileTechStack: TechCategory[] = initialProfileTechStack ?? person?.techStack ?? [];
+	let profileTechStack: TechCategory[] = Array.isArray(data.techStack)
+		? (data.techStack ?? [])
+		: (initialProfileTechStack ?? person?.techStack ?? []);
 	const profileHasSkills = $derived(profileTechStack.some((cat) => cat.skills.length > 0));
 	const normalize = (value: string) => value.trim().toLowerCase();
 	const profileSkillSet = $derived(
@@ -134,7 +136,9 @@
 	});
 
 	$effect(() => {
-		profileTechStack = initialProfileTechStack ?? person?.techStack ?? [];
+		profileTechStack = Array.isArray(data.techStack)
+			? (data.techStack ?? [])
+			: (initialProfileTechStack ?? person?.techStack ?? []);
 	});
 
 	// Helper to resolve localized text

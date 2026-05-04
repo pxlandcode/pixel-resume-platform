@@ -5,6 +5,7 @@ import type {
 	LabeledItem,
 	LocalizedText,
 	ResumeData,
+	TechCategory,
 	ExperienceLibraryItem
 } from '$lib/types/resume';
 
@@ -96,6 +97,24 @@ const normalizeStringArray = (value: unknown): string[] => {
 	}
 
 	return items;
+};
+
+const normalizeTechStack = (value: unknown): TechCategory[] | undefined => {
+	if (!Array.isArray(value)) return undefined;
+
+	return value
+		.map((category, index) => {
+			if (!category || typeof category !== 'object') return null;
+			const record = category as Record<string, unknown>;
+			const id = normalizeString(record.id) || `category-${index}`;
+			const name = normalizeString(record.name) || id;
+			return {
+				id,
+				name,
+				skills: normalizeStringArray(record.skills)
+			};
+		})
+		.filter((category): category is TechCategory => Boolean(category));
 };
 
 const asLanguagePair = (value: LocalizedText | null | undefined): LanguagePair => {
@@ -277,21 +296,35 @@ const saveSimpleSections = async (
 	const title = asLanguagePair(data.title);
 	const summary = asLanguagePair(data.summary);
 	const footerNote = asLanguagePair(data.footerNote ?? '');
+	const basicRow: {
+		resume_id: string;
+		name: string;
+		title_sv: string;
+		title_en: string;
+		summary_sv: string;
+		summary_en: string;
+		tech_stack?: TechCategory[];
+		footer_note_sv: string;
+		footer_note_en: string;
+		updated_at: string;
+	} = {
+		resume_id: resumeId,
+		name: normalizeString(data.name),
+		title_sv: title.sv,
+		title_en: title.en,
+		summary_sv: summary.sv,
+		summary_en: summary.en,
+		footer_note_sv: footerNote.sv,
+		footer_note_en: footerNote.en,
+		updated_at: new Date().toISOString()
+	};
+	if (Array.isArray(data.techStack)) {
+		basicRow.tech_stack = normalizeTechStack(data.techStack) ?? [];
+	}
 
-	const { error: basicError } = await adminClient.from('resume_basics').upsert(
-		{
-			resume_id: resumeId,
-			name: normalizeString(data.name),
-			title_sv: title.sv,
-			title_en: title.en,
-			summary_sv: summary.sv,
-			summary_en: summary.en,
-			footer_note_sv: footerNote.sv,
-			footer_note_en: footerNote.en,
-			updated_at: new Date().toISOString()
-		},
-		{ onConflict: 'resume_id' }
-	);
+	const { error: basicError } = await adminClient
+		.from('resume_basics')
+		.upsert(basicRow, { onConflict: 'resume_id' });
 	if (basicError) throw new Error(basicError.message);
 
 	const contacts = Array.isArray(data.contacts) ? data.contacts : [];
@@ -653,7 +686,9 @@ export const loadResumeData = async (
 	] = await Promise.all([
 		adminClient
 			.from('resume_basics')
-			.select('name, title_sv, title_en, summary_sv, summary_en, footer_note_sv, footer_note_en')
+			.select(
+				'name, title_sv, title_en, summary_sv, summary_en, tech_stack, footer_note_sv, footer_note_en'
+			)
 			.eq('resume_id', resumeId)
 			.maybeSingle(),
 		adminClient
@@ -854,8 +889,9 @@ export const loadResumeData = async (
 	const title = localizedFromColumns(basics?.title_sv, basics?.title_en);
 	const summary = localizedFromColumns(basics?.summary_sv, basics?.summary_en);
 	const footer = localizedFromColumns(basics?.footer_note_sv, basics?.footer_note_en);
+	const techStack = normalizeTechStack((basics as { tech_stack?: unknown } | null)?.tech_stack);
 
-	return {
+	const result: ResumeData = {
 		...emptyResumeData(name),
 		name,
 		title,
@@ -878,6 +914,10 @@ export const loadResumeData = async (
 			.filter(Boolean),
 		footerNote: footer
 	};
+	if (techStack) {
+		result.techStack = techStack;
+	}
+	return result;
 };
 
 export const saveResumeData = async (

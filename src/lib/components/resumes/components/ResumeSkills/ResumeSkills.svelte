@@ -2,11 +2,14 @@
 	import { TechStackEditor } from '$lib/components';
 	import type { Language } from '../utils';
 	import type { TechCategory } from '$lib/types/resume';
+	import { cloneTechCategoriesValue } from '$lib/resumes/clone';
+	import RotateCcw from 'lucide-svelte/icons/rotate-ccw';
 
 	let {
 		techniques = $bindable(),
 		methods = $bindable(),
 		profileTechStack = $bindable([] as TechCategory[]),
+		sourceTechStack = [],
 		isEditing = false,
 		language = 'sv',
 		organisationId = null
@@ -14,6 +17,7 @@
 		techniques: string[];
 		methods: string[];
 		profileTechStack?: TechCategory[];
+		sourceTechStack?: TechCategory[];
 		isEditing?: boolean;
 		language?: Language;
 		organisationId?: string | null;
@@ -45,6 +49,10 @@
 			.filter((cat) => (cat.skills ?? []).length > 0)
 			.map((cat) => ({ ...cat, name: labelFor(cat.name, language) }))
 	);
+
+	const syncFromProfile = () => {
+		profileTechStack = cloneTechCategoriesValue(sourceTechStack);
+	};
 </script>
 
 {#if isEditing || displayCategories().length > 0}
@@ -62,11 +70,23 @@
 		<div class="mt-4 space-y-4">
 			{#if isEditing}
 				<div class="rounded-xs border-border bg-muted border p-4">
-					<p class="text-secondary-text mb-2 text-sm font-semibold">
-						{language === 'sv'
-							? 'Teknikstack (ändra och dra/ släpp kategorier och skills)'
-							: 'Tech stack (drag/drop between categories)'}
-					</p>
+					<div class="mb-2 flex flex-wrap items-center justify-between gap-3">
+						<p class="text-secondary-text text-sm font-semibold">
+							{language === 'sv'
+								? 'Teknikstack (ändra och dra/ släpp kategorier och skills)'
+								: 'Tech stack (drag/drop between categories)'}
+						</p>
+						<button
+							type="button"
+							class="border-border text-muted-fg hover:bg-card hover:text-foreground inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50"
+							onclick={syncFromProfile}
+							disabled={(sourceTechStack ?? []).length === 0}
+							title={language === 'sv' ? 'Synka från huvudprofilen' : 'Sync from main profile'}
+						>
+							<RotateCcw size={13} />
+							{language === 'sv' ? 'Synka från profil' : 'Sync from profile'}
+						</button>
+					</div>
 					<TechStackEditor bind:categories={profileTechStack} {isEditing} {organisationId} />
 				</div>
 			{:else}

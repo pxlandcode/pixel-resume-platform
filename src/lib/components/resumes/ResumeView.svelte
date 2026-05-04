@@ -78,9 +78,28 @@
 		registerEditingDataGetter?: ((getter: () => ResumeData) => void) | null;
 	} = $props();
 
-	// eslint-disable-next-line svelte/prefer-writable-derived
-	let profileCategories = $state(cloneTechCategoriesValue(profileTechStack ?? person?.techStack));
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
+	const buildResumeCategories = (resumeData: ResumeData): TechCategory[] => {
+		if (Array.isArray(resumeData.techStack)) {
+			return cloneTechCategoriesValue(resumeData.techStack);
+		}
+
+		const categories = cloneTechCategoriesValue(profileTechStack ?? person?.techStack);
+		const profileSkillSet = new Set(
+			categories.flatMap((cat) => cat.skills ?? []).map((skill) => normalize(skill).toLowerCase())
+		);
+		const extraTechniques = (resumeData.techniques ?? []).filter(
+			(tech) => !profileSkillSet.has(normalize(tech).toLowerCase())
+		);
+		if (extraTechniques.length > 0) {
+			categories.push({ id: 'other', name: 'Other', skills: extraTechniques });
+		}
+		if ((resumeData.methods ?? []).length > 0) {
+			categories.push({ id: 'methods', name: 'Methods', skills: resumeData.methods });
+		}
+		return categories;
+	};
+	let profileCategories = $state(buildResumeCategories(data));
 	const serializeLocalizedText = (value: LocalizedText | null | undefined): string => {
 		if (!value) return '';
 		if (typeof value === 'string') return normalize(value);
@@ -171,7 +190,8 @@
 	);
 
 	$effect(() => {
-		profileCategories = cloneTechCategoriesValue(profileTechStack ?? person?.techStack);
+		if (isEditing) return;
+		profileCategories = buildResumeCategories(data);
 	});
 
 	// Local editing state
@@ -189,6 +209,7 @@
 	$effect(() => {
 		if (!isEditing || !editingDataSeed || editingDataSeedKey === appliedEditingSeedKey) return;
 		editingData = cloneResumeData(editingDataSeed);
+		profileCategories = buildResumeCategories(editingDataSeed);
 		appliedEditingSeedKey = editingDataSeedKey;
 	});
 
@@ -197,6 +218,7 @@
 		return {
 			...snapshot,
 			name: displayName,
+			techStack: cloneTechCategoriesValue(profileCategories),
 			techniques: profileCategories.flatMap((cat) => cat.skills ?? []),
 			methods: []
 		};
@@ -922,6 +944,7 @@
 		bind:techniques={editingData.techniques}
 		bind:methods={editingData.methods}
 		bind:profileTechStack={profileCategories}
+		sourceTechStack={profileTechStack ?? person?.techStack ?? []}
 		{isEditing}
 		language={componentLanguage}
 		organisationId={techCatalogOrganisationId}
