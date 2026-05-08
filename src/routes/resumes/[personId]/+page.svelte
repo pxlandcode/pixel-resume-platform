@@ -318,10 +318,6 @@
 		})
 	);
 
-	const VISIBLE_RESUME_COUNT = 3;
-	const visibleResumes = $derived(sortedResumeList.slice(0, VISIBLE_RESUME_COUNT));
-	const hasMoreResumes = $derived(sortedResumeList.length > VISIBLE_RESUME_COUNT);
-
 	$effect(() => {
 		resetProfileEditor();
 		resumeList = [...(resumes ?? [])];
@@ -709,8 +705,6 @@
 	};
 
 	const clearDrawerOnlyImportState = () => {
-		importAbortController?.abort();
-		importAbortController = null;
 		selectedImportFile = null;
 		loading(false);
 	};
@@ -812,15 +806,14 @@
 		const controller = new AbortController();
 		importAbortController = controller;
 
-		const response = await fetch(`${base}/.netlify/functions/resume-import-from-pdf-background`, {
-			method: 'POST',
-			headers: {
-				'content-type': 'application/json'
-			},
-			body: JSON.stringify({ job_id: jobId }),
-			credentials: 'include',
-			signal: controller.signal
-		});
+		const response = await fetch(
+			resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]/run', { jobId }),
+			{
+				method: 'POST',
+				credentials: 'include',
+				signal: controller.signal
+			}
+		);
 
 		if (!response.ok) {
 			const message = await getErrorMessageFromResponse(
@@ -844,6 +837,8 @@
 		importSourceFilename = null;
 		selectedImportFile = null;
 		destroyUppy();
+		await invalidateAll();
+		await tick();
 		// Signal success to the store - this will show the success indicator in +layout.svelte
 		pdfImportStore.setSuccess(resumeId);
 	};
@@ -931,24 +926,11 @@
 		}
 	};
 
-	const runPdfImport = async (sourceFile: ImportFile) => {
+	const runPdfImportFile = async (file: File) => {
 		if (!profile || !canEdit || isImportBusy) return;
-		const blob = sourceFile.data as Blob | undefined;
-		if (!blob) {
-			importError = 'Could not read selected PDF file.';
-			return;
-		}
-
-		const file =
-			blob instanceof File
-				? blob
-				: new File([blob], sourceFile.name || 'resume.pdf', {
-						type: blob.type || 'application/pdf'
-					});
-
 		importError = null;
 		importJobId = null;
-		importSourceFilename = file.name || sourceFile.name || 'resume.pdf';
+		importSourceFilename = file.name || 'resume.pdf';
 		loading(true, 'Starting PDF import...');
 
 		try {
@@ -979,6 +961,24 @@
 			importAbortController = null;
 			loading(false);
 		}
+	};
+
+	const runPdfImport = async (sourceFile: ImportFile) => {
+		if (!profile || !canEdit || isImportBusy) return;
+		const blob = sourceFile.data as Blob | undefined;
+		if (!blob) {
+			importError = 'Could not read selected PDF file.';
+			return;
+		}
+
+		const file =
+			blob instanceof File
+				? blob
+				: new File([blob], sourceFile.name || 'resume.pdf', {
+						type: blob.type || 'application/pdf'
+					});
+
+		await runPdfImportFile(file);
 	};
 
 	const loadUppyModules = async () => {
@@ -1041,6 +1041,25 @@
 		await runPdfImport(selectedImportFile);
 	};
 
+	const importDroppedPdf = async (file: File) => {
+		if (!profile || !canEdit || isImportBusy) return;
+		if (!(file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
+			importError = 'Invalid file. Please upload a PDF up to 10MB.';
+			importDrawerOpen = true;
+			return;
+		}
+		if (file.size > 10 * 1024 * 1024) {
+			importError = 'File is too large. Please upload a PDF up to 10MB.';
+			importDrawerOpen = true;
+			return;
+		}
+
+		selectedImportFile = null;
+		importDrawerOpen = true;
+		await tick();
+		await runPdfImportFile(file);
+	};
+
 	const openImportDrawer = async () => {
 		if (!profile || !canEdit) return;
 		if (!isBackgroundImporting && !isKickoffImporting) {
@@ -1061,17 +1080,8 @@
 	};
 
 	const requestImportDrawerClose = (): boolean => {
-		if (isKickoffImporting) {
-			showCloseConfirm = true;
-			pendingCloseAction = () => {
-				importAbortController?.abort();
-				importDrawerOpen = false;
-			};
-			return false;
-		}
-
-		if (isBackgroundImporting) {
-			// Just close - import continues in background
+		if (isImportBusy) {
+			// Just close - import continues.
 			return true;
 		}
 
@@ -1138,7 +1148,7 @@
 		// (not on initial page load when drawer starts closed)
 		if (!importDrawerWasOpened) return;
 
-		if (isBackgroundImporting) {
+		if (isImportBusy) {
 			clearDrawerOnlyImportState();
 			destroyUppy();
 			return;
@@ -1250,9 +1260,7 @@
 					/>
 
 					<TalentProfileResumesSection
-						{visibleResumes}
-						totalResumeCount={sortedResumeList.length}
-						{hasMoreResumes}
+						resumes={sortedResumeList}
 						{canEdit}
 						{dragOverIndex}
 						draggedResumeId={draggedResume?.id ?? null}
@@ -1261,6 +1269,7 @@
 						{downloadLang}
 						{downloadAnonymized}
 						onOpenImportDrawer={openImportDrawer}
+						onDropImportPdf={importDroppedPdf}
 						onAddResume={addResume}
 						onOpenResume={openResume}
 						onDragStartResume={handleDragStart}

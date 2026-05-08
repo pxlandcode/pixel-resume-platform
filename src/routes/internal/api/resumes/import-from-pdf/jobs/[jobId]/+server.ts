@@ -6,7 +6,7 @@ import {
 } from '$lib/server/supabase';
 import { getResumeEditPermissions } from '$lib/server/resumes/permissions';
 
-const STALE_PROCESSING_MS = 15 * 60 * 1000;
+const STALE_PROCESSING_MS = 5 * 60 * 1000;
 
 type JobStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
 

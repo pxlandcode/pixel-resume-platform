@@ -79,6 +79,29 @@
 	} = $props();
 
 	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
+	const normalizeCategoryKey = (value: string) => normalize(value).toLowerCase();
+	const appendSkillsToCategory = (categories: TechCategory[], category: TechCategory) => {
+		const categoryKey = normalizeCategoryKey(category.id || category.name);
+		const existing = categories.find(
+			(item) => normalizeCategoryKey(item.id || item.name) === categoryKey
+		);
+		if (!existing) {
+			categories.push(category);
+			return;
+		}
+
+		const existingSkills = new Set(
+			(existing.skills ?? []).map((skill) => normalize(skill).toLowerCase())
+		);
+		const nextSkills = [...(existing.skills ?? [])];
+		for (const skill of category.skills ?? []) {
+			const skillKey = normalize(skill).toLowerCase();
+			if (!skillKey || existingSkills.has(skillKey)) continue;
+			existingSkills.add(skillKey);
+			nextSkills.push(skill);
+		}
+		existing.skills = nextSkills;
+	};
 	const buildResumeCategories = (resumeData: ResumeData): TechCategory[] => {
 		if (Array.isArray(resumeData.techStack)) {
 			return cloneTechCategoriesValue(resumeData.techStack);
@@ -92,10 +115,14 @@
 			(tech) => !profileSkillSet.has(normalize(tech).toLowerCase())
 		);
 		if (extraTechniques.length > 0) {
-			categories.push({ id: 'other', name: 'Other', skills: extraTechniques });
+			appendSkillsToCategory(categories, { id: 'other', name: 'Other', skills: extraTechniques });
 		}
 		if ((resumeData.methods ?? []).length > 0) {
-			categories.push({ id: 'methods', name: 'Methods', skills: resumeData.methods });
+			appendSkillsToCategory(categories, {
+				id: 'methods',
+				name: 'Methods',
+				skills: resumeData.methods
+			});
 		}
 		return categories;
 	};
