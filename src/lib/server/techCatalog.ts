@@ -15,6 +15,8 @@ import type {
 
 type TechCategoryRow = {
 	id: string;
+	scope: string | null;
+	organisation_id: string | null;
 	name: string | null;
 	sort_order: number | null;
 	is_active: boolean | null;
@@ -40,6 +42,13 @@ type OrgItemOverrideRow = {
 	is_hidden: boolean | null;
 };
 
+type OrgCategoryOverrideRow = {
+	organisation_id: string | null;
+	category_id: string | null;
+	sort_order: number | null;
+	is_hidden: boolean | null;
+};
+
 type MatchableTechItem = {
 	id: string;
 	slug: string;
@@ -53,7 +62,7 @@ export type TechCatalogMatchState = {
 	excludedGlobalItemIdsByOrganisationId: Map<string, Set<string>>;
 };
 
-const CATEGORY_SELECT = 'id, name, sort_order, is_active';
+const CATEGORY_SELECT = 'id, scope, organisation_id, name, sort_order, is_active';
 const ITEM_SELECT =
 	'id, scope, organisation_id, category_id, slug, label, normalized_label, aliases, sort_order, is_active';
 const SPACE_RE = /\s+/g;
@@ -94,11 +103,23 @@ type OrgItemOverride = {
 	isHidden: boolean;
 };
 
+type OrgCategoryOverride = {
+	sortOrder: number | null;
+	isHidden: boolean;
+};
+
 const isOrganisationManagementItemHidden = (item: TechCatalogItem, override?: OrgItemOverride) =>
 	Boolean(override?.isHidden || (item.scope === 'organisation' && !item.isActive));
 
+const isOrganisationManagementCategoryHidden = (
+	category: TechCatalogCategory,
+	override?: OrgCategoryOverride
+) => Boolean(override?.isHidden || (category.scope === 'organisation' && !category.isActive));
+
 const mapCategoryRow = (row: TechCategoryRow): TechCatalogCategory => ({
 	id: row.id,
+	scope: row.scope === 'organisation' ? 'organisation' : 'global',
+	organisationId: row.organisation_id ?? null,
 	name: (row.name ?? '').trim(),
 	sortOrder: row.sort_order ?? 0,
 	isActive: Boolean(row.is_active ?? false)
@@ -138,11 +159,21 @@ export const parseTechCatalogAliasesInput = (value: string) =>
 export const serializeTechCatalogAliasesInput = (aliases: string[]) =>
 	uniqueCaseInsensitive(aliases).join(', ');
 
-const loadCategories = async (
-	adminClient: SupabaseClient,
-	includeInactive = false
-): Promise<TechCatalogCategory[]> => {
-	const query = adminClient.from('tech_categories').select(CATEGORY_SELECT);
+const loadCategories = async (payload: {
+	adminClient: SupabaseClient;
+	includeInactive?: boolean;
+	scope?: 'global' | 'organisation';
+	organisationId?: string | null;
+}): Promise<TechCatalogCategory[]> => {
+	const { adminClient, includeInactive = false, scope, organisationId = null } = payload;
+	let query = adminClient.from('tech_categories').select(CATEGORY_SELECT);
+	if (scope) query = query.eq('scope', scope);
+	if (scope === 'organisation' && organisationId) {
+		query = query.eq('organisation_id', organisationId);
+	}
+	if (scope === 'global') {
+		query = query.is('organisation_id', null);
+	}
 	const result = includeInactive
 		? await query.order('sort_order', { ascending: true }).order('name', { ascending: true })
 		: await query
@@ -155,6 +186,26 @@ const loadCategories = async (
 	}
 
 	return ((result.data ?? []) as TechCategoryRow[]).map(mapCategoryRow).sort(categorySort);
+};
+
+const loadScopedCategories = async (payload: {
+	adminClient: SupabaseClient;
+	includeInactive?: boolean;
+	organisationId?: string | null;
+}) => {
+	const globalCategories = await loadCategories({
+		adminClient: payload.adminClient,
+		includeInactive: payload.includeInactive,
+		scope: 'global'
+	});
+	if (!payload.organisationId) return globalCategories;
+	const organisationCategories = await loadCategories({
+		adminClient: payload.adminClient,
+		includeInactive: payload.includeInactive,
+		scope: 'organisation',
+		organisationId: payload.organisationId
+	});
+	return [...globalCategories, ...organisationCategories].sort(categorySort);
 };
 
 const loadItems = async (payload: {
@@ -219,10 +270,53 @@ const loadOrgItemOverrideRows = async (adminClient: SupabaseClient) => {
 	return (result.data ?? []) as OrgItemOverrideRow[];
 };
 
+const loadOrgCategoryOverrides = async (adminClient: SupabaseClient, organisationId: string) => {
+	const result = await adminClient
+		.from('organisation_tech_catalog_category_overrides')
+		.select('category_id, sort_order, is_hidden')
+		.eq('organisation_id', organisationId);
+
+	if (result.error) {
+		throw new Error(result.error.message);
+	}
+
+	return new Map(
+		((result.data ?? []) as OrgCategoryOverrideRow[])
+			.map((row) => {
+				if (!row.category_id) return null;
+				return [
+					row.category_id,
+					{
+						sortOrder: row.sort_order ?? null,
+						isHidden: Boolean(row.is_hidden ?? false)
+					} satisfies OrgCategoryOverride
+				] as const;
+			})
+			.filter((entry): entry is readonly [string, OrgCategoryOverride] => entry !== null)
+	);
+};
+
+const loadOrgCategoryOverrideRows = async (adminClient: SupabaseClient) => {
+	const result = await adminClient
+		.from('organisation_tech_catalog_category_overrides')
+		.select('organisation_id, category_id, sort_order, is_hidden');
+
+	if (result.error) {
+		throw new Error(result.error.message);
+	}
+
+	return (result.data ?? []) as OrgCategoryOverrideRow[];
+};
+
 const resolveEffectiveSortOrder = (
 	item: Pick<TechCatalogItem, 'sortOrder'>,
 	override?: OrgItemOverride
 ) => override?.sortOrder ?? item.sortOrder;
+
+const resolveEffectiveCategorySortOrder = (
+	category: Pick<TechCatalogCategory, 'sortOrder'>,
+	override?: OrgCategoryOverride
+) => override?.sortOrder ?? category.sortOrder;
 
 const buildEffectiveOrganisationItems = (payload: {
 	globalItems: TechCatalogItem[];
@@ -400,21 +494,42 @@ export const loadEffectiveTechCatalog = async (payload: {
 		requestedMode,
 		requestedOrganisationId: payload.requestedOrganisationId
 	});
-	const [categories, globalItems, orgItems, overridesByItemId] = await Promise.all([
-		loadCategories(payload.adminClient, false),
-		loadItems({ adminClient: payload.adminClient, scope: 'global', includeInactive: false }),
-		scope.mode === 'organisation' && scope.organisationId
-			? loadItems({
-					adminClient: payload.adminClient,
-					scope: 'organisation',
-					organisationId: scope.organisationId,
-					includeInactive: false
-				})
-			: Promise.resolve([] as TechCatalogItem[]),
-		scope.mode === 'organisation' && scope.organisationId
-			? loadOrgItemOverrides(payload.adminClient, scope.organisationId)
-			: Promise.resolve(new Map<string, OrgItemOverride>())
-	]);
+	const [categories, globalItems, orgItems, overridesByItemId, overridesByCategoryId] =
+		await Promise.all([
+			loadScopedCategories({
+				adminClient: payload.adminClient,
+				includeInactive: false,
+				organisationId: scope.mode === 'organisation' ? scope.organisationId : null
+			}),
+			loadItems({ adminClient: payload.adminClient, scope: 'global', includeInactive: false }),
+			scope.mode === 'organisation' && scope.organisationId
+				? loadItems({
+						adminClient: payload.adminClient,
+						scope: 'organisation',
+						organisationId: scope.organisationId,
+						includeInactive: false
+					})
+				: Promise.resolve([] as TechCatalogItem[]),
+			scope.mode === 'organisation' && scope.organisationId
+				? loadOrgItemOverrides(payload.adminClient, scope.organisationId)
+				: Promise.resolve(new Map<string, OrgItemOverride>()),
+			scope.mode === 'organisation' && scope.organisationId
+				? loadOrgCategoryOverrides(payload.adminClient, scope.organisationId)
+				: Promise.resolve(new Map<string, OrgCategoryOverride>())
+		]);
+
+	const visibleCategories =
+		scope.mode === 'organisation'
+			? categories
+					.filter((category) => !overridesByCategoryId.get(category.id)?.isHidden)
+					.map((category) => ({
+						...category,
+						sortOrder: resolveEffectiveCategorySortOrder(
+							category,
+							overridesByCategoryId.get(category.id)
+						)
+					}))
+			: categories;
 
 	const effectiveItems =
 		scope.mode === 'organisation'
@@ -432,7 +547,7 @@ export const loadEffectiveTechCatalog = async (payload: {
 		itemsByCategoryId.set(item.categoryId, categoryItems);
 	}
 
-	const effectiveCategories: EffectiveTechCatalogCategory[] = categories
+	const effectiveCategories: EffectiveTechCatalogCategory[] = visibleCategories
 		.sort(categorySort)
 		.map((category) => ({
 			...category,
@@ -469,24 +584,45 @@ export const loadTechCatalogManagementPayload = async (payload: {
 		throw new Error('You are not allowed to manage that organisation catalog.');
 	}
 
-	const [categories, globalItems, organisationItems, overridesByItemId] = await Promise.all([
-		loadCategories(payload.adminClient, true),
-		loadItems({ adminClient: payload.adminClient, scope: 'global', includeInactive: true }),
-		organisationId
-			? loadItems({
-					adminClient: payload.adminClient,
-					scope: 'organisation',
-					organisationId,
-					includeInactive: true
+	const [categories, globalItems, organisationItems, overridesByItemId, overridesByCategoryId] =
+		await Promise.all([
+			loadScopedCategories({
+				adminClient: payload.adminClient,
+				includeInactive: true,
+				organisationId
+			}),
+			loadItems({ adminClient: payload.adminClient, scope: 'global', includeInactive: true }),
+			organisationId
+				? loadItems({
+						adminClient: payload.adminClient,
+						scope: 'organisation',
+						organisationId,
+						includeInactive: true
+					})
+				: Promise.resolve([] as TechCatalogItem[]),
+			organisationId
+				? loadOrgItemOverrides(payload.adminClient, organisationId)
+				: Promise.resolve(new Map<string, OrgItemOverride>()),
+			organisationId
+				? loadOrgCategoryOverrides(payload.adminClient, organisationId)
+				: Promise.resolve(new Map<string, OrgCategoryOverride>())
+		]);
+
+	const managementCategories = organisationId
+		? categories
+				.map((category) => {
+					const override = overridesByCategoryId.get(category.id);
+					return {
+						...category,
+						sortOrder: resolveEffectiveCategorySortOrder(category, override),
+						excludedByOrganisation: isOrganisationManagementCategoryHidden(category, override)
+					};
 				})
-			: Promise.resolve([] as TechCatalogItem[]),
-		organisationId
-			? loadOrgItemOverrides(payload.adminClient, organisationId)
-			: Promise.resolve(new Map<string, OrgItemOverride>())
-	]);
+				.sort(categorySort)
+		: categories.filter((category) => category.scope === 'global').sort(categorySort);
 
 	return {
-		categories,
+		categories: managementCategories,
 		globalItems,
 		organisationItems: organisationId
 			? buildOrganisationManagementItems({
@@ -501,9 +637,15 @@ export const loadTechCatalogManagementPayload = async (payload: {
 export const resolveUniqueTechCategoryId = async (payload: {
 	adminClient: SupabaseClient;
 	name: string;
+	scope?: 'global' | 'organisation';
+	organisationId?: string | null;
 	existingId?: string | null;
 }) => {
-	const baseId = slugifyTechCatalogText(payload.name);
+	const baseSlug = slugifyTechCatalogText(payload.name);
+	const baseId =
+		payload.scope === 'organisation' && payload.organisationId
+			? `${baseSlug}-${payload.organisationId.slice(0, 8)}`
+			: baseSlug;
 	let candidate = baseId;
 	let suffix = 2;
 
@@ -569,6 +711,7 @@ export const loadTechCatalogMatchState = async (
 		loadItems({ adminClient, includeInactive: false }),
 		loadOrgItemOverrideRows(adminClient)
 	]);
+	const categoryOverrides = await loadOrgCategoryOverrideRows(adminClient);
 
 	const hiddenItemIdsByOrganisationId = new Map<string, Set<string>>();
 	for (const row of overrides) {
@@ -578,6 +721,16 @@ export const loadTechCatalogMatchState = async (
 		const set = hiddenItemIdsByOrganisationId.get(organisationId) ?? new Set<string>();
 		set.add(itemId);
 		hiddenItemIdsByOrganisationId.set(organisationId, set);
+	}
+
+	const hiddenCategoryIdsByOrganisationId = new Map<string, Set<string>>();
+	for (const row of categoryOverrides) {
+		const organisationId = row.organisation_id ?? null;
+		const categoryId = row.category_id ?? null;
+		if (!organisationId || !categoryId || !row.is_hidden) continue;
+		const set = hiddenCategoryIdsByOrganisationId.get(organisationId) ?? new Set<string>();
+		set.add(categoryId);
+		hiddenCategoryIdsByOrganisationId.set(organisationId, set);
 	}
 
 	const globalItems: MatchableTechItem[] = [];
@@ -590,7 +743,12 @@ export const loadTechCatalogMatchState = async (
 			continue;
 		}
 		if (!item.organisationId) continue;
-		if (hiddenItemIdsByOrganisationId.get(item.organisationId)?.has(item.id)) continue;
+		if (
+			hiddenItemIdsByOrganisationId.get(item.organisationId)?.has(item.id) ||
+			hiddenCategoryIdsByOrganisationId.get(item.organisationId)?.has(item.categoryId)
+		) {
+			continue;
+		}
 		const orgItems = orgItemsByOrganisationId.get(item.organisationId) ?? [];
 		orgItems.push(matchable);
 		orgItemsByOrganisationId.set(item.organisationId, orgItems);
@@ -604,6 +762,17 @@ export const loadTechCatalogMatchState = async (
 		);
 		if (hiddenGlobalItemIds.length === 0) continue;
 		excludedGlobalItemIdsByOrganisationId.set(organisationId, new Set(hiddenGlobalItemIds));
+	}
+	for (const [organisationId, hiddenCategoryIds] of hiddenCategoryIdsByOrganisationId.entries()) {
+		const excludedSet =
+			excludedGlobalItemIdsByOrganisationId.get(organisationId) ?? new Set<string>();
+		for (const item of items) {
+			if (item.scope !== 'global' || !hiddenCategoryIds.has(item.categoryId)) continue;
+			excludedSet.add(item.id);
+		}
+		if (excludedSet.size > 0) {
+			excludedGlobalItemIdsByOrganisationId.set(organisationId, excludedSet);
+		}
 	}
 
 	return {

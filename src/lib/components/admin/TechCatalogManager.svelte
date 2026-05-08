@@ -80,17 +80,11 @@
 	let organisationError = $state<string | null>(null);
 	let reorderPendingKey = $state<string | null>(null);
 
-	const managementCategories = $derived(
-		(
-			(globalSnapshot?.management?.categories ??
-				organisationSnapshot?.management?.categories ??
-				[]) as TechCatalogManagementCategory[]
-		)
-			.slice()
-			.sort(sortCategories)
-	);
 	const globalCategories = $derived(
 		(globalSnapshot?.management?.categories ?? []) as TechCatalogManagementCategory[]
+	);
+	const organisationCategories = $derived(
+		(organisationSnapshot?.management?.categories ?? []) as TechCatalogManagementCategory[]
 	);
 	const globalItems = $derived(
 		(globalSnapshot?.management?.globalItems ?? []) as TechCatalogManagementItem[]
@@ -103,7 +97,9 @@
 		buildCategoryCards(globalCategories, globalItems, { includeEmpty: true })
 	);
 	const organisationCategoryCards = $derived.by(() =>
-		buildCategoryCards(managementCategories, organisationItems, { includeEmpty: true })
+		buildCategoryCards(organisationCategories.slice().sort(sortCategories), organisationItems, {
+			includeEmpty: true
+		})
 	);
 
 	const loadGlobalSnapshot = async (force = false) => {
@@ -283,6 +279,29 @@
 		}
 	};
 
+	const reorderOrganisationCategories = async (categoryIds: string[]) => {
+		if (!selectedOrganisationId) return false;
+		reorderPendingKey = 'organisation-categories';
+		try {
+			const formData = new FormData();
+			formData.set('tech_context_id', selectedOrganisationId);
+			formData.set('organisation_id', selectedOrganisationId);
+			formData.set('category_ids', JSON.stringify(categoryIds));
+			const result = await postAction('reorderOrganisationTechCategories', formData);
+			await reloadSnapshots();
+			showToast('success', result.message ?? 'Organisation category order updated.');
+			return true;
+		} catch (error) {
+			showToast(
+				'error',
+				error instanceof Error ? error.message : 'Could not reorder organisation categories.'
+			);
+			return false;
+		} finally {
+			reorderPendingKey = null;
+		}
+	};
+
 	$effect(() => {
 		if (formTechContextId && formTechContextId !== selectedOrganisationId) {
 			selectedOrganisationId = formTechContextId;
@@ -327,6 +346,7 @@
 			error={organisationError}
 			categoryCards={organisationCategoryCards}
 			{createSubmitHandler}
+			onReorderCategories={reorderOrganisationCategories}
 			onReorderItems={reorderOrganisationItems}
 		/>
 	{/if}
