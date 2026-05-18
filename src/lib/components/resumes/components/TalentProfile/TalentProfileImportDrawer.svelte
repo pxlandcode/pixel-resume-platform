@@ -40,7 +40,7 @@
 	{beforeClose}
 >
 	<div class="flex min-h-0 flex-1 flex-col">
-		{#if isBackgroundImporting}
+		{#if isImportBusy}
 			<div class="flex flex-1 flex-col items-center justify-center py-8">
 				<div class="bg-primary/10 mb-4 flex h-16 w-16 items-center justify-center rounded-full">
 					<Loader2 size={32} class="text-primary animate-spin" />
@@ -50,7 +50,7 @@
 					<p class="text-muted-fg text-sm">{importSourceFilename}</p>
 				{/if}
 				<p class="text-muted-fg mt-4 text-xs">
-					You can close this drawer. The import will continue in the background.
+					You can close this drawer. The import will continue.
 				</p>
 			</div>
 		{:else}

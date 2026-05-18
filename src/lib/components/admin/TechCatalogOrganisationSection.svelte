@@ -33,6 +33,7 @@
 		error?: string | null;
 		categoryCards?: CategoryCard[];
 		createSubmitHandler: TechCatalogSubmitHandlerFactory;
+		onReorderCategories: (categoryIds: string[]) => Promise<boolean>;
 		onReorderItems: (categoryId: string, itemIds: string[]) => Promise<boolean>;
 	};
 
@@ -44,25 +45,36 @@
 		error = null,
 		categoryCards = [],
 		createSubmitHandler,
+		onReorderCategories,
 		onReorderItems
 	}: Props = $props();
 
 	let panelOpen = $state(false);
 	let openCategoryIds = $state<string[]>([]);
 	let expandedItemIds = $state<string[]>([]);
+	let showNewCategoryForm = $state(false);
 	let addingItemCategoryId = $state<string | null>(null);
 
+	let draggedCategoryId = $state<string | null>(null);
 	let draggedItem = $state<{ categoryId: string; itemId: string } | null>(null);
+	let dragOverCategoryId = $state<string | null>(null);
 	let dragOverItemId = $state<string | null>(null);
+	let optimisticCategoryOrder = $state<string[] | null>(null);
 	let optimisticItemOrdersByCategoryId = $state<Record<string, string[]>>({});
 
 	let previousSelectedOrganisationId = $state('');
 
 	const orderedCategoryCards = $derived.by(() =>
-		categoryCards.map((category) => ({
-			...category,
-			items: applyOrderedIds(category.items, optimisticItemOrdersByCategoryId[category.id] ?? null)
-		}))
+		applyOrderedIds(
+			categoryCards.map((category) => ({
+				...category,
+				items: applyOrderedIds(
+					category.items,
+					optimisticItemOrdersByCategoryId[category.id] ?? null
+				)
+			})),
+			optimisticCategoryOrder
+		)
 	);
 
 	const selectedOrganisationName = $derived(
@@ -97,8 +109,30 @@
 		expandedItemIds = toggleCollection(expandedItemIds, itemId);
 	};
 
+	const isCategoryHidden = (category: CategoryCard) =>
+		Boolean(
+			category.excludedByOrganisation || (category.scope === 'organisation' && !category.isActive)
+		);
+
 	const isItemHidden = (item: CategoryCard['items'][number]) =>
 		Boolean(item.excludedByOrganisation || (item.scope === 'organisation' && !item.isActive));
+
+	const handleCategoryDrop = async (targetCategoryId: string) => {
+		if (!draggedCategoryId || draggedCategoryId === targetCategoryId) return;
+		const previousOrder = optimisticCategoryOrder;
+		const nextIds = moveWithinList(
+			orderedCategoryCards.map((category) => category.id),
+			draggedCategoryId,
+			targetCategoryId
+		);
+		draggedCategoryId = null;
+		dragOverCategoryId = null;
+		optimisticCategoryOrder = nextIds;
+		const saved = await onReorderCategories(nextIds);
+		if (!saved) {
+			optimisticCategoryOrder = previousOrder;
+		}
+	};
 
 	const handleItemDrop = async (categoryId: string, targetItemId: string) => {
 		if (!draggedItem || draggedItem.categoryId !== categoryId) return;
@@ -134,6 +168,19 @@
 
 	const visibilitySubmitHandler = createSubmitHandler();
 
+	const newCategorySubmitHandler = createSubmitHandler(({ actionType, submittedCategoryId }) => {
+		if (actionType === 'upsertOrganisationTechCategory' && !submittedCategoryId) {
+			showNewCategoryForm = false;
+		}
+	});
+
+	const editCategorySubmitHandler = (categoryId: string) =>
+		createSubmitHandler(({ actionType, submittedCategoryId }) => {
+			if (actionType === 'upsertOrganisationTechCategory' && submittedCategoryId === categoryId) {
+				openCategoryIds = openCategoryIds.filter((entry) => entry !== categoryId);
+			}
+		});
+
 	const createItemSubmitHandler = (categoryId: string) =>
 		createSubmitHandler(({ actionType, submittedCategoryId, submittedItemId }) => {
 			if (
@@ -164,7 +211,9 @@
 			previousSelectedOrganisationId = selectedOrganisationId;
 			openCategoryIds = [];
 			expandedItemIds = [];
+			showNewCategoryForm = false;
 			addingItemCategoryId = null;
+			optimisticCategoryOrder = null;
 			optimisticItemOrdersByCategoryId = {};
 		}
 	});
@@ -177,6 +226,20 @@
 		}
 		if (addingItemCategoryId && !categoryIds.has(addingItemCategoryId)) {
 			addingItemCategoryId = null;
+		}
+		if (optimisticCategoryOrder) {
+			const nextOptimisticCategoryOrder = optimisticCategoryOrder.filter((categoryId) =>
+				categoryIds.has(categoryId)
+			);
+			const normalizedOptimisticCategoryOrder =
+				nextOptimisticCategoryOrder.length > 0 ? nextOptimisticCategoryOrder : null;
+			if (
+				(normalizedOptimisticCategoryOrder === null && optimisticCategoryOrder !== null) ||
+				(normalizedOptimisticCategoryOrder !== null &&
+					!areStringArraysEqual(optimisticCategoryOrder, normalizedOptimisticCategoryOrder))
+			) {
+				optimisticCategoryOrder = normalizedOptimisticCategoryOrder;
+			}
 		}
 		const nextOptimisticItemOrdersByCategoryId = Object.fromEntries(
 			Object.entries(optimisticItemOrdersByCategoryId).filter(([categoryId]) =>
@@ -207,12 +270,12 @@
 		<div>
 			<h3 class="text-foreground text-lg font-semibold">Organisation catalog</h3>
 			<p class="text-muted-fg mt-1 text-sm">
-				Manage one merged list per category. Global technologies can be hidden, and
-				organisation-specific technologies can be edited, hidden, or deleted.
+				Manage organisation categories and one merged technology list per category. Global
+				categories and technologies can be hidden.
 			</p>
 		</div>
-		{#if canSelectOrganisation && organisationDropdownOptions.length > 1}
-			<div class="w-full sm:w-auto sm:min-w-[260px]">
+		<div class="w-full sm:w-auto sm:min-w-[260px]">
+			{#if canSelectOrganisation && organisationDropdownOptions.length > 1}
 				<Dropdown
 					label="Organisation"
 					bind:value={selectedOrganisationId}
@@ -222,8 +285,8 @@
 					searchPlaceholder="Search organisations"
 					class="w-full"
 				/>
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</div>
 
 	{#if !selectedOrganisationId}
@@ -265,10 +328,91 @@
 
 			{#if panelOpen}
 				<div class="border-border border-t px-4 py-4">
-					<div class="space-y-3">
+					<div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div>
+							<p class="text-foreground text-sm font-medium">Categories</p>
+							<p class="text-muted-fg mt-1 text-xs">
+								Add organisation-specific categories or drag existing categories to reorder.
+							</p>
+						</div>
+						<Button
+							type="button"
+							size="sm"
+							variant={showNewCategoryForm ? 'outline' : 'primary'}
+							class="w-full justify-center sm:w-auto"
+							onclick={() => (showNewCategoryForm = !showNewCategoryForm)}
+						>
+							<Plus class="mr-1 h-4 w-4" />
+							New category
+						</Button>
+					</div>
+
+					{#if showNewCategoryForm}
+						<form
+							method="POST"
+							action="?/upsertOrganisationTechCategory"
+							class="border-border bg-background mb-4 rounded-sm border p-4"
+							use:enhance={newCategorySubmitHandler}
+						>
+							<input type="hidden" name="tech_context_id" value={selectedOrganisationId} />
+							<input type="hidden" name="organisation_id" value={selectedOrganisationId} />
+							<div class="grid gap-3 sm:grid-cols-[minmax(0,1fr),auto] sm:items-end">
+								<div class="space-y-2">
+									<p class="text-foreground text-sm font-medium">Create organisation category</p>
+									<Input name="name" placeholder="Category name" />
+								</div>
+								<div class="flex gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										onclick={() => (showNewCategoryForm = false)}
+									>
+										Cancel
+									</Button>
+									<Button type="submit">Save</Button>
+								</div>
+							</div>
+						</form>
+					{/if}
+
+					<div class="space-y-3" role="list" aria-label="Organisation technology categories">
 						{#each orderedCategoryCards as category (category.id)}
-							<div class="border-border bg-card rounded-sm border">
+							{@const categoryHidden = isCategoryHidden(category)}
+							<div
+								role="listitem"
+								class={`border-border bg-card rounded-sm border transition ${
+									dragOverCategoryId === category.id ? 'border-primary ring-primary/20 ring-2' : ''
+								}`}
+								ondragover={(event) => {
+									if (!draggedCategoryId || draggedCategoryId === category.id) return;
+									event.preventDefault();
+									dragOverCategoryId = category.id;
+								}}
+								ondragleave={() => {
+									if (dragOverCategoryId === category.id) dragOverCategoryId = null;
+								}}
+								ondrop={async (event) => {
+									event.preventDefault();
+									await handleCategoryDrop(category.id);
+								}}
+							>
 								<div class="flex items-center gap-3 px-4 py-4">
+									<button
+										type="button"
+										draggable="true"
+										aria-label={`Drag ${category.name}`}
+										class="text-muted-fg hover:text-foreground cursor-grab rounded-sm p-1 active:cursor-grabbing"
+										ondragstart={(event) => {
+											draggedCategoryId = category.id;
+											event.dataTransfer?.setData('text/plain', category.id);
+										}}
+										ondragend={() => {
+											draggedCategoryId = null;
+											dragOverCategoryId = null;
+										}}
+									>
+										<GripVertical class="h-4 w-4" />
+									</button>
 									<button
 										type="button"
 										class="flex min-w-0 flex-1 items-center justify-between gap-4 text-left"
@@ -284,6 +428,18 @@
 												>
 													{category.items.length} items
 												</span>
+												<span
+													class="bg-muted text-muted-fg rounded-full px-2 py-0.5 text-[11px] font-medium"
+												>
+													{category.scope === 'global' ? 'Global' : 'Organisation'}
+												</span>
+												{#if categoryHidden}
+													<span
+														class="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+													>
+														Hidden
+													</span>
+												{/if}
 											</div>
 											<p class="text-muted-fg mt-1 text-xs">
 												{category.items.filter((item) => item.scope === 'organisation').length}
@@ -304,6 +460,89 @@
 								{#if openCategoryIds.includes(category.id)}
 									<div class="border-border border-t px-4 py-4">
 										<div class="space-y-3">
+											<div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+												{#if category.scope === 'organisation'}
+													<form
+														method="POST"
+														action="?/upsertOrganisationTechCategory"
+														class="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-end"
+														use:enhance={editCategorySubmitHandler(category.id)}
+													>
+														<input
+															type="hidden"
+															name="tech_context_id"
+															value={selectedOrganisationId}
+														/>
+														<input
+															type="hidden"
+															name="organisation_id"
+															value={selectedOrganisationId}
+														/>
+														<input type="hidden" name="category_id" value={category.id} />
+														<div class="min-w-0 flex-1 space-y-2">
+															<p
+																class="text-muted-fg text-xs font-semibold uppercase tracking-wide"
+															>
+																Category
+															</p>
+															<Input name="name" value={category.name} />
+														</div>
+														<Button
+															type="submit"
+															size="md"
+															class="w-full shrink-0 justify-center px-4 sm:w-auto"
+														>
+															<Pencil class="mr-1 h-3.5 w-3.5" />
+															Save
+														</Button>
+													</form>
+												{:else}
+													<div>
+														<p class="text-muted-fg text-xs font-semibold uppercase tracking-wide">
+															Category
+														</p>
+														<p class="text-foreground mt-1 text-sm font-medium">{category.name}</p>
+													</div>
+												{/if}
+												<form
+													method="POST"
+													action="?/setOrganisationTechCategoryExclusion"
+													class="shrink-0"
+													use:enhance={visibilitySubmitHandler}
+												>
+													<input
+														type="hidden"
+														name="tech_context_id"
+														value={selectedOrganisationId}
+													/>
+													<input
+														type="hidden"
+														name="organisation_id"
+														value={selectedOrganisationId}
+													/>
+													<input type="hidden" name="category_id" value={category.id} />
+													<input
+														type="hidden"
+														name="hidden"
+														value={categoryHidden ? 'false' : 'true'}
+													/>
+													<Button
+														type="submit"
+														variant="outline"
+														size="md"
+														class="w-full justify-center sm:w-auto"
+													>
+														{#if categoryHidden}
+															<Eye class="mr-1 h-3.5 w-3.5" />
+															Restore category
+														{:else}
+															<EyeOff class="mr-1 h-3.5 w-3.5" />
+															Hide category
+														{/if}
+													</Button>
+												</form>
+											</div>
+
 											<div class="flex items-center justify-between gap-3">
 												<p class="text-foreground text-sm font-medium">Category list</p>
 												<Button

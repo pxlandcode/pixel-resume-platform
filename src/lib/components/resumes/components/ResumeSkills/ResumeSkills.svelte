@@ -44,8 +44,37 @@
 		return entry ? entry[lang] : name;
 	};
 
+	const normalize = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+	const mergeDuplicateCategories = (categories: TechCategory[]): TechCategory[] => {
+		const merged = new Map<string, TechCategory>();
+
+		for (const category of categories) {
+			const key = normalize(category.id || category.name);
+			if (!key) continue;
+
+			const existing = merged.get(key);
+			if (!existing) {
+				merged.set(key, {
+					...category,
+					skills: [...(category.skills ?? [])]
+				});
+				continue;
+			}
+
+			const existingSkills = new Set((existing.skills ?? []).map((skill) => normalize(skill)));
+			for (const skill of category.skills ?? []) {
+				const skillKey = normalize(skill);
+				if (!skillKey || existingSkills.has(skillKey)) continue;
+				existingSkills.add(skillKey);
+				existing.skills.push(skill);
+			}
+		}
+
+		return Array.from(merged.values());
+	};
+
 	const displayCategories = $derived(() =>
-		(profileTechStack ?? [])
+		mergeDuplicateCategories(profileTechStack ?? [])
 			.filter((cat) => (cat.skills ?? []).length > 0)
 			.map((cat) => ({ ...cat, name: labelFor(cat.name, language) }))
 	);

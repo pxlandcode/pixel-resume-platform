@@ -503,7 +503,10 @@ const ensureLegalAcceptance = async (
 
 const failTalentLabelAction = (payload: {
 	status: number;
-	type: 'createTalentLabelDefinition' | 'updateTalentLabelDefinition' | 'deleteTalentLabelDefinition';
+	type:
+		| 'createTalentLabelDefinition'
+		| 'updateTalentLabelDefinition'
+		| 'deleteTalentLabelDefinition';
 	message: string;
 }) =>
 	fail(payload.status, {
@@ -656,6 +659,65 @@ const resolveNextTechCategorySortOrder = async (
 	return Math.max(data?.sort_order ?? 0, 0) + 10;
 };
 
+const resolveNextOrganisationTechCategorySortOrder = async ({
+	adminClient,
+	organisationId
+}: {
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
+	organisationId: string;
+}) => {
+	const [globalCategoriesResult, organisationCategoriesResult] = await Promise.all([
+		adminClient
+			.from('tech_categories')
+			.select('id, sort_order')
+			.eq('scope', 'global')
+			.is('organisation_id', null),
+		adminClient
+			.from('tech_categories')
+			.select('id, sort_order')
+			.eq('scope', 'organisation')
+			.eq('organisation_id', organisationId)
+	]);
+
+	if (globalCategoriesResult.error) throw new Error(globalCategoriesResult.error.message);
+	if (organisationCategoriesResult.error)
+		throw new Error(organisationCategoriesResult.error.message);
+
+	const categoryIds = [
+		...(globalCategoriesResult.data ?? []).map((category) => category.id),
+		...(organisationCategoriesResult.data ?? []).map((category) => category.id)
+	];
+
+	const overridesResult =
+		categoryIds.length > 0
+			? await adminClient
+					.from('organisation_tech_catalog_category_overrides')
+					.select('category_id, sort_order')
+					.eq('organisation_id', organisationId)
+					.in('category_id', categoryIds)
+			: { data: [], error: null };
+
+	if (overridesResult.error) throw new Error(overridesResult.error.message);
+
+	const overrideSortOrderByCategoryId = new Map(
+		(overridesResult.data ?? [])
+			.map((row) => (row.category_id ? [row.category_id, row.sort_order ?? null] : null))
+			.filter((entry): entry is [string, number | null] => entry !== null)
+	);
+
+	const categories = [
+		...(globalCategoriesResult.data ?? []),
+		...(organisationCategoriesResult.data ?? [])
+	];
+	const maxSortOrder = categories.reduce((currentMax, category) => {
+		const effectiveSortOrder =
+			overrideSortOrderByCategoryId.get(category.id) ?? category.sort_order ?? 0;
+		return Math.max(currentMax, effectiveSortOrder);
+	}, 0);
+
+	return maxSortOrder + 10;
+};
+
 const resolveNextTechCatalogItemSortOrder = async ({
 	adminClient,
 	scope,
@@ -771,9 +833,92 @@ const applyTechCategorySortOrder = async ({
 				sort_order: toSortOrderValue(index),
 				updated_at: new Date().toISOString()
 			})
-			.eq('id', categoryId);
+			.eq('id', categoryId)
+			.eq('scope', 'global')
+			.is('organisation_id', null);
 		if (updateError) throw new Error(updateError.message);
 	}
+};
+
+const applyOrganisationTechCategoryOverrideSortOrder = async ({
+	adminClient,
+	organisationId,
+	categoryIds
+}: {
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
+	organisationId: string;
+	categoryIds: string[];
+}) => {
+	for (const [index, categoryId] of categoryIds.entries()) {
+		const { error: upsertError } = await adminClient
+			.from('organisation_tech_catalog_category_overrides')
+			.upsert(
+				{
+					organisation_id: organisationId,
+					category_id: categoryId,
+					sort_order: toSortOrderValue(index),
+					updated_at: new Date().toISOString()
+				},
+				{ onConflict: 'organisation_id,category_id' }
+			);
+		if (upsertError) throw new Error(upsertError.message);
+	}
+};
+
+const setOrganisationTechCatalogCategoryHiddenState = async ({
+	adminClient,
+	organisationId,
+	categoryId,
+	hidden
+}: {
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
+	organisationId: string;
+	categoryId: string;
+	hidden: boolean;
+}) => {
+	if (hidden) {
+		const { error: upsertError } = await adminClient
+			.from('organisation_tech_catalog_category_overrides')
+			.upsert(
+				{
+					organisation_id: organisationId,
+					category_id: categoryId,
+					is_hidden: true,
+					updated_at: new Date().toISOString()
+				},
+				{ onConflict: 'organisation_id,category_id' }
+			);
+		if (upsertError) throw new Error(upsertError.message);
+		return;
+	}
+
+	const { data: existingOverride, error: overrideLookupError } = await adminClient
+		.from('organisation_tech_catalog_category_overrides')
+		.select('sort_order')
+		.eq('organisation_id', organisationId)
+		.eq('category_id', categoryId)
+		.maybeSingle();
+	if (overrideLookupError) throw new Error(overrideLookupError.message);
+
+	if (existingOverride?.sort_order != null) {
+		const { error: updateError } = await adminClient
+			.from('organisation_tech_catalog_category_overrides')
+			.update({
+				is_hidden: false,
+				updated_at: new Date().toISOString()
+			})
+			.eq('organisation_id', organisationId)
+			.eq('category_id', categoryId);
+		if (updateError) throw new Error(updateError.message);
+		return;
+	}
+
+	const { error: deleteError } = await adminClient
+		.from('organisation_tech_catalog_category_overrides')
+		.delete()
+		.eq('organisation_id', organisationId)
+		.eq('category_id', categoryId);
+	if (deleteError) throw new Error(deleteError.message);
 };
 
 const applyTechCatalogItemSortOrder = async ({
@@ -924,6 +1069,24 @@ const ensureTechCategoryExists = async (
 		.maybeSingle();
 	if (lookupError) throw new Error(lookupError.message);
 	return Boolean(data?.id);
+};
+
+const ensureTechCategoryAccessibleToOrganisation = async (
+	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
+	categoryId: string,
+	organisationId: string
+) => {
+	const { data, error: lookupError } = await adminClient
+		.from('tech_categories')
+		.select('id, scope, organisation_id')
+		.eq('id', categoryId)
+		.maybeSingle();
+	if (lookupError) throw new Error(lookupError.message);
+	return Boolean(
+		data?.id &&
+			(data.scope === 'global' ||
+				(data.scope === 'organisation' && data.organisation_id === organisationId))
+	);
 };
 
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -2354,11 +2517,11 @@ export const actions: Actions = {
 			if (categoryId) {
 				const { data: existing, error: existingError } = await context.adminClient
 					.from('tech_categories')
-					.select('id, sort_order')
+					.select('id, scope, sort_order')
 					.eq('id', categoryId)
 					.maybeSingle();
 				if (existingError) throw new Error(existingError.message);
-				if (!existing?.id) {
+				if (!existing?.id || existing.scope !== 'global') {
 					return fail(404, {
 						type: 'upsertTechCategory',
 						ok: false,
@@ -2385,6 +2548,8 @@ export const actions: Actions = {
 				});
 				const { error: insertError } = await context.adminClient.from('tech_categories').insert({
 					id: nextCategoryId,
+					scope: 'global',
+					organisation_id: null,
 					name,
 					sort_order: nextSortOrder,
 					is_active: true
@@ -2449,7 +2614,8 @@ export const actions: Actions = {
 					is_active: nextIsActive,
 					updated_at: new Date().toISOString()
 				})
-				.eq('id', categoryId);
+				.eq('id', categoryId)
+				.eq('scope', 'global');
 			if (updateError) throw new Error(updateError.message);
 
 			return {
@@ -2467,6 +2633,240 @@ export const actions: Actions = {
 						? actionError.message
 						: 'Could not update technology category status.',
 				tech_context_id: techContextId
+			});
+		}
+	},
+
+	upsertOrganisationTechCategory: async ({ request, cookies }) => {
+		const context = await getActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'upsertOrganisationTechCategory',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const techContextId = parseString(formData.get('tech_context_id'));
+		const organisationId = normalizeOptionalUuid(formData.get('organisation_id'));
+		const categoryId = parseString(formData.get('category_id'));
+		const name = parseString(formData.get('name'));
+		const sortOrder = parseOptionalInteger(formData.get('sort_order'));
+
+		if (organisationId === '__invalid__' || !organisationId) {
+			return fail(400, {
+				type: 'upsertOrganisationTechCategory',
+				ok: false,
+				message: 'Choose a valid organisation.',
+				tech_context_id: techContextId
+			});
+		}
+		if (!canManageOrganisationTechCatalogForContext(context, organisationId)) {
+			return fail(403, {
+				type: 'upsertOrganisationTechCategory',
+				ok: false,
+				message: 'You cannot manage that organisation catalog.',
+				tech_context_id: techContextId || organisationId
+			});
+		}
+		if (!name) {
+			return fail(400, {
+				type: 'upsertOrganisationTechCategory',
+				ok: false,
+				message: 'Category name is required.',
+				tech_context_id: techContextId || organisationId
+			});
+		}
+
+		try {
+			const organisationExists = await ensureOrganisationExists(
+				context.adminClient,
+				organisationId
+			);
+			if (!organisationExists) {
+				return fail(404, {
+					type: 'upsertOrganisationTechCategory',
+					ok: false,
+					message: 'Organisation not found.',
+					tech_context_id: techContextId || organisationId
+				});
+			}
+
+			if (categoryId) {
+				const { data: existing, error: existingError } = await context.adminClient
+					.from('tech_categories')
+					.select('id, scope, organisation_id, sort_order')
+					.eq('id', categoryId)
+					.maybeSingle();
+				if (existingError) throw new Error(existingError.message);
+				if (
+					!existing?.id ||
+					existing.scope !== 'organisation' ||
+					existing.organisation_id !== organisationId
+				) {
+					return fail(404, {
+						type: 'upsertOrganisationTechCategory',
+						ok: false,
+						message: 'Organisation-specific category not found.',
+						tech_context_id: techContextId || organisationId
+					});
+				}
+
+				const { error: updateError } = await context.adminClient
+					.from('tech_categories')
+					.update({
+						name,
+						sort_order: sortOrder ?? existing.sort_order ?? 0,
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', categoryId);
+				if (updateError) throw new Error(updateError.message);
+			} else {
+				const nextSortOrder =
+					sortOrder ??
+					(await resolveNextOrganisationTechCategorySortOrder({
+						adminClient: context.adminClient,
+						organisationId
+					}));
+				const nextCategoryId = await resolveUniqueTechCategoryId({
+					adminClient: context.adminClient,
+					name,
+					scope: 'organisation',
+					organisationId
+				});
+				const { error: insertError } = await context.adminClient.from('tech_categories').insert({
+					id: nextCategoryId,
+					scope: 'organisation',
+					organisation_id: organisationId,
+					name,
+					sort_order: nextSortOrder,
+					is_active: true
+				});
+				if (insertError) throw new Error(insertError.message);
+			}
+
+			return {
+				type: 'upsertOrganisationTechCategory' as const,
+				ok: true as const,
+				message: 'Organisation-specific category saved.',
+				tech_context_id: organisationId
+			};
+		} catch (actionError) {
+			return fail(500, {
+				type: 'upsertOrganisationTechCategory',
+				ok: false,
+				message:
+					actionError instanceof Error
+						? actionError.message
+						: 'Could not save organisation-specific category.',
+				tech_context_id: techContextId || organisationId
+			});
+		}
+	},
+
+	setOrganisationTechCategoryExclusion: async ({ request, cookies }) => {
+		const context = await getActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'setOrganisationTechCategoryExclusion',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const techContextId = parseString(formData.get('tech_context_id'));
+		const organisationId = normalizeOptionalUuid(formData.get('organisation_id'));
+		const categoryId = parseString(formData.get('category_id'));
+		const hidden = parseBoolean(formData.get('hidden')) || parseBoolean(formData.get('exclude'));
+
+		if (organisationId === '__invalid__' || !organisationId || !categoryId) {
+			return fail(400, {
+				type: 'setOrganisationTechCategoryExclusion',
+				ok: false,
+				message: 'Choose a valid organisation and category.',
+				tech_context_id: techContextId
+			});
+		}
+		if (!canManageOrganisationTechCatalogForContext(context, organisationId)) {
+			return fail(403, {
+				type: 'setOrganisationTechCategoryExclusion',
+				ok: false,
+				message: 'You cannot manage that organisation catalog.',
+				tech_context_id: techContextId || organisationId
+			});
+		}
+
+		try {
+			const [organisationExists, categoryResult] = await Promise.all([
+				ensureOrganisationExists(context.adminClient, organisationId),
+				context.adminClient
+					.from('tech_categories')
+					.select('id, scope, organisation_id')
+					.eq('id', categoryId)
+					.maybeSingle()
+			]);
+			if (!organisationExists) {
+				return fail(404, {
+					type: 'setOrganisationTechCategoryExclusion',
+					ok: false,
+					message: 'Organisation not found.',
+					tech_context_id: techContextId || organisationId
+				});
+			}
+			if (categoryResult.error) throw new Error(categoryResult.error.message);
+			const category = categoryResult.data;
+			if (
+				!category?.id ||
+				(category.scope !== 'global' &&
+					(category.scope !== 'organisation' || category.organisation_id !== organisationId))
+			) {
+				return fail(404, {
+					type: 'setOrganisationTechCategoryExclusion',
+					ok: false,
+					message: 'Technology category not found.',
+					tech_context_id: techContextId || organisationId
+				});
+			}
+
+			if (category.scope === 'organisation' && !hidden) {
+				const { error: updateError } = await context.adminClient
+					.from('tech_categories')
+					.update({
+						is_active: true,
+						updated_at: new Date().toISOString()
+					})
+					.eq('id', categoryId)
+					.eq('scope', 'organisation')
+					.eq('organisation_id', organisationId);
+				if (updateError) throw new Error(updateError.message);
+			}
+
+			await setOrganisationTechCatalogCategoryHiddenState({
+				adminClient: context.adminClient,
+				organisationId,
+				categoryId,
+				hidden
+			});
+
+			return {
+				type: 'setOrganisationTechCategoryExclusion' as const,
+				ok: true as const,
+				message: hidden
+					? 'Category hidden for this organisation.'
+					: 'Category restored for this organisation.',
+				tech_context_id: organisationId
+			};
+		} catch (actionError) {
+			return fail(500, {
+				type: 'setOrganisationTechCategoryExclusion',
+				ok: false,
+				message:
+					actionError instanceof Error
+						? actionError.message
+						: 'Could not update organisation category visibility.',
+				tech_context_id: techContextId || organisationId
 			});
 		}
 	},
@@ -2833,7 +3233,7 @@ export const actions: Actions = {
 		try {
 			const [organisationExists, categoryExists] = await Promise.all([
 				ensureOrganisationExists(context.adminClient, organisationId),
-				ensureTechCategoryExists(context.adminClient, categoryId)
+				ensureTechCategoryAccessibleToOrganisation(context.adminClient, categoryId, organisationId)
 			]);
 			if (!organisationExists) {
 				return fail(404, {
@@ -3064,6 +3464,8 @@ export const actions: Actions = {
 			const { data: categories, error: lookupError } = await context.adminClient
 				.from('tech_categories')
 				.select('id')
+				.eq('scope', 'global')
+				.is('organisation_id', null)
 				.in('id', categoryIds);
 			if (lookupError) throw new Error(lookupError.message);
 			const foundIds = new Set((categories ?? []).map((category) => category.id));
@@ -3170,6 +3572,94 @@ export const actions: Actions = {
 						? actionError.message
 						: 'Could not reorder global technologies.',
 				tech_context_id: techContextId
+			});
+		}
+	},
+
+	reorderOrganisationTechCategories: async ({ request, cookies }) => {
+		const context = await getActionContext(cookies);
+		if (!context.ok) {
+			return fail(context.status, {
+				type: 'reorderOrganisationTechCategories',
+				ok: false,
+				message: context.message
+			});
+		}
+
+		const formData = await request.formData();
+		const techContextId = parseString(formData.get('tech_context_id'));
+		const organisationId = normalizeOptionalUuid(formData.get('organisation_id'));
+		const categoryIds = Array.from(new Set(parseStringArrayField(formData.get('category_ids'))));
+
+		if (organisationId === '__invalid__' || !organisationId || categoryIds.length === 0) {
+			return fail(400, {
+				type: 'reorderOrganisationTechCategories',
+				ok: false,
+				message: 'Choose a valid organisation and categories to reorder.',
+				tech_context_id: techContextId
+			});
+		}
+		if (!canManageOrganisationTechCatalogForContext(context, organisationId)) {
+			return fail(403, {
+				type: 'reorderOrganisationTechCategories',
+				ok: false,
+				message: 'You cannot manage that organisation catalog.',
+				tech_context_id: techContextId || organisationId
+			});
+		}
+
+		try {
+			const [globalCategoriesResult, organisationCategoriesResult] = await Promise.all([
+				context.adminClient
+					.from('tech_categories')
+					.select('id')
+					.eq('scope', 'global')
+					.is('organisation_id', null)
+					.in('id', categoryIds),
+				context.adminClient
+					.from('tech_categories')
+					.select('id')
+					.eq('scope', 'organisation')
+					.eq('organisation_id', organisationId)
+					.in('id', categoryIds)
+			]);
+			if (globalCategoriesResult.error) throw new Error(globalCategoriesResult.error.message);
+			if (organisationCategoriesResult.error)
+				throw new Error(organisationCategoriesResult.error.message);
+			const foundIds = new Set([
+				...(globalCategoriesResult.data ?? []).map((category) => category.id),
+				...(organisationCategoriesResult.data ?? []).map((category) => category.id)
+			]);
+			if (foundIds.size !== categoryIds.length) {
+				return fail(400, {
+					type: 'reorderOrganisationTechCategories',
+					ok: false,
+					message: 'One or more organisation catalog categories could not be reordered.',
+					tech_context_id: techContextId || organisationId
+				});
+			}
+
+			await applyOrganisationTechCategoryOverrideSortOrder({
+				adminClient: context.adminClient,
+				categoryIds,
+				organisationId
+			});
+
+			return {
+				type: 'reorderOrganisationTechCategories' as const,
+				ok: true as const,
+				message: 'Organisation category order updated.',
+				tech_context_id: techContextId || organisationId
+			};
+		} catch (actionError) {
+			return fail(500, {
+				type: 'reorderOrganisationTechCategories',
+				ok: false,
+				message:
+					actionError instanceof Error
+						? actionError.message
+						: 'Could not reorder organisation categories.',
+				tech_context_id: techContextId || organisationId
 			});
 		}
 	},

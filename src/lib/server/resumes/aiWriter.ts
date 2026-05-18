@@ -39,8 +39,10 @@ export type GenerateResumeProjectTextInput = {
 };
 
 const MAX_PROMPT_LENGTH = 4_000;
-const MAX_CONTEXT_LENGTH = 2_000;
-const MAX_RESUME_CONTEXT_LENGTH = 8_000;
+const MAX_CONTEXT_LENGTH = 6_000;
+const MAX_RESUME_CONTEXT_LENGTH = 16_000;
+const MAX_DESCRIPTION_OUTPUT_TOKENS = 2_200;
+const MAX_SKILLS_OUTPUT_TOKENS = 900;
 const ALLOWED_FIELD_KEYS: ResumeAiFieldKey[] = [
 	'company',
 	'role',
@@ -328,8 +330,7 @@ const splitIntoParagraphs = (line: string): string[] => {
 		if (!sentence) continue;
 		const candidateSentences = [...currentSentences, sentence];
 		const candidate = candidateSentences.join(' ');
-		const shouldStartNewParagraph =
-			currentSentences.length >= 2 && candidate.length > 380;
+		const shouldStartNewParagraph = currentSentences.length >= 2 && candidate.length > 380;
 
 		if (!shouldStartNewParagraph) {
 			currentSentences = candidateSentences;
@@ -351,11 +352,7 @@ const splitIntoParagraphs = (line: string): string[] => {
 		const previous = paragraphs[paragraphs.length - 2] ?? '';
 		const tailSentenceCount =
 			tail.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g)?.filter(Boolean).length ?? 0;
-		if (
-			tailSentenceCount === 1 &&
-			previous &&
-			`${previous} ${tail}`.length <= 460
-		) {
+		if (tailSentenceCount === 1 && previous && `${previous} ${tail}`.length <= 460) {
 			paragraphs.splice(paragraphs.length - 2, 2, `${previous} ${tail}`);
 		}
 	}
@@ -377,7 +374,10 @@ const toQuillHtml = (rawText: string): string => {
 
 	const flushProseLines = () => {
 		if (proseLines.length === 0) return;
-		const proseText = proseLines.map((line) => normalize(line)).filter(Boolean).join(' ');
+		const proseText = proseLines
+			.map((line) => normalize(line))
+			.filter(Boolean)
+			.join(' ');
 		for (const paragraph of splitIntoParagraphs(proseText)) {
 			blocks.push(`<p>${escapeHtml(paragraph)}</p>`);
 		}
@@ -425,8 +425,8 @@ const sectionInstruction = (sectionType: ResumeAiSectionType) =>
 		: sectionType === 'exampleSkills'
 			? 'This is the "Examples of skills" sidebar list in a resume. Select a concise, relevant stack based on resume evidence. Prioritize highlighted experiences and recent previous experiences first, then use the profile skills/categories as supporting evidence.'
 			: sectionType === 'highlighted'
-				? 'This is a highlighted experience block. Prioritize company, role, key technologies, and a concise high-impact description.'
-				: 'This is a previous experience block. Extract as many concrete fields as possible (dates, location, company, role, technologies, description).';
+				? 'This is a highlighted experience block. Prioritize company, role, key technologies, and a substantial high-impact description when the available notes/context support it.'
+				: 'This is a previous experience block. Extract as many concrete fields as possible (dates, location, company, role, technologies, description) and preserve assignment detail when the notes/context contain it.';
 
 const outputRequirementsInstruction = (sectionType: ResumeAiSectionType) =>
 	sectionType === 'summary'
@@ -443,10 +443,11 @@ const outputRequirementsInstruction = (sectionType: ResumeAiSectionType) =>
   "endDate": ""
 }
 - Keep company/role/location/technologies/startDate/endDate empty for summary.
-- Keep description as plain text (2-4 short paragraphs, optional bullets).
+- Keep description as plain text (usually 2-5 paragraphs, optional bullets).
 - Use a blank line between paragraphs.
 - Do not put each sentence in its own paragraph.
 - Each paragraph should usually contain 2-4 sentences.
+- Do not over-compress detailed source material. If the context contains rich experience text, preserve the important responsibilities, technical choices, collaboration, and delivery details instead of reducing it to a short overview.
 - Always write in third person.
 - Use consultant name references naturally: introduce with first name when needed, then vary with pronouns/the consultant to avoid repeating the name every sentence.
 - Prioritize recent experiences first and treat older roles as background context.`
@@ -477,10 +478,15 @@ const outputRequirementsInstruction = (sectionType: ResumeAiSectionType) =>
 }
 - Use empty string for unknown text/date fields.
 - Keep technologies as short skill names.
-- Keep description as plain text (2-4 short paragraphs, optional bullets).
+- Keep description as plain text (usually 2-5 paragraphs, optional bullets).
 - Use a blank line between paragraphs.
 - Do not put each sentence in its own paragraph.
 - Each paragraph should usually contain 2-4 sentences.
+- Match length to evidence:
+  - Rich notes/context: keep a substantial description and preserve most concrete responsibilities, scope, architecture, collaboration, delivery, and technology details.
+  - Short notes/context: broaden carefully only from provided facts, and keep the result shorter.
+  - Missing notes/context: do not invent filler.
+- Do not compress a detailed 10-20 sentence source into 2-3 generic sentences.
 - Always write in third person.
 - Use consultant name references naturally: introduce with first name when needed, then vary with pronouns/the consultant to avoid repeating the name every sentence.
 - You may update structured fields only if they are listed as editable.
@@ -538,7 +544,10 @@ export const generateResumeProjectText = async (
 	const response = await openai.responses.create({
 		model,
 		temperature: 0.35,
-		max_output_tokens: 700,
+		max_output_tokens:
+			input.sectionType === 'exampleSkills'
+				? MAX_SKILLS_OUTPUT_TOKENS
+				: MAX_DESCRIPTION_OUTPUT_TOKENS,
 		input: [
 			{
 				role: 'system',

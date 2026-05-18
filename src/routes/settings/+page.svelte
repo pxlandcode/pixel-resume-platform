@@ -1001,18 +1001,20 @@
 				</div>
 			</button>
 
-			{#if expandedPanel === 'tech'}
-				<div id="settings-tech-panel" class="border-border border-t px-5 py-5 sm:px-6">
-					<TechCatalogManager
-						canManageGlobal={data.canManageGlobalTechCatalog}
-						canManageOrganisation={data.canManageOrganisationTechCatalog}
-						organisationOptions={sourceOrganisationOptions}
-						defaultOrganisationId={data.defaultSourceOrganisationId ?? ''}
-						formTechContextId={techContextFromForm ?? ''}
-						refreshToken={techRefreshToken}
-					/>
-				</div>
-			{/if}
+			<div
+				id="settings-tech-panel"
+				hidden={expandedPanel !== 'tech'}
+				class="border-border border-t px-5 py-5 sm:px-6"
+			>
+				<TechCatalogManager
+					canManageGlobal={data.canManageGlobalTechCatalog}
+					canManageOrganisation={data.canManageOrganisationTechCatalog}
+					organisationOptions={sourceOrganisationOptions}
+					defaultOrganisationId={data.defaultSourceOrganisationId ?? ''}
+					formTechContextId={techContextFromForm ?? ''}
+					refreshToken={techRefreshToken}
+				/>
+			</div>
 		</section>
 	{/if}
 

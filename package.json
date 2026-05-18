@@ -53,6 +53,7 @@
 		"air-datepicker": "^3.6.0",
 		"fontkit": "^2.0.4",
 		"openai": "^6.6.0",
+		"pdf-parse": "^2.4.5",
 		"playwright-core": "^1.49.0",
 		"sanitize-html": "^2.17.1"
 	}

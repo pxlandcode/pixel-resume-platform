@@ -1,9 +1,12 @@
 export type TechCatalogScopeMode = 'auto' | 'global' | 'organisation';
 export type TechCatalogResolvedScopeMode = 'global' | 'organisation';
 export type TechCatalogItemScope = 'global' | 'organisation';
+export type TechCatalogCategoryScope = 'global' | 'organisation';
 
 export type TechCatalogCategory = {
 	id: string;
+	scope: TechCatalogCategoryScope;
+	organisationId: string | null;
 	name: string;
 	sortOrder: number;
 	isActive: boolean;
@@ -50,7 +53,9 @@ export type EffectiveTechCatalogResponse = {
 	generatedAt: string;
 };
 
-export type TechCatalogManagementCategory = TechCatalogCategory;
+export type TechCatalogManagementCategory = TechCatalogCategory & {
+	excludedByOrganisation?: boolean;
+};
 
 export type TechCatalogManagementItem = TechCatalogItem & {
 	excludedByOrganisation?: boolean;
