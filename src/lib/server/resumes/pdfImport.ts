@@ -5,7 +5,6 @@ import type {
 	LocalizedText,
 	ResumeData
 } from '../../types/resume';
-import { PDFParse } from 'pdf-parse';
 import { getPdfImportModel, openai } from '../openai';
 import { RESUME_AI_STYLE_GUIDE } from './resumeAiStyle';
 
@@ -408,8 +407,13 @@ ${rendered}`;
 };
 
 const extractPdfText = async (pdfBytes: Uint8Array): Promise<string> => {
-	let parser: PDFParse | null = null;
+	let parser: {
+		getText: () => Promise<{ text?: string | null }>;
+		destroy: () => Promise<void>;
+	} | null = null;
+
 	try {
+		const { PDFParse } = await import('pdf-parse');
 		parser = new PDFParse({ data: Buffer.from(pdfBytes) });
 		const result = await parser.getText();
 		return normalizeExtractedPdfText(result.text ?? '');

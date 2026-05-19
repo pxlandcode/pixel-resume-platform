@@ -29,7 +29,8 @@ const shouldUseNetlifyBackgroundImport = (url: URL) =>
 	(process.env.NETLIFY === 'true' ||
 		!!process.env.URL ||
 		!!process.env.DEPLOY_URL ||
-		url.hostname === 'resume.pixelcode.se');
+		!!process.env.DEPLOY_PRIME_URL ||
+		!!process.env.CONTEXT);
 
 const toSafeMessage = (value: unknown, fallback: string): string => {
 	if (typeof value !== 'string') return fallback;

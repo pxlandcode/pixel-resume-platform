@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { deserialize } from '$app/forms';
-	import { base, resolve } from '$app/paths';
+	import { resolve } from '$app/paths';
 	import { goto, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/stores';
 	import {
@@ -722,9 +722,6 @@
 		return text || fallback;
 	};
 
-	const shouldUseNetlifyImportFunction = () =>
-		typeof window !== 'undefined' && window.location.hostname === 'resume.pixelcode.se';
-
 	const createPdfImportJob = async (file: File): Promise<string> => {
 		if (!profile) {
 			throw new Error('Missing profile context.');
@@ -809,27 +806,14 @@
 		const controller = new AbortController();
 		importAbortController = controller;
 
-		const useNetlifyImportFunction = shouldUseNetlifyImportFunction();
-		const endpoint = useNetlifyImportFunction
-			? `${base}/.netlify/functions/resume-import-from-pdf-background`
-			: resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]/run', { jobId });
-
-		const response = await fetch(endpoint, {
-			method: 'POST',
-			headers: useNetlifyImportFunction
-				? {
-						'content-type': 'application/json'
-					}
-				: undefined,
-			body: useNetlifyImportFunction
-				? JSON.stringify({
-						job_id: jobId,
-						talent_id: profile.id
-					})
-				: undefined,
-			credentials: 'include',
-			signal: controller.signal
-		});
+		const response = await fetch(
+			resolve('/internal/api/resumes/import-from-pdf/jobs/[jobId]/run', { jobId }),
+			{
+				method: 'POST',
+				credentials: 'include',
+				signal: controller.signal
+			}
+		);
 
 		if (!response.ok) {
 			const message = await getErrorMessageFromResponse(
