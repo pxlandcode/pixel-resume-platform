@@ -1,3 +1,12 @@
 [functions]
-  external_node_modules = ["@sparticuz/chromium"]
-  included_files = ["node_modules/@sparticuz/chromium/bin/**"]
+  external_node_modules = [
+    "@sparticuz/chromium",
+    "@napi-rs/canvas",
+    "@napi-rs/canvas-linux-x64-gnu",
+    "@napi-rs/canvas-linux-x64-musl"
+  ]
+  included_files = [
+    "node_modules/@sparticuz/chromium/bin/**",
+    "node_modules/@napi-rs/canvas-linux-x64-gnu/**",
+    "node_modules/@napi-rs/canvas-linux-x64-musl/**"
+  ]
