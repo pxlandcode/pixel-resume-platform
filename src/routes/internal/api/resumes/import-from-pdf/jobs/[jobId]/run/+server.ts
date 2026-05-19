@@ -1,4 +1,5 @@
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { dev } from '$app/environment';
 import {
 	AUTH_COOKIE_NAMES,
 	createSupabaseServerClient,
@@ -23,7 +24,12 @@ type ResumeImportJobRow = {
 	source_object_path: string | null;
 };
 
-const isNetlifyRuntime = () => process.env.NETLIFY === 'true';
+const shouldUseNetlifyBackgroundImport = (url: URL) =>
+	!dev &&
+	(process.env.NETLIFY === 'true' ||
+		!!process.env.URL ||
+		!!process.env.DEPLOY_URL ||
+		url.hostname === 'resume.pixelcode.se');
 
 const toSafeMessage = (value: unknown, fallback: string): string => {
 	if (typeof value !== 'string') return fallback;
@@ -167,7 +173,7 @@ export const POST: RequestHandler = async ({ params, cookies, request, url }) =>
 			);
 		}
 
-		if (isNetlifyRuntime()) {
+		if (shouldUseNetlifyBackgroundImport(url)) {
 			await startNetlifyBackgroundImport(request, url, jobId, job.talent_id);
 			return json({ ok: true, status: 'queued' }, { status: 202 });
 		}
