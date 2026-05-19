@@ -1,7 +1,15 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 	import { Input } from '@pixelcode_/blocks/components';
-	import { Search, Users, FileText, CircleCheck, CalendarClock, Briefcase } from 'lucide-svelte';
+	import {
+		Search,
+		Users,
+		FileText,
+		CircleCheck,
+		CalendarClock,
+		Briefcase,
+		LoaderCircle
+	} from 'lucide-svelte';
 	import { onDestroy, onMount } from 'svelte';
 
 	import { SvelteSet } from 'svelte/reactivity';
@@ -69,6 +77,7 @@
 
 	const searchTerm = $derived(searchQuery.trim());
 	const hasSearchQuery = $derived(searchTerm.length > 0);
+	const isQuickSearchLoading = $derived(quickSearchStatus === 'loading' && hasSearchQuery);
 
 	const AVAILABLE_SOON_DAYS = 30;
 
@@ -277,9 +286,18 @@
 			icon={Search}
 			bind:value={searchQuery}
 			placeholder="Search talents, resumes, tech stack..."
-			class="h-11 rounded-sm pl-10 text-sm"
+			class={`h-11 rounded-sm pl-10 text-sm ${isQuickSearchLoading ? 'pr-10' : ''}`}
+			aria-busy={isQuickSearchLoading}
 			onkeydown={handleKeydown}
 		/>
+		{#if isQuickSearchLoading}
+			<div
+				class="text-primary pointer-events-none absolute right-3 top-5 flex -translate-y-1/2 items-center"
+				aria-hidden="true"
+			>
+				<LoaderCircle size={18} class="animate-spin" />
+			</div>
+		{/if}
 		{#if showResults}
 			<div
 				class="border-border bg-card absolute left-0 right-0 top-full z-50 mt-1 max-h-[28rem] overflow-y-auto rounded-sm border p-3 shadow-lg"
@@ -296,12 +314,6 @@
 					</div>
 				{:else if filteredSections.length > 0}
 					<div class="space-y-4">
-						{#if quickSearchStatus === 'loading'}
-							<p class="text-muted-fg px-1 text-[11px] font-medium uppercase tracking-[0.16em]">
-								Updating results
-							</p>
-						{/if}
-
 						{#each filteredSections as section, sectionIndex (section.id)}
 							<section class={sectionIndex > 0 ? 'mt-4' : ''}>
 								<div class="mb-3 flex min-h-4 items-center">

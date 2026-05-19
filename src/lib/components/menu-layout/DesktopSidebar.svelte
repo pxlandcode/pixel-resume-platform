@@ -3,6 +3,7 @@
 	import {
 		ChevronLeft,
 		ChevronRight,
+		LoaderCircle,
 		LogOut,
 		Moon,
 		Search,
@@ -88,6 +89,7 @@
 	}: Props = $props();
 
 	const themeActionLabel = $derived(mode.current === 'dark' ? 'Light mode' : 'Dark mode');
+	const isQuickSearchLoading = $derived(quickSearchStatus === 'loading' && hasSearchQuery);
 </script>
 
 <aside
@@ -145,12 +147,23 @@
 
 		<div id={searchContainerId} class="mt-3">
 			{#if !sidebarCollapsed}
-				<Input
-					icon={Search}
-					bind:value={searchQuery}
-					placeholder="Quick search"
-					class="rounded-sm pl-9"
-				/>
+				<div class="relative">
+					<Input
+						icon={Search}
+						bind:value={searchQuery}
+						placeholder="Quick search"
+						class={`rounded-sm pl-9 ${isQuickSearchLoading ? 'pr-9' : ''}`}
+						aria-busy={isQuickSearchLoading}
+					/>
+					{#if isQuickSearchLoading}
+						<div
+							class="text-primary pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center"
+							aria-hidden="true"
+						>
+							<LoaderCircle size={16} class="animate-spin" />
+						</div>
+					{/if}
+				</div>
 			{:else}
 				<div class="sidebar-tooltip-anchor relative">
 					<button

@@ -34,7 +34,10 @@
 </script>
 
 {#if status === 'loading' && sections.length === 0}
-	<div class="border-border text-muted-fg rounded-sm border border-dashed px-4 py-6 text-sm">
+	<div
+		class="border-primary/30 bg-primary/5 text-primary rounded-sm border border-dashed px-4 py-6 text-sm font-medium"
+		aria-live="polite"
+	>
 		Searching talents, profiles, resumes, and tech stack...
 	</div>
 {:else if status === 'error'}
@@ -43,12 +46,6 @@
 	</div>
 {:else if sections.length > 0}
 	<div class="space-y-4">
-		{#if status === 'loading'}
-			<p class="text-muted-fg px-1 text-[11px] font-medium uppercase tracking-[0.16em]">
-				Updating results
-			</p>
-		{/if}
-
 		{#each sections as section, sectionIndex (section.id)}
 			<section class={sectionIndex > 0 ? 'mt-4' : ''}>
 				<div class="mb-3 flex min-h-4 items-center">

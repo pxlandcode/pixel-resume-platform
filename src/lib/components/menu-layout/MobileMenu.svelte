@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Input } from '@pixelcode_/blocks/components';
-	import { LogOut, Moon, Search, Settings, Shield, Sun } from 'lucide-svelte';
+	import { LoaderCircle, LogOut, Moon, Search, Settings, Shield, Sun } from 'lucide-svelte';
 	import { mode, toggleMode } from 'mode-watcher';
 	import { ripple } from '$lib/utils/ripple';
 	import type { QuickSearchSection } from '$lib/types/quickSearch';
@@ -71,6 +71,7 @@
 	}: Props = $props();
 
 	const themeActionLabel = $derived(mode.current === 'dark' ? 'Light mode' : 'Dark mode');
+	const isQuickSearchLoading = $derived(quickSearchStatus === 'loading' && hasSearchQuery);
 </script>
 
 <div
@@ -126,12 +127,23 @@
 			</div>
 
 			<div class="mt-4">
-				<Input
-					icon={Search}
-					bind:value={searchQuery}
-					placeholder="Quick search"
-					class="rounded-sm pl-9"
-				/>
+				<div class="relative">
+					<Input
+						icon={Search}
+						bind:value={searchQuery}
+						placeholder="Quick search"
+						class={`rounded-sm pl-9 ${isQuickSearchLoading ? 'pr-9' : ''}`}
+						aria-busy={isQuickSearchLoading}
+					/>
+					{#if isQuickSearchLoading}
+						<div
+							class="text-primary pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center"
+							aria-hidden="true"
+						>
+							<LoaderCircle size={16} class="animate-spin" />
+						</div>
+					{/if}
+				</div>
 			</div>
 		</div>
 
