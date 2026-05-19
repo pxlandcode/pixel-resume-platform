@@ -6,7 +6,7 @@ import {
 	normalizeAvailabilityRow
 } from '$lib/server/consultantAvailability';
 import { getEarliestAvailabilityDate } from '$lib/utils/availability';
-import { getAccessibleTalentIds } from '$lib/server/access';
+import { getAccessibleTalentIds, type ActorAccessContext } from '$lib/server/access';
 
 const CACHE_TTL_MS = 60_000;
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
@@ -43,10 +43,20 @@ type DashboardPanelsCacheEntry = {
 const panelsCache = new Map<string, DashboardPanelsCacheEntry>();
 
 const buildCacheHeaders = (etag: string) => ({
-	'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+	'Cache-Control': 'private, no-cache',
 	ETag: etag,
 	Vary: 'Cookie'
 });
+
+const buildCacheKey = (actor: ActorAccessContext) =>
+	JSON.stringify({
+		userId: actor.userId,
+		roles: actor.roles,
+		adminModeEnabled: actor.adminModeEnabled,
+		homeOrganisationId: actor.homeOrganisationId,
+		accessibleOrganisationIds: [...actor.accessibleOrganisationIds].sort(),
+		talentId: actor.talentId
+	});
 
 const hasMatchingIfNoneMatch = (rawHeader: string | null, etag: string) => {
 	if (!rawHeader) return false;
@@ -78,7 +88,7 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 		return json({ message: 'Unauthorized.' }, { status: 401 });
 	}
 
-	const cacheKey = actor.userId;
+	const cacheKey = buildCacheKey(actor);
 	const now = Date.now();
 	const cached = panelsCache.get(cacheKey);
 	let entry = cached && cached.expiresAt > now ? cached : null;

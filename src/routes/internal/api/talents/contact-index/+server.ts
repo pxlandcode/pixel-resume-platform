@@ -33,10 +33,19 @@ type ContactIndexCacheEntry = {
 const contactIndexCache = new Map<string, ContactIndexCacheEntry>();
 
 const buildCacheHeaders = (etag: string) => ({
-	'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+	'Cache-Control': 'private, no-cache',
 	ETag: etag,
 	Vary: 'Cookie'
 });
+
+const buildActorCacheScope = (actor: ActorAccessContext) =>
+	JSON.stringify({
+		roles: actor.roles,
+		adminModeEnabled: actor.adminModeEnabled,
+		homeOrganisationId: actor.homeOrganisationId,
+		accessibleOrganisationIds: [...actor.accessibleOrganisationIds].sort(),
+		talentId: actor.talentId
+	});
 
 const hasMatchingIfNoneMatch = (rawHeader: string | null, etag: string) => {
 	if (!rawHeader) return false;
@@ -160,7 +169,7 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 		return json({ message: scopeResult.message }, { status: scopeResult.status });
 	}
 
-	const cacheKey = `${actor.userId}:${scopeResult.signature}`;
+	const cacheKey = `${actor.userId}:${buildActorCacheScope(actor)}:${scopeResult.signature}`;
 	const now = Date.now();
 	const cached = contactIndexCache.get(cacheKey);
 	let entry = cached && cached.expiresAt > now ? cached : null;

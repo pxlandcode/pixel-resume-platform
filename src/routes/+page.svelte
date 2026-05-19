@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
 	import DashboardHeader from '$lib/components/dashboard/DashboardHeader.svelte';
 	import DashboardSearch from '$lib/components/dashboard/DashboardSearch.svelte';
 	import DashboardStats from '$lib/components/dashboard/DashboardStats.svelte';
@@ -40,10 +40,33 @@
 	let panelsStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let panelsError = $state<string | null>(null);
 	let panelsEtag = $state<string | null>(null);
+	let activePanelsKey = $state<string | null>(null);
+	let loadedPanelsKey = $state<string | null>(null);
 
-	const loadDashboardPanels = async () => {
+	const dashboardPanelsKey = $derived(
+		JSON.stringify({
+			userId: data.user?.id ?? null,
+			roles: effectiveRoles,
+			adminModeEnabled:
+				typeof data.adminModeEnabled === 'boolean' ? data.adminModeEnabled : true,
+			homeOrganisationId: data.effectiveHomeOrganisationId ?? null,
+			talentId: data.currentTalentId ?? null
+		})
+	);
+
+	const resetDashboardPanels = () => {
+		recentResumes = [];
+		availableNow = [];
+		availableSoon = [];
+		panelsStatus = 'idle';
+		panelsError = null;
+		panelsEtag = null;
+		loadedPanelsKey = null;
+	};
+
+	const loadDashboardPanels = async (requestKey: string) => {
 		if (panelsStatus === 'loading') return;
-		if (panelsStatus === 'ready') return;
+		if (panelsStatus === 'ready' && loadedPanelsKey === requestKey) return;
 
 		panelsStatus = 'loading';
 		panelsError = null;
@@ -56,7 +79,9 @@
 			});
 
 			if (response.status === 304) {
+				if (activePanelsKey !== requestKey) return;
 				panelsStatus = 'ready';
+				loadedPanelsKey = requestKey;
 				return;
 			}
 
@@ -71,22 +96,37 @@
 				availableSoon?: AvailableConsultant[];
 			};
 
+			if (activePanelsKey !== requestKey) return;
 			recentResumes = Array.isArray(payload.recentResumes) ? payload.recentResumes : [];
 			availableNow = Array.isArray(payload.availableNow) ? payload.availableNow : [];
 			availableSoon = Array.isArray(payload.availableSoon) ? payload.availableSoon : [];
 			panelsEtag = response.headers.get('etag');
 			panelsStatus = 'ready';
+			loadedPanelsKey = requestKey;
 			panelsError = null;
 		} catch (error) {
+			if (activePanelsKey !== requestKey) return;
 			panelsStatus = 'error';
 			panelsError = error instanceof Error ? error.message : 'Could not load dashboard panels.';
 		}
 	};
 
-	onMount(() => {
-		if (isTalentOnly) return;
-		if (panelsStatus !== 'idle') return;
-		void loadDashboardPanels();
+	$effect(() => {
+		const requestKey = dashboardPanelsKey;
+		if (isTalentOnly) {
+			if (activePanelsKey !== null) {
+				activePanelsKey = null;
+				resetDashboardPanels();
+			}
+			return;
+		}
+		if (activePanelsKey !== requestKey) {
+			activePanelsKey = requestKey;
+			resetDashboardPanels();
+		}
+		untrack(() => {
+			void loadDashboardPanels(requestKey);
+		});
 	});
 </script>
 

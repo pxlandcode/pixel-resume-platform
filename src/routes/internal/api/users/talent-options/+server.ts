@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { json, type RequestHandler } from '@sveltejs/kit';
+import type { ActorAccessContext } from '$lib/server/access';
 
 const CACHE_TTL_MS = 60_000;
 
@@ -20,10 +21,20 @@ type TalentOptionsCacheEntry = {
 const talentOptionsCache = new Map<string, TalentOptionsCacheEntry>();
 
 const buildCacheHeaders = (etag: string) => ({
-	'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+	'Cache-Control': 'private, no-cache',
 	ETag: etag,
 	Vary: 'Cookie'
 });
+
+const buildCacheKey = (actor: ActorAccessContext) =>
+	JSON.stringify({
+		userId: actor.userId,
+		roles: actor.roles,
+		adminModeEnabled: actor.adminModeEnabled,
+		homeOrganisationId: actor.homeOrganisationId,
+		accessibleOrganisationIds: [...actor.accessibleOrganisationIds].sort(),
+		talentId: actor.talentId
+	});
 
 const hasMatchingIfNoneMatch = (rawHeader: string | null, etag: string) => {
 	if (!rawHeader) return false;
@@ -49,7 +60,7 @@ export const GET: RequestHandler = async ({ locals, request }) => {
 		return json({ message: 'A home organisation is required.' }, { status: 403 });
 	}
 
-	const cacheKey = actor.userId;
+	const cacheKey = buildCacheKey(actor);
 	const now = Date.now();
 	const cached = talentOptionsCache.get(cacheKey);
 	let entry = cached && cached.expiresAt > now ? cached : null;
