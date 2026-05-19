@@ -193,6 +193,11 @@ type SourceDomain = {
 	tld: string;
 };
 
+type PreviousExperienceRecordsPrompt = {
+	text: string;
+	recordCount: number;
+};
+
 const normalizeExtractedPdfText = (value: string): string => {
 	const withoutNulls = value.replace(/\0/g, '');
 	const joinedDomains = withoutNulls.replace(
@@ -214,15 +219,19 @@ const normalizeExtractedPdfText = (value: string): string => {
 
 const MONTH_PATTERN =
 	'(?:jan\\.?|january|feb\\.?|february|mar\\.?|march|apr\\.?|april|may|jun\\.?|june|jul\\.?|july|aug\\.?|august|sep\\.?|sept\\.?|september|oct\\.?|october|nov\\.?|november|dec\\.?|december|jan\\.?|januari|feb\\.?|februari|mars|apr\\.?|april|maj|juni|juli|aug\\.?|augusti|sep\\.?|sept\\.?|september|okt\\.?|oktober|nov\\.?|november|dec\\.?|december)';
+const DATE_POINT_PATTERN = `(?:${MONTH_PATTERN}\\s+\\d{4}|\\d{4}(?:\\s+${MONTH_PATTERN})?)`;
+const DATE_RANGE_SEPARATOR_PATTERN = '\\s*(?:-|–|—)\\s*';
 const DATE_RANGE_PATTERN = new RegExp(
-	`^${MONTH_PATTERN}\\s+\\d{4}\\s+-\\s+(?:${MONTH_PATTERN}\\s+\\d{4}|ongoing|present|current|pågående|nuvarande)$`,
+	`^${DATE_POINT_PATTERN}${DATE_RANGE_SEPARATOR_PATTERN}(?:${DATE_POINT_PATTERN}|ongoing|present|current|pågående|pågår|nuvarande)$`,
 	'i'
 );
 const PAGE_MARKER_PATTERN = /^--\s*\d+\s+of\s+\d+\s+--$/i;
+const REPEATED_PDF_CHROME_PATTERN =
+	/^(worldclass tech by worldclass people|www\.pixelcode\.se|pixelcode\.se)$/i;
 const SECTION_STOP_PATTERN =
 	/^(skills|kompetenser|languages|språk|education|utbildning|certificates|certifikat|portfolio|contact|kontakt|examples of skills|exempel på färdigheter)$/i;
 const PREVIOUS_SECTION_PATTERN =
-	/^(previous\s+experience|previous|tidigare\s+erfarenheter|tidigare)$/i;
+	/^(professional\s+experience|work\s+experience|employment\s+history|career\s+history|previous\s+experience|previous|erfarenhet|arbetslivserfarenhet|professionell\s+erfarenhet|tidigare\s+erfarenheter|tidigare\s+erfarenhet|tidigare)$/i;
 const HIGHLIGHTED_SECTION_PATTERN =
 	/^(highlighted\s+experience|utvald\s+erfarenhet|key\s+technologies|nyckeltekniker)$/i;
 const TECHNOLOGY_WORDS = new Set(
@@ -276,6 +285,34 @@ const compactLines = (text: string): string[] =>
 		.map((line) => normalize(line))
 		.filter(Boolean);
 
+const isSplitCompanyContinuation = (company: string, nextLine: string): boolean =>
+	/\/$/.test(company.trim()) && Boolean(nextLine);
+
+const isRoleCompanyLine = (line: string): boolean => /\s*\|\s*/.test(line);
+
+const splitRoleCompanyLine = (line: string): { role: string; company: string } => {
+	const [rolePart, ...companyParts] = line.split(/\s+\|\s+|\s+\|\s*|\s*\|\s+/);
+	if (companyParts.length === 0) {
+		return { role: normalize(line), company: '' };
+	}
+
+	const allTrailingPartsLookRoleLike =
+		companyParts.length > 1 &&
+		companyParts.every((part) =>
+			/\b(advisor|coach|consultant|director|manager|lead|leader|owner|specialist|scrum|cmo|cto|cio)\b/i.test(
+				part
+			)
+		);
+	if (allTrailingPartsLookRoleLike) {
+		return { role: normalize(line), company: '' };
+	}
+
+	return {
+		role: normalize(rolePart ?? ''),
+		company: normalize(companyParts.join(' | '))
+	};
+};
+
 const isTechnologyLine = (line: string): boolean => {
 	const normalizedLine = normalize(line).toLowerCase();
 	if (!normalizedLine) return false;
@@ -318,7 +355,9 @@ const findPreviousSectionStart = (lines: string[]): number => {
 };
 
 const buildPreviousExperienceSourceRecords = (text: string): PreviousExperienceSourceRecord[] => {
-	const lines = compactLines(text).filter((line) => !PAGE_MARKER_PATTERN.test(line));
+	const lines = compactLines(text).filter(
+		(line) => !PAGE_MARKER_PATTERN.test(line) && !REPEATED_PDF_CHROME_PATTERN.test(line)
+	);
 	const start = findPreviousSectionStart(lines);
 	if (start === -1) return [];
 
@@ -328,24 +367,51 @@ const buildPreviousExperienceSourceRecords = (text: string): PreviousExperienceS
 	while (index < lines.length) {
 		const line = lines[index] ?? '';
 		if (SECTION_STOP_PATTERN.test(line)) break;
-		if (!DATE_RANGE_PATTERN.test(line)) {
+		const nextLine = lines[index + 1] ?? '';
+		const isDateFirstRecord = DATE_RANGE_PATTERN.test(line);
+		const isRoleFirstRecord =
+			!isDateFirstRecord && isRoleCompanyLine(line) && DATE_RANGE_PATTERN.test(nextLine);
+
+		if (!isDateFirstRecord && !isRoleFirstRecord) {
 			index += 1;
 			continue;
 		}
 
-		const dateRange = line;
-		const company = lines[index + 1] ?? '';
-		const location = lines[index + 2] ?? '';
-		const role = lines[index + 3] ?? '';
-		index += 4;
+		let dateRange = '';
+		let company = '';
+		let location = '';
+		let role = '';
+
+		if (isDateFirstRecord) {
+			dateRange = line;
+			company = lines[index + 1] ?? '';
+			location = lines[index + 2] ?? '';
+			role = lines[index + 3] ?? '';
+			index += 4;
+
+			if (isSplitCompanyContinuation(company, location)) {
+				company = normalize(`${company} ${location}`);
+				location = role;
+				role = lines[index] ?? '';
+				index += 1;
+			}
+		} else {
+			dateRange = nextLine;
+			const split = splitRoleCompanyLine(line);
+			role = split.role;
+			company = split.company;
+			index += 2;
+		}
 
 		const descriptionLines: string[] = [];
 		const technologies: string[] = [];
 
 		while (index < lines.length) {
 			const current = lines[index] ?? '';
+			const next = lines[index + 1] ?? '';
 			if (
 				DATE_RANGE_PATTERN.test(current) ||
+				(isRoleCompanyLine(current) && DATE_RANGE_PATTERN.test(next)) ||
 				SECTION_STOP_PATTERN.test(current) ||
 				PREVIOUS_SECTION_PATTERN.test(current) ||
 				HIGHLIGHTED_SECTION_PATTERN.test(current)
@@ -374,10 +440,13 @@ const buildPreviousExperienceSourceRecords = (text: string): PreviousExperienceS
 	return records.filter((record) => record.company || record.role || record.description);
 };
 
-const buildPreviousExperienceRecordsPrompt = (text: string): string => {
+const buildPreviousExperienceRecordsPrompt = (text: string): PreviousExperienceRecordsPrompt => {
 	const records = buildPreviousExperienceSourceRecords(text);
 	if (records.length === 0) {
-		return 'No structured previous-experience source records could be extracted. Use the normalized PDF text directly.';
+		return {
+			text: 'No structured previous-experience source records could be extracted. Use the normalized PDF text directly. If the original PDF file is attached, use it to resolve work-history layout, dates, role/company grouping, and section boundaries.',
+			recordCount: 0
+		};
 	}
 
 	const rendered = records
@@ -397,13 +466,16 @@ const buildPreviousExperienceRecordsPrompt = (text: string): string => {
 		)
 		.join('\n\n---\n\n');
 
-	return `Structured previous-experience source records extracted from the previous/full work-history section.
+	return {
+		text: `Structured previous-experience source records extracted from the previous/full work-history section.
 
 These records are an optional structural aid extracted from the uploaded resume text. They are generic and may come from any resume template or language. Use them to preserve source depth, not to impose a fixed template.
 
 Hard requirement: create one experiences item from each record below unless the full PDF text clearly proves it is not a real work-history entry. For experiences.description, preserve the record's Description source text in rich detail. Do not replace it with highlighted-experience summaries. Do not reduce a multi-paragraph record to 1-2 sentences. Preserve full domains such as example.com, company.se, or any other source domain exactly.
 
-${rendered}`;
+${rendered}`,
+		recordCount: records.length
+	};
 };
 
 const ensurePdfJsDomGlobals = async () => {
@@ -465,8 +537,12 @@ Treat this text as the authoritative source for exact wording, long previous-exp
 ${text}`
 		: `No reliable extracted PDF text was available. Use the attached PDF file directly.`;
 
-const shouldAttachPdfFile = (extractedPdfText: string): boolean =>
-	normalize(extractedPdfText).length < MIN_EXTRACTED_TEXT_ONLY_CHARS;
+const shouldAttachPdfFile = (
+	extractedPdfText: string,
+	structuredExperienceRecordCount: number
+): boolean =>
+	normalize(extractedPdfText).length < MIN_EXTRACTED_TEXT_ONLY_CHARS ||
+	structuredExperienceRecordCount === 0;
 
 const normalizeDomainComparable = (value: string): string =>
 	normalize(value)
@@ -1349,7 +1425,16 @@ export const importResumeFromPdf = async (
 	const personFirstName = getFirstName(personName);
 	const model = getPdfImportModel();
 	const extractedPdfText = await extractPdfText(input.pdfBytes);
-	const attachPdfFile = shouldAttachPdfFile(extractedPdfText);
+	const previousExperienceRecordsPrompt = buildPreviousExperienceRecordsPrompt(extractedPdfText);
+	const attachPdfFile = shouldAttachPdfFile(
+		extractedPdfText,
+		previousExperienceRecordsPrompt.recordCount
+	);
+	console.info('[resume-pdf-import] pdf:structure:records', {
+		text_chars: extractedPdfText.length,
+		previous_experience_records: previousExperienceRecordsPrompt.recordCount,
+		attach_pdf_file: attachPdfFile
+	});
 	const fileData = attachPdfFile
 		? `data:application/pdf;base64,${Buffer.from(input.pdfBytes).toString('base64')}`
 		: null;
@@ -1371,7 +1456,7 @@ export const importResumeFromPdf = async (
 		},
 		{
 			type: 'input_text',
-			text: buildPreviousExperienceRecordsPrompt(extractedPdfText)
+			text: previousExperienceRecordsPrompt.text
 		}
 	];
 
