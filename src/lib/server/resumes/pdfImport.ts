@@ -430,9 +430,16 @@ const extractPdfText = async (pdfBytes: Uint8Array): Promise<string> => {
 		console.info('[resume-pdf-import] pdf:text:start', { size_bytes: pdfBytes.byteLength });
 		await ensurePdfJsDomGlobals();
 		console.info('[resume-pdf-import] pdf:text:globals-ready');
-		const { PDFParse } = await import('pdf-parse');
+		const [{ PDFParse }, { CanvasFactory, getData }] = await Promise.all([
+			import('pdf-parse'),
+			import('pdf-parse/worker')
+		]);
+		PDFParse.setWorker(getData());
 		console.info('[resume-pdf-import] pdf:text:parser-loaded');
-		parser = new PDFParse({ data: Buffer.from(pdfBytes) });
+		parser = new PDFParse({
+			data: Buffer.from(pdfBytes),
+			CanvasFactory
+		});
 		const result = await parser.getText();
 		const normalizedText = normalizeExtractedPdfText(result.text ?? '');
 		console.info('[resume-pdf-import] pdf:text:done', {
