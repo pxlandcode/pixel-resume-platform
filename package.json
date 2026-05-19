@@ -45,6 +45,7 @@
 		"vite": "^7.0.4"
 	},
 	"dependencies": {
+		"@napi-rs/canvas": "^0.1.80",
 		"@sparticuz/chromium": "^131.0.0",
 		"@supabase/supabase-js": "^2.48.0",
 		"@uppy/core": "^4.2.4",

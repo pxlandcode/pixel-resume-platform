@@ -24,7 +24,7 @@ type ResumeImportJobRow = {
 	source_object_path: string | null;
 };
 
-const shouldUseNetlifyBackgroundImport = (url: URL) =>
+const shouldUseNetlifyBackgroundImport = () =>
 	!dev &&
 	(process.env.NETLIFY === 'true' ||
 		!!process.env.URL ||
@@ -174,7 +174,7 @@ export const POST: RequestHandler = async ({ params, cookies, request, url }) =>
 			);
 		}
 
-		if (shouldUseNetlifyBackgroundImport(url)) {
+		if (shouldUseNetlifyBackgroundImport()) {
 			await startNetlifyBackgroundImport(request, url, jobId, job.talent_id);
 			return json({ ok: true, status: 'queued' }, { status: 202 });
 		}

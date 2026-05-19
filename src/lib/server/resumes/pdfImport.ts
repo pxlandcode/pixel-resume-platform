@@ -406,6 +406,19 @@ Hard requirement: create one experiences item from each record below unless the 
 ${rendered}`;
 };
 
+const ensurePdfJsDomGlobals = async () => {
+	const globals = globalThis as unknown as Record<'DOMMatrix' | 'ImageData' | 'Path2D', unknown>;
+
+	if (globals.DOMMatrix && globals.ImageData && globals.Path2D) {
+		return;
+	}
+
+	const { DOMMatrix, ImageData, Path2D } = await import('@napi-rs/canvas');
+	globals.DOMMatrix ??= DOMMatrix;
+	globals.ImageData ??= ImageData;
+	globals.Path2D ??= Path2D;
+};
+
 const extractPdfText = async (pdfBytes: Uint8Array): Promise<string> => {
 	let parser: {
 		getText: () => Promise<{ text?: string | null }>;
@@ -413,6 +426,7 @@ const extractPdfText = async (pdfBytes: Uint8Array): Promise<string> => {
 	} | null = null;
 
 	try {
+		await ensurePdfJsDomGlobals();
 		const { PDFParse } = await import('pdf-parse');
 		parser = new PDFParse({ data: Buffer.from(pdfBytes) });
 		const result = await parser.getText();
