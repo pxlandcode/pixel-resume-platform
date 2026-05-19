@@ -424,13 +424,23 @@ const extractPdfText = async (pdfBytes: Uint8Array): Promise<string> => {
 		getText: () => Promise<{ text?: string | null }>;
 		destroy: () => Promise<void>;
 	} | null = null;
+	const startedAt = Date.now();
 
 	try {
+		console.info('[resume-pdf-import] pdf:text:start', { size_bytes: pdfBytes.byteLength });
 		await ensurePdfJsDomGlobals();
+		console.info('[resume-pdf-import] pdf:text:globals-ready');
 		const { PDFParse } = await import('pdf-parse');
+		console.info('[resume-pdf-import] pdf:text:parser-loaded');
 		parser = new PDFParse({ data: Buffer.from(pdfBytes) });
 		const result = await parser.getText();
-		return normalizeExtractedPdfText(result.text ?? '');
+		const normalizedText = normalizeExtractedPdfText(result.text ?? '');
+		console.info('[resume-pdf-import] pdf:text:done', {
+			size_bytes: pdfBytes.byteLength,
+			text_chars: normalizedText.length,
+			duration_ms: Date.now() - startedAt
+		});
+		return normalizedText;
 	} catch (error) {
 		console.warn('[resume-pdf-import] Failed to extract PDF text', error);
 		return '';

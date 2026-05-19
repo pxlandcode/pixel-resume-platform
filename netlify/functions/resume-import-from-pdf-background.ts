@@ -393,6 +393,12 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
 			request_id: requestId
 		});
 
+		logPhase('resume-import:call:start', {
+			job_id: jobId,
+			talent_id: talentId,
+			size_bytes: sizeBytes,
+			request_id: requestId
+		});
 		logPhase('openai:import:start', { job_id: jobId, talent_id: talentId, request_id: requestId });
 		const imported = await importResumeFromPdf({
 			pdfBytes: fileBytes,
