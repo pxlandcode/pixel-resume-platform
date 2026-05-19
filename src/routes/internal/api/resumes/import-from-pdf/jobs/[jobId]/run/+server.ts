@@ -23,6 +23,8 @@ type ResumeImportJobRow = {
 	source_object_path: string | null;
 };
 
+const isNetlifyRuntime = () => process.env.NETLIFY === 'true';
+
 const toSafeMessage = (value: unknown, fallback: string): string => {
 	if (typeof value !== 'string') return fallback;
 	const trimmed = value.trim();
@@ -66,7 +68,37 @@ const readBlobArrayBuffer = async (value: unknown): Promise<ArrayBuffer | null> 
 	return null;
 };
 
-export const POST: RequestHandler = async ({ params, cookies }) => {
+const startNetlifyBackgroundImport = async (
+	request: Request,
+	url: URL,
+	jobId: string,
+	talentId: string
+) => {
+	const response = await fetch(
+		`${url.origin}/.netlify/functions/resume-import-from-pdf-background`,
+		{
+			method: 'POST',
+			headers: {
+				'content-type': 'application/json',
+				cookie: request.headers.get('cookie') ?? ''
+			},
+			body: JSON.stringify({
+				job_id: jobId,
+				talent_id: talentId
+			})
+		}
+	);
+
+	if (response.ok) {
+		return;
+	}
+
+	const payload = (await response.json().catch(() => null)) as { message?: unknown } | null;
+	const message = toSafeMessage(payload?.message, 'Could not start background PDF import.');
+	throw new Error(message);
+};
+
+export const POST: RequestHandler = async ({ params, cookies, request, url }) => {
 	const jobId = params.jobId?.trim();
 	if (!jobId) {
 		return json({ message: 'Invalid job id.' }, { status: 400 });
@@ -133,6 +165,11 @@ export const POST: RequestHandler = async ({ params, cookies }) => {
 				{ message: 'Staged PDF could not be loaded. Please re-upload and try again.' },
 				{ status: 400 }
 			);
+		}
+
+		if (isNetlifyRuntime()) {
+			await startNetlifyBackgroundImport(request, url, jobId, job.talent_id);
+			return json({ ok: true, status: 'queued' }, { status: 202 });
 		}
 
 		cleanupBucket = job.source_bucket;
