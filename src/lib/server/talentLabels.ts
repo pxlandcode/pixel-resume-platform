@@ -87,8 +87,12 @@ export const canViewTalentLabels = (
 export const canManageTalentLabelAssignments = canViewTalentLabels;
 
 export const canManageTalentLabelDefinitions = (
-	actor: Pick<ActorAccessContext, 'userId' | 'homeOrganisationId' | 'isAdmin' | 'isOrganisationAdmin'>
-) => Boolean(actor.userId && actor.homeOrganisationId && (actor.isAdmin || actor.isOrganisationAdmin));
+	actor: Pick<
+		ActorAccessContext,
+		'userId' | 'homeOrganisationId' | 'isAdmin' | 'isOrganisationAdmin'
+	>
+) =>
+	Boolean(actor.userId && actor.homeOrganisationId && (actor.isAdmin || actor.isOrganisationAdmin));
 
 const normalizeLabelName = (value: unknown) => {
 	if (typeof value !== 'string') return null;
@@ -174,7 +178,10 @@ export const listVisibleTalentLabelDefinitions = async (payload: {
 	>;
 }): Promise<TalentLabelDefinition[]> => {
 	if (!payload.adminClient || !canViewTalentLabels(payload.actor)) return [];
-	return listOrganisationTalentLabelDefinitions(payload.adminClient, payload.actor.homeOrganisationId);
+	return listOrganisationTalentLabelDefinitions(
+		payload.adminClient,
+		payload.actor.homeOrganisationId
+	);
 };
 
 export const listTalentLabelsByTalentId = async (payload: {
@@ -189,8 +196,11 @@ export const listTalentLabelsByTalentId = async (payload: {
 	}
 
 	const definitions =
-		payload.definitions ?? (await listOrganisationTalentLabelDefinitions(payload.adminClient, payload.organisationId));
-	const definitionById = new Map(definitions.map((definition) => [definition.id, definition] as const));
+		payload.definitions ??
+		(await listOrganisationTalentLabelDefinitions(payload.adminClient, payload.organisationId));
+	const definitionById = new Map(
+		definitions.map((definition) => [definition.id, definition] as const)
+	);
 
 	const { data, error } = await payload.adminClient
 		.from('organisation_talent_label_assignments')
@@ -410,22 +420,22 @@ export const createTalentLabelDefinition = async (payload: {
 		throw new TalentLabelServiceError(400, 'Choose a valid color.');
 	}
 
-	const { data: lastRow, error: lastRowError } = await payload.adminClient
+	const { data: firstRow, error: firstRowError } = await payload.adminClient
 		.from('organisation_talent_label_definitions')
 		.select('sort_order')
 		.eq('organisation_id', organisationId)
-		.order('sort_order', { ascending: false })
+		.order('sort_order', { ascending: true })
 		.limit(1)
 		.maybeSingle();
 
-	if (lastRowError) {
-		throw mapSupabaseError(lastRowError);
+	if (firstRowError) {
+		throw mapSupabaseError(firstRowError);
 	}
 
 	const nextSortOrder =
-		typeof lastRow?.sort_order === 'number' && Number.isFinite(lastRow.sort_order)
-			? lastRow.sort_order + 1
-			: DEFAULT_TALENT_LABEL_DEFINITIONS.length;
+		typeof firstRow?.sort_order === 'number' && Number.isFinite(firstRow.sort_order)
+			? firstRow.sort_order - 1
+			: 0;
 
 	const { data, error } = await payload.adminClient
 		.from('organisation_talent_label_definitions')
