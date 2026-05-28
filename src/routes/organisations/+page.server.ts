@@ -758,7 +758,7 @@ export const actions: Actions = {
 				type: 'updateOrganisationBranding',
 				ok: false,
 				message:
-					'Upload either one variable font file or four static files (Regular, Italic, Bold, Bold Italic), not both at the same time.'
+					'Upload either one variable font file or static font files, not both at the same time.'
 			});
 		}
 
@@ -821,31 +821,22 @@ export const actions: Actions = {
 				});
 			}
 		} else if (staticFileCount > 0) {
-			if (staticFileCount !== 4) {
+			if (!(staticFiles.regular instanceof File)) {
 				return fail(400, {
 					type: 'updateOrganisationBranding',
 					ok: false,
 					message:
-						'Static font uploads require all four files: Regular (400), Italic (400), Bold (700), and Bold Italic (700).'
+						'Static font uploads require at least the Regular (400) file. Italic, Bold, and Bold Italic are optional.'
 				});
 			}
 
-			const requiredSlots: FontFaceSlot[] = ['regular', 'italic', 'bold', 'boldItalic'];
-			for (const slot of requiredSlots) {
-				const file = staticFiles[slot];
-				if (!(file instanceof File)) {
-					return fail(400, {
-						type: 'updateOrganisationBranding',
-						ok: false,
-						message:
-							'Static font uploads require all four files: Regular (400), Italic (400), Bold (700), and Bold Italic (700).'
-					});
-				}
-			}
+			const uploadedStaticSlots = (
+				['regular', 'italic', 'bold', 'boldItalic'] as FontFaceSlot[]
+			).filter((slot) => staticFiles[slot] instanceof File);
 
 			try {
 				const metadataBySlot = await Promise.all(
-					requiredSlots.map(async (slot) => ({
+					uploadedStaticSlots.map(async (slot) => ({
 						slot,
 						file: staticFiles[slot] as File,
 						metadata: await parseUploadedFontMetadata(staticFiles[slot] as File)
@@ -857,9 +848,7 @@ export const actions: Actions = {
 					({ metadata }) => sanitizeFontFamilyName(metadata.family).toLowerCase() !== baseFamily
 				);
 				if (familyMismatch) {
-					throw new Error(
-						'All static uploads must belong to the same font family (Regular, Italic, Bold, Bold Italic).'
-					);
+					throw new Error('All static uploads must belong to the same font family.');
 				}
 
 				const slotChecks: Array<{
@@ -908,7 +897,7 @@ export const actions: Actions = {
 				}
 
 				const files: OrganisationUploadedFontFiles = {};
-				for (const slot of requiredSlots) {
+				for (const slot of uploadedStaticSlots) {
 					const path = await uploadFontFile(
 						context.adminClient,
 						organisationId,
@@ -953,7 +942,7 @@ export const actions: Actions = {
 				type: 'updateOrganisationBranding',
 				ok: false,
 				message:
-					'Uploaded font selection requires either one valid variable font or all four static files (Regular, Italic, Bold, Bold Italic).'
+					'Uploaded font selection requires either one valid variable font or at least a Regular (400) static font file.'
 			});
 		}
 

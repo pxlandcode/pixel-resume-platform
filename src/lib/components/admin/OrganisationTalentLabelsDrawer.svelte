@@ -103,18 +103,21 @@
 					const message = getActionMessage(result);
 					if (result.type === 'success') {
 						const successMessage = message ?? 'Saved.';
+						await refreshOrganisationContext?.();
+						pendingLabelAction = null;
 						showToast('success', successMessage);
 						setDrawerFeedback('success', successMessage);
-						await refreshOrganisationContext?.();
 						return;
 					}
 					if (result.type === 'failure') {
 						const errorMessage = message ?? 'Could not save label.';
+						pendingLabelAction = null;
 						showToast('error', errorMessage);
 						setDrawerFeedback('error', errorMessage);
 						return;
 					}
 					if (result.type === 'error') {
+						pendingLabelAction = null;
 						showToast('error', 'Could not save label.');
 						setDrawerFeedback('error', 'Could not save label.');
 					}

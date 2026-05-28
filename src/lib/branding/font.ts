@@ -193,12 +193,7 @@ export const isUploadedFontConfigUsable = (uploadedFont: OrganisationUploadedFon
 	if (uploadedFont.mode === 'variable') {
 		return Boolean(uploadedFont.files.variablePath);
 	}
-	return Boolean(
-		uploadedFont.files.regularPath &&
-			uploadedFont.files.italicPath &&
-			uploadedFont.files.boldPath &&
-			uploadedFont.files.boldItalicPath
-	);
+	return Boolean(uploadedFont.files.regularPath);
 };
 
 const buildUploadedFontFaceCss = (
@@ -234,38 +229,55 @@ const buildUploadedFontFaceCss = (
 	const italicUrl = resolveAssetUrl(uploadedFont.files.italicPath ?? '', pathToUrl);
 	const boldUrl = resolveAssetUrl(uploadedFont.files.boldPath ?? '', pathToUrl);
 	const boldItalicUrl = resolveAssetUrl(uploadedFont.files.boldItalicPath ?? '', pathToUrl);
-	if (!regularUrl || !italicUrl || !boldUrl || !boldItalicUrl) return null;
+	if (!regularUrl) return null;
 
-	return [
+	const rules = [
 		'@font-face {',
 		`\tfont-family: '${family}';`,
 		`\tsrc: ${buildSrc(regularUrl)};`,
 		'\tfont-weight: 400;',
 		'\tfont-style: normal;',
 		'\tfont-display: swap;',
-		'}',
-		'@font-face {',
-		`\tfont-family: '${family}';`,
-		`\tsrc: ${buildSrc(italicUrl)};`,
-		'\tfont-weight: 400;',
-		'\tfont-style: italic;',
-		'\tfont-display: swap;',
-		'}',
-		'@font-face {',
-		`\tfont-family: '${family}';`,
-		`\tsrc: ${buildSrc(boldUrl)};`,
-		'\tfont-weight: 700;',
-		'\tfont-style: normal;',
-		'\tfont-display: swap;',
-		'}',
-		'@font-face {',
-		`\tfont-family: '${family}';`,
-		`\tsrc: ${buildSrc(boldItalicUrl)};`,
-		'\tfont-weight: 700;',
-		'\tfont-style: italic;',
-		'\tfont-display: swap;',
 		'}'
-	].join('\n');
+	];
+
+	if (italicUrl) {
+		rules.push(
+			'@font-face {',
+			`\tfont-family: '${family}';`,
+			`\tsrc: ${buildSrc(italicUrl)};`,
+			'\tfont-weight: 400;',
+			'\tfont-style: italic;',
+			'\tfont-display: swap;',
+			'}'
+		);
+	}
+
+	if (boldUrl) {
+		rules.push(
+			'@font-face {',
+			`\tfont-family: '${family}';`,
+			`\tsrc: ${buildSrc(boldUrl)};`,
+			'\tfont-weight: 700;',
+			'\tfont-style: normal;',
+			'\tfont-display: swap;',
+			'}'
+		);
+	}
+
+	if (boldItalicUrl) {
+		rules.push(
+			'@font-face {',
+			`\tfont-family: '${family}';`,
+			`\tsrc: ${buildSrc(boldItalicUrl)};`,
+			'\tfont-weight: 700;',
+			'\tfont-style: italic;',
+			'\tfont-display: swap;',
+			'}'
+		);
+	}
+
+	return rules.join('\n');
 };
 
 export const sanitizeFontFamilyName = (value: string) =>

@@ -84,7 +84,7 @@
 
 	const fontUploadModeOptions = [
 		{ label: 'Variable font', value: 'variable' as FontUploadMode },
-		{ label: 'Static fonts (4 files)', value: 'static' as FontUploadMode }
+		{ label: 'Static fonts', value: 'static' as FontUploadMode }
 	];
 
 	// Font family CSS for displaying each option in its own font
@@ -158,7 +158,21 @@
 		fieldName: FontInputName,
 		emptyLabel: string,
 		currentLabel: string
-	) => selectedFontFileNames[fieldName] ?? (typography.uploadedFont ? currentLabel : emptyLabel);
+	) => {
+		if (selectedFontFileNames[fieldName]) return selectedFontFileNames[fieldName];
+		const files = typography.uploadedFont?.files;
+		const hasCurrentFile =
+			fieldName === 'uploaded_font_variable'
+				? Boolean(files?.variablePath)
+				: fieldName === 'uploaded_font_regular'
+					? Boolean(files?.regularPath)
+					: fieldName === 'uploaded_font_italic'
+						? Boolean(files?.italicPath)
+						: fieldName === 'uploaded_font_bold'
+							? Boolean(files?.boldPath)
+							: Boolean(files?.boldItalicPath);
+		return hasCurrentFile ? currentLabel : emptyLabel;
+	};
 
 	let {
 		open = $bindable(false),
@@ -372,8 +386,8 @@
 										{:else}
 											<p class="font-medium">Static fonts</p>
 											<p>
-												Upload 4 files from the same family: Regular (400), Italic (400), Bold
-												(700), Bold Italic (700).
+												Upload Regular (400) plus any matching Italic, Bold, or Bold Italic files.
+												Missing styles are synthesized.
 											</p>
 										{/if}
 									</div>
@@ -409,6 +423,13 @@
 								</label>
 							</FormControl>
 						{:else}
+							<div class="border-border bg-muted/50 rounded-sm border px-3 py-2">
+								<p class="text-muted-fg text-xs font-medium">
+									Only Regular is required. If Italic, Bold, or Bold Italic are missing, the app
+									will synthesize those styles, which can look different from the real font files in
+									previews and PDFs.
+								</p>
+							</div>
 							<div class="grid gap-3 sm:grid-cols-2">
 								<FormControl label="Regular (400)" class="gap-2 text-sm">
 									<input
@@ -436,7 +457,7 @@
 										<span class="text-muted-fg shrink-0">Browse</span>
 									</label>
 								</FormControl>
-								<FormControl label="Italic (400)" class="gap-2 text-sm">
+								<FormControl label="Italic (400, optional)" class="gap-2 text-sm">
 									<input
 										id="uploaded-font-italic"
 										type="file"
@@ -462,7 +483,7 @@
 										<span class="text-muted-fg shrink-0">Browse</span>
 									</label>
 								</FormControl>
-								<FormControl label="Bold (700)" class="gap-2 text-sm">
+								<FormControl label="Bold (700, optional)" class="gap-2 text-sm">
 									<input
 										id="uploaded-font-bold"
 										type="file"
@@ -488,7 +509,7 @@
 										<span class="text-muted-fg shrink-0">Browse</span>
 									</label>
 								</FormControl>
-								<FormControl label="Bold Italic (700)" class="gap-2 text-sm">
+								<FormControl label="Bold Italic (700, optional)" class="gap-2 text-sm">
 									<input
 										id="uploaded-font-bold-italic"
 										type="file"
