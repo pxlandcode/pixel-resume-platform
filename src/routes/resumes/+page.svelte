@@ -359,6 +359,20 @@
 		left: FreeTextTalentResult,
 		right: FreeTextTalentResult
 	) => {
+		const leftHasRequirementSummary = left.total > 0;
+		const rightHasRequirementSummary = right.total > 0;
+		if (leftHasRequirementSummary || rightHasRequirementSummary) {
+			const leftRequirementRatio = left.total > 0 ? left.metCount / left.total : 0;
+			const rightRequirementRatio = right.total > 0 ? right.metCount / right.total : 0;
+			if (rightRequirementRatio !== leftRequirementRatio) {
+				return rightRequirementRatio - leftRequirementRatio;
+			}
+			if (right.metCount !== left.metCount) return right.metCount - left.metCount;
+			if (right.insufficientCount !== left.insufficientCount) {
+				return right.insufficientCount - left.insufficientCount;
+			}
+		}
+
 		const leftConcreteMatchCount = getConcreteSearchMatchCount(left.search);
 		const rightConcreteMatchCount = getConcreteSearchMatchCount(right.search);
 		const leftHasConcreteMatches = leftConcreteMatchCount > 0;
