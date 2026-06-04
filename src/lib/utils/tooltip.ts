@@ -17,22 +17,27 @@ export type TooltipOptions =
 			position?: TooltipPosition;
 			backgroundColor?: string;
 			textColor?: string;
+			openOnClick?: boolean;
 	  };
 
 function resolveOptions(options: TooltipOptions) {
-	if (typeof options === 'string') return { text: options, position: 'bottom' as TooltipPosition };
+	if (typeof options === 'string') {
+		return { text: options, position: 'bottom' as TooltipPosition, openOnClick: true };
+	}
 	return {
 		text: options.text,
 		position: options.position ?? 'bottom',
 		backgroundColor: options.backgroundColor,
-		textColor: options.textColor
+		textColor: options.textColor,
+		openOnClick: options.openOnClick ?? true
 	};
 }
 
 export function tooltip(node: HTMLElement, options: TooltipOptions) {
-	let { text, position, backgroundColor, textColor } = resolveOptions(options);
+	let { text, position, backgroundColor, textColor, openOnClick } = resolveOptions(options);
 	let el: HTMLDivElement | null = null;
 	let arrow: HTMLDivElement | null = null;
+	let pinnedByClick = false;
 	const gap = 8;
 	const viewportPadding = 8;
 	const arrowInset = 12;
@@ -130,6 +135,15 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 		positionTooltip();
 	};
 
+	const handleDocumentPointerDown = (event: PointerEvent) => {
+		const target = event.target;
+		if (!(target instanceof Node)) return;
+		if (node.contains(target) || el?.contains(target)) return;
+
+		pinnedByClick = false;
+		hide(true);
+	};
+
 	const applyTooltipColors = () => {
 		if (!el) return;
 
@@ -152,8 +166,13 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 		}
 	};
 
-	const show = () => {
-		if (!text || el) return;
+	const show = (pin = false) => {
+		if (!text) return;
+		if (pin) pinnedByClick = true;
+		if (el) {
+			positionTooltip();
+			return;
+		}
 
 		el = document.createElement('div');
 		el.className = 'app-tooltip';
@@ -168,17 +187,21 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 		document.body.appendChild(el);
 		window.addEventListener('scroll', handleViewportChange, true);
 		window.addEventListener('resize', handleViewportChange);
+		document.addEventListener('pointerdown', handleDocumentPointerDown, true);
 
 		// Force a layout pass so getBoundingClientRect returns the real size
-		el.offsetHeight;
+		void el.offsetHeight;
 
 		positionTooltip();
 		el.style.visibility = '';
 	};
 
-	const hide = () => {
+	const hide = (force = false) => {
+		if (pinnedByClick && !force) return;
+
 		window.removeEventListener('scroll', handleViewportChange, true);
 		window.removeEventListener('resize', handleViewportChange);
+		document.removeEventListener('pointerdown', handleDocumentPointerDown, true);
 
 		if (el) {
 			el.remove();
@@ -187,16 +210,27 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 		}
 	};
 
-	node.addEventListener('mouseenter', show);
-	node.addEventListener('mouseleave', hide);
-	node.addEventListener('focus', show);
-	node.addEventListener('blur', hide);
+	const handleMouseEnter = () => show();
+	const handleMouseLeave = () => hide();
+	const handleFocus = () => show();
+	const handleBlur = () => hide();
+	const handleClick = () => {
+		if (!openOnClick) return;
+		show(true);
+	};
+
+	node.addEventListener('mouseenter', handleMouseEnter);
+	node.addEventListener('mouseleave', handleMouseLeave);
+	node.addEventListener('focus', handleFocus);
+	node.addEventListener('blur', handleBlur);
+	node.addEventListener('click', handleClick);
 
 	return {
 		update(newOptions: TooltipOptions) {
-			({ text, position, backgroundColor, textColor } = resolveOptions(newOptions));
+			({ text, position, backgroundColor, textColor, openOnClick } = resolveOptions(newOptions));
 			if (!text) {
-				hide();
+				pinnedByClick = false;
+				hide(true);
 				return;
 			}
 
@@ -212,11 +246,13 @@ export function tooltip(node: HTMLElement, options: TooltipOptions) {
 			}
 		},
 		destroy() {
-			hide();
-			node.removeEventListener('mouseenter', show);
-			node.removeEventListener('mouseleave', hide);
-			node.removeEventListener('focus', show);
-			node.removeEventListener('blur', hide);
+			pinnedByClick = false;
+			hide(true);
+			node.removeEventListener('mouseenter', handleMouseEnter);
+			node.removeEventListener('mouseleave', handleMouseLeave);
+			node.removeEventListener('focus', handleFocus);
+			node.removeEventListener('blur', handleBlur);
+			node.removeEventListener('click', handleClick);
 		}
 	};
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ResumeSearchItem } from '$lib/types/resumes';
+	import { tooltip } from '$lib/utils/tooltip';
 	import type { TechMatch } from './pageShared';
 	import { formatYears } from './pageShared';
 
@@ -8,7 +9,46 @@
 		key: string;
 		label: string;
 		yearsLabel: string | null;
+		interpretedEvidence: string[];
 	};
+	const HIDDEN_GENERIC_TERMS = [
+		'avser',
+		'avveckla',
+		'bankens',
+		'beskrivning',
+		'beslutat',
+		'dar',
+		'del',
+		'denna',
+		'efter',
+		'erbjudande',
+		'forandring',
+		'forandringar',
+		'fortsatt',
+		'kund',
+		'kunden',
+		'kundens',
+		'letar',
+		'leverantoren',
+		'losning',
+		'losningen',
+		'nodvandig',
+		'nuvarande',
+		'owner',
+		'overga',
+		'premises',
+		'renodlat',
+		'saaa',
+		'sakerstalla',
+		'stallet',
+		'stod',
+		'teknisk',
+		'tjanst',
+		'transformation',
+		'uppdrag',
+		'uppdraget',
+		'var'
+	] as const;
 
 	let {
 		search,
@@ -34,49 +74,97 @@
 			.replace(/\s+/g, ' ')
 			.trim();
 	const uniqueChips = (chips: SearchInsightChip[]) => {
-		const seen = new Set<string>();
+		const seenKeys: string[] = [];
 		const output: SearchInsightChip[] = [];
 
 		for (const chip of chips) {
-			if (!chip.key || seen.has(chip.key)) continue;
-			seen.add(chip.key);
+			if (!chip.key || seenKeys.includes(chip.key)) continue;
+			seenKeys.push(chip.key);
 			output.push(chip);
 		}
 
 		return output;
 	};
+	const uniqueNormalizedTerms = (terms: string[]) => {
+		const output: string[] = [];
 
-	const queryTechTermSet = $derived.by(() => {
+		for (const term of terms) {
+			const normalized = normalizeTerm(term);
+			if (!normalized || output.includes(normalized)) continue;
+			output.push(normalized);
+		}
+
+		return output;
+	};
+	const uniqueEvidence = (values: string[]) => {
+		const seen: string[] = [];
+		const output: string[] = [];
+
+		for (const value of values) {
+			const trimmed = value.trim();
+			const normalized = normalizeTerm(trimmed);
+			if (!trimmed || !normalized || seen.includes(normalized)) continue;
+			seen.push(normalized);
+			output.push(trimmed);
+		}
+
+		return output;
+	};
+	const interpretedEvidenceByKey = $derived.by<Record<string, string[]>>(() => {
+		const evidenceByKey: Record<string, string[]> = {};
+
+		for (const match of search.interpretedMatches ?? []) {
+			const evidence = uniqueEvidence(match.evidence ?? []);
+			if (evidence.length === 0) continue;
+
+			for (const value of [match.label, match.key]) {
+				const normalized = normalizeTerm(value);
+				if (!normalized) continue;
+				evidenceByKey[normalized] = uniqueEvidence([
+					...(evidenceByKey[normalized] ?? []),
+					...evidence
+				]);
+			}
+		}
+
+		return evidenceByKey;
+	});
+	const getInterpretedEvidence = (term: string) =>
+		interpretedEvidenceByKey[normalizeTerm(term)] ?? [];
+	const queryTechTerms = $derived.by<string[]>(() => {
 		if (techMatches.length > 0) {
-			return new Set(
-				techMatches
-					.flatMap((techMatch: TechMatch) => [techMatch.label, techMatch.key])
-					.map((term: string) => normalizeTerm(term))
-					.filter(Boolean)
+			return uniqueNormalizedTerms(
+				techMatches.flatMap((techMatch: TechMatch) => [techMatch.label, techMatch.key])
 			);
 		}
 
-		return new Set(
-			[...search.matchedQueryTechs, ...search.missingQueryTechs]
-				.map((term) => normalizeTerm(term))
-				.filter(Boolean)
-		);
+		return uniqueNormalizedTerms([...search.matchedQueryTechs, ...search.missingQueryTechs]);
 	});
 	const toRequirementChip = (term: string): SearchInsightChip => ({
 		key: normalizeTerm(term),
 		label: term,
-		yearsLabel: null
+		yearsLabel: null,
+		interpretedEvidence: getInterpretedEvidence(term)
 	});
 	const toTechChip = (techMatch: TechMatch): SearchInsightChip => ({
 		key: normalizeTerm(techMatch.label),
 		label: techMatch.label,
-		yearsLabel: techMatch.actualYears > 0 ? formatYears(techMatch.actualYears) : null
+		yearsLabel: techMatch.actualYears > 0 ? formatYears(techMatch.actualYears) : null,
+		interpretedEvidence: getInterpretedEvidence(techMatch.label)
 	});
+	const shouldShowRequirementTerm = (term: string) =>
+		!HIDDEN_GENERIC_TERMS.includes(normalizeTerm(term) as (typeof HIDDEN_GENERIC_TERMS)[number]);
 	const matchedRequirementTerms = $derived.by(() =>
-		search.matchedTerms.filter((term: string) => !queryTechTermSet.has(normalizeTerm(term)))
+		search.matchedTerms.filter(
+			(term: string) =>
+				!queryTechTerms.includes(normalizeTerm(term)) && shouldShowRequirementTerm(term)
+		)
 	);
 	const missingRequirementTerms = $derived.by(() =>
-		search.missingTerms.filter((term: string) => !queryTechTermSet.has(normalizeTerm(term)))
+		search.missingTerms.filter(
+			(term: string) =>
+				!queryTechTerms.includes(normalizeTerm(term)) && shouldShowRequirementTerm(term)
+		)
 	);
 	const matchedTechTerms = $derived.by<SearchInsightChip[]>(() => {
 		if (!showQueryTechSummary) return [];
@@ -95,10 +183,14 @@
 		uniqueChips([...missingTechTerms, ...missingRequirementTerms.map(toRequirementChip)])
 	);
 	const matchedTermsKey = $derived(
-		combinedMatchedTerms.map((chip) => `${chip.key}:${chip.yearsLabel ?? ''}`).join('\u0000')
+		combinedMatchedTerms
+			.map((chip) => `${chip.key}:${chip.yearsLabel ?? ''}:${chip.interpretedEvidence.join(',')}`)
+			.join('\u0000')
 	);
 	const missingTermsKey = $derived(
-		combinedMissingTerms.map((chip) => `${chip.key}:${chip.yearsLabel ?? ''}`).join('\u0000')
+		combinedMissingTerms
+			.map((chip) => `${chip.key}:${chip.yearsLabel ?? ''}:${chip.interpretedEvidence.join(',')}`)
+			.join('\u0000')
 	);
 	const visibleMatchedTerms = $derived(
 		matchingExpanded ? combinedMatchedTerms : combinedMatchedTerms.slice(0, DEFAULT_VISIBLE_TERMS)
@@ -125,6 +217,13 @@
 		event.preventDefault();
 		event.stopPropagation();
 	};
+	const stopResultKeyboardNavigation = (event: KeyboardEvent) => {
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault();
+		event.stopPropagation();
+	};
+	const getTalentInterpretedTooltip = (evidence: string[]) =>
+		`Matched from talent data: ${evidence.join(', ')}`;
 </script>
 
 <div class="space-y-3">
@@ -133,12 +232,36 @@
 			<p class="text-foreground text-[11px] font-semibold uppercase tracking-wide">Matching</p>
 			<div class="mt-1 flex flex-wrap gap-1">
 				{#each visibleMatchedTerms as matchedChip, termIndex (`${matchedChip.key}-${termIndex}`)}
-					<span class="rounded-sm bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-						{matchedChip.label}
-						{#if matchedChip.yearsLabel}
-							<span class="ml-1 text-emerald-600">{matchedChip.yearsLabel}</span>
-						{/if}
-					</span>
+					{#if matchedChip.interpretedEvidence.length > 0}
+						<span
+							class="cursor-help rounded-sm bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+							role="button"
+							tabindex="0"
+							aria-label={`${matchedChip.label}. Matched from talent data: ${matchedChip.interpretedEvidence.join(', ')}`}
+							use:tooltip={{
+								text: getTalentInterpretedTooltip(matchedChip.interpretedEvidence),
+								position: 'top'
+							}}
+							onmousedown={stopResultNavigation}
+							onclick={stopResultNavigation}
+							onkeydown={stopResultKeyboardNavigation}
+						>
+							{matchedChip.label}
+							<span class="ml-0.5 font-bold text-emerald-800" aria-hidden="true">*</span>
+							{#if matchedChip.yearsLabel}
+								<span class="ml-1 text-emerald-600">{matchedChip.yearsLabel}</span>
+							{/if}
+						</span>
+					{:else}
+						<span
+							class="rounded-sm bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700"
+						>
+							{matchedChip.label}
+							{#if matchedChip.yearsLabel}
+								<span class="ml-1 text-emerald-600">{matchedChip.yearsLabel}</span>
+							{/if}
+						</span>
+					{/if}
 				{/each}
 
 				{#if hiddenMatchedCount > 0}

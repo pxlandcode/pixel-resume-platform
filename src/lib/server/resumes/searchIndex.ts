@@ -12,11 +12,12 @@ import {
 
 export { MAX_RESUME_SEARCH_QUERY_LENGTH } from './searchQueryAnalysis';
 
-const MAX_FIELD_WEIGHT = 10;
 const MAX_MATCHED_TECHS = 5;
+const MAX_INTERPRETED_EVIDENCE = 6;
 const MAX_REASONS = 3;
 const MAX_SNIPPET_LENGTH = 160;
 const MIN_VISIBLE_TERM_COVERAGE = 0.55;
+const IN_FILTER_BATCH_SIZE = 200;
 
 const TECH_FIELD_KINDS = new Set<SearchFieldKind>([
 	'profile-tech',
@@ -75,13 +76,6 @@ type TalentRow = {
 	bio: string | null;
 };
 
-type ResumeRow = {
-	id: string;
-	talent_id: string;
-	version_name: string | null;
-	is_main: boolean | null;
-};
-
 type ResumeBasicsRow = {
 	resume_id: string;
 	title_sv: string | null;
@@ -120,6 +114,7 @@ type ExperienceLibraryRow = {
 type FieldMatchResult = {
 	score: number;
 	coverageByToken: Map<string, number>;
+	interpretedEvidenceByTerm: Map<string, string[]>;
 	reason: ResumeSearchReason | null;
 };
 
@@ -129,8 +124,102 @@ type ResumeMatchResult = {
 	isMain: boolean;
 	score: number;
 	coverageByToken: Map<string, number>;
+	interpretedEvidenceByTerm: Map<string, string[]>;
 	reasons: ResumeSearchReason[];
 };
+
+const INTERPRETED_TERM_EVIDENCE_RULES: Array<{
+	termLabels: string[];
+	evidenceLabels: string[];
+}> = [
+	{
+		termLabels: ['Serverless Messaging', 'Cloud Messaging', 'Message Queues', 'Messaging Services'],
+		evidenceLabels: [
+			'SQS',
+			'AWS SQS',
+			'SNS',
+			'AWS SNS',
+			'EventBridge',
+			'AWS EventBridge',
+			'Kafka',
+			'RabbitMQ',
+			'Pub/Sub',
+			'Google Pub/Sub',
+			'Azure Service Bus',
+			'message queue',
+			'message broker'
+		]
+	},
+	{
+		termLabels: ['Event Driven Architecture', 'Event Streaming', 'Event Driven Systems'],
+		evidenceLabels: [
+			'Kafka',
+			'SQS',
+			'AWS SQS',
+			'SNS',
+			'AWS SNS',
+			'EventBridge',
+			'AWS EventBridge',
+			'Pub/Sub',
+			'RabbitMQ',
+			'event bus',
+			'message queue'
+		]
+	}
+];
+
+const FULLSTACK_ROLE_TERM_LABELS = [
+	'Fullstack Engineer',
+	'Full Stack Engineer',
+	'Fullstack Developer',
+	'Full Stack Developer'
+];
+const FULLSTACK_ROLE_PHRASE_EVIDENCE = [
+	'full-stack developer',
+	'full stack developer',
+	'fullstack developer',
+	'full-stack engineer',
+	'full stack engineer',
+	'fullstack engineer',
+	'frontend and backend',
+	'front-end and back-end'
+];
+const FULLSTACK_FRONTEND_EVIDENCE = [
+	'React',
+	'React Native',
+	'Svelte',
+	'SvelteKit',
+	'Angular',
+	'Vue',
+	'Next.js',
+	'Nuxt',
+	'JavaScript',
+	'TypeScript',
+	'HTML',
+	'CSS',
+	'SASS',
+	'Tailwind',
+	'frontend'
+];
+const FULLSTACK_BACKEND_EVIDENCE = [
+	'.NET',
+	'C#',
+	'Node.js',
+	'Java',
+	'Python',
+	'Go',
+	'Kotlin',
+	'PHP',
+	'Ruby',
+	'Scala',
+	'Spring',
+	'Express',
+	'NestJS',
+	'Django',
+	'FastAPI',
+	'Laravel',
+	'backend'
+];
 
 const toPlainText = (value: unknown) =>
 	typeof value === 'string' ? collapseWhitespace(stripTags(value)) : '';
@@ -180,6 +269,29 @@ const normalizeId = (value: unknown): string | null => {
 };
 
 const getSafeText = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+
+const chunkValues = <T>(values: T[], size = IN_FILTER_BATCH_SIZE) => {
+	const chunks: T[][] = [];
+	for (let index = 0; index < values.length; index += size) {
+		chunks.push(values.slice(index, index + size));
+	}
+	return chunks;
+};
+
+const fetchBatchedRows = async <T>(
+	values: string[],
+	runQuery: (
+		batch: string[]
+	) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+) => {
+	const rows: T[] = [];
+	for (const batch of chunkValues(values)) {
+		const result = await runQuery(batch);
+		if (result.error) throw new Error(result.error.message);
+		rows.push(...(result.data ?? []));
+	}
+	return rows;
+};
 
 const joinPlainSegments = (values: Array<string | null | undefined>) => {
 	const parts = uniqueValues(values.map((value) => toPlainText(value)).filter(Boolean));
@@ -236,6 +348,16 @@ const mergeCoverage = (target: Map<string, number>, source: Map<string, number>)
 	}
 };
 
+const mergeInterpretedEvidence = (target: Map<string, string[]>, source: Map<string, string[]>) => {
+	for (const [termKey, evidence] of source.entries()) {
+		const existing = target.get(termKey) ?? [];
+		target.set(
+			termKey,
+			uniqueValues([...existing, ...evidence]).slice(0, MAX_INTERPRETED_EVIDENCE)
+		);
+	}
+};
+
 const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
 const clampText = (value: string, maxLength: number) => {
@@ -251,6 +373,126 @@ const termMatchesNormalizedText = (term: ResumeSearchQueryTerm, normalizedText: 
 	return false;
 };
 
+const normalizedTextIncludesPhrase = (normalizedText: string, normalizedPhrase: string) =>
+	normalizedPhrase.length > 0 && ` ${normalizedText} `.includes(` ${normalizedPhrase} `);
+
+const getEvidenceLabelsPresent = (labels: string[], normalizedText: string) =>
+	labels.filter((label, index, all) => {
+		const normalizedLabel = normalizeSearchText(label);
+		if (!normalizedTextIncludesPhrase(normalizedText, normalizedLabel)) return false;
+		return (
+			all.findIndex((candidate) => normalizeSearchText(candidate) === normalizedLabel) === index
+		);
+	});
+
+const isFullstackRoleTerm = (term: ResumeSearchQueryTerm) =>
+	term.kind === 'role' &&
+	FULLSTACK_ROLE_TERM_LABELS.some((label) => normalizeSearchText(label) === term.normalized);
+
+const getFullstackEvidenceLabels = (term: ResumeSearchQueryTerm, normalizedText: string) => {
+	if (!isFullstackRoleTerm(term)) return [];
+
+	const rolePhraseEvidence = getEvidenceLabelsPresent(
+		FULLSTACK_ROLE_PHRASE_EVIDENCE,
+		normalizedText
+	);
+	if (rolePhraseEvidence.length > 0) {
+		return uniqueValues(rolePhraseEvidence).slice(0, MAX_INTERPRETED_EVIDENCE);
+	}
+
+	const frontendEvidence = getEvidenceLabelsPresent(FULLSTACK_FRONTEND_EVIDENCE, normalizedText);
+	const backendEvidence = getEvidenceLabelsPresent(FULLSTACK_BACKEND_EVIDENCE, normalizedText);
+	if (frontendEvidence.length === 0 || backendEvidence.length === 0) return [];
+
+	return uniqueValues([...frontendEvidence.slice(0, 3), ...backendEvidence.slice(0, 3)]).slice(
+		0,
+		MAX_INTERPRETED_EVIDENCE
+	);
+};
+
+const getFullstackTechnologyEvidenceLabels = (
+	term: ResumeSearchQueryTerm,
+	technologyLabels: string[]
+) => {
+	if (!isFullstackRoleTerm(term)) return [];
+
+	const normalizedText = normalizeSearchText(technologyLabels.join(' '));
+	const frontendEvidence = getEvidenceLabelsPresent(FULLSTACK_FRONTEND_EVIDENCE, normalizedText);
+	const backendEvidence = getEvidenceLabelsPresent(FULLSTACK_BACKEND_EVIDENCE, normalizedText);
+	if (frontendEvidence.length === 0 || backendEvidence.length === 0) return [];
+
+	return uniqueValues([...frontendEvidence.slice(0, 3), ...backendEvidence.slice(0, 3)]).slice(
+		0,
+		MAX_INTERPRETED_EVIDENCE
+	);
+};
+
+const getDocumentInterpretedEvidence = (
+	document: ResumeSearchConsultantDocument,
+	parsedQuery: ParsedResumeSearchQuery
+) => {
+	const interpretedEvidenceByTerm = new Map<string, string[]>();
+	const reasons: Array<{ score: number; reason: ResumeSearchReason }> = [];
+	let score = 0;
+
+	for (const term of parsedQuery.terms) {
+		const evidence = getFullstackTechnologyEvidenceLabels(term, document.allTechs);
+		if (evidence.length === 0) continue;
+
+		const termScore = 28 * term.importance;
+		score += termScore;
+		interpretedEvidenceByTerm.set(term.normalized, evidence);
+		reasons.push({
+			score: termScore,
+			reason: {
+				label: 'Talent technologies',
+				text: evidence.join(', '),
+				resumeId: null,
+				resumeTitle: null
+			}
+		});
+	}
+
+	return {
+		score,
+		interpretedEvidenceByTerm,
+		reasons
+	};
+};
+
+const getInterpretedEvidenceLabels = (term: ResumeSearchQueryTerm, normalizedText: string) => {
+	if (!normalizedText) return [];
+
+	const fullstackEvidence = getFullstackEvidenceLabels(term, normalizedText);
+	if (fullstackEvidence.length > 0) return fullstackEvidence;
+
+	if (term.kind !== 'concept') return [];
+
+	const evidence: string[] = [];
+	for (const rule of INTERPRETED_TERM_EVIDENCE_RULES) {
+		const termMatchesRule = rule.termLabels.some(
+			(label) => normalizeSearchText(label) === term.normalized
+		);
+		if (!termMatchesRule) continue;
+
+		for (const label of rule.evidenceLabels) {
+			const normalizedLabel = normalizeSearchText(label);
+			if (!normalizedTextIncludesPhrase(normalizedText, normalizedLabel)) continue;
+			evidence.push(label);
+		}
+	}
+
+	return uniqueValues(evidence).slice(0, MAX_INTERPRETED_EVIDENCE);
+};
+
+const getInterpretedEvidenceLabelsForQuery = (
+	parsedQuery: ParsedResumeSearchQuery,
+	normalizedText: string
+) =>
+	uniqueValues(
+		parsedQuery.terms.flatMap((term) => getInterpretedEvidenceLabels(term, normalizedText))
+	).slice(0, MAX_INTERPRETED_EVIDENCE);
+
 const extractSnippet = (text: string, parsedQuery: ParsedResumeSearchQuery) => {
 	const plainText = toPlainText(text);
 	if (!plainText) return '';
@@ -264,6 +506,9 @@ const extractSnippet = (text: string, parsedQuery: ParsedResumeSearchQuery) => {
 		const normalizedSentence = normalizeSearchText(sentence);
 		if (!normalizedSentence) continue;
 		if (parsedQuery.terms.some((term) => termMatchesNormalizedText(term, normalizedSentence))) {
+			return clampText(sentence, MAX_SNIPPET_LENGTH);
+		}
+		if (getInterpretedEvidenceLabelsForQuery(parsedQuery, normalizedSentence).length > 0) {
 			return clampText(sentence, MAX_SNIPPET_LENGTH);
 		}
 	}
@@ -297,6 +542,7 @@ const evaluateQueryTermAgainstField = (field: SearchField, term: ResumeSearchQue
 	let exactMatches = 0;
 	let prefixMatches = 0;
 	let partialMatches = 0;
+	const interpretedEvidence = getInterpretedEvidenceLabels(term, field.normalizedText);
 
 	for (const token of term.tokens) {
 		if (field.tokenSet.has(token)) {
@@ -320,8 +566,8 @@ const evaluateQueryTermAgainstField = (field: SearchField, term: ResumeSearchQue
 	const fullPhraseMatch = field.normalizedText.includes(term.normalized);
 	const coverageRatio =
 		term.tokens.length > 0 ? Math.min(1, matchedTokens.size / term.tokens.length) : 0;
-	if (matchedTokens.size === 0 && !fullPhraseMatch) {
-		return { score: 0, coverage: 0 };
+	if (matchedTokens.size === 0 && !fullPhraseMatch && interpretedEvidence.length === 0) {
+		return { score: 0, coverage: 0, interpretedEvidence: [] };
 	}
 
 	let coverage = 0;
@@ -336,12 +582,19 @@ const evaluateQueryTermAgainstField = (field: SearchField, term: ResumeSearchQue
 	} else {
 		coverage = 0.34;
 	}
+	if (interpretedEvidence.length > 0) {
+		coverage = Math.max(coverage, TECH_FIELD_KINDS.has(field.kind) ? 0.9 : 0.72);
+	}
 
 	let score = 0;
 	if (fullPhraseMatch) score += field.weight * 8;
 	score += exactMatches * field.weight * 3.4;
 	score += prefixMatches * field.weight * 2.2;
 	score += partialMatches * field.weight * 1.4;
+	if (interpretedEvidence.length > 0) {
+		const evidenceWeight = TECH_FIELD_KINDS.has(field.kind) ? 5.2 : 3.2;
+		score += field.weight * evidenceWeight * Math.min(interpretedEvidence.length, 2);
+	}
 	if (TECH_FIELD_KINDS.has(field.kind) && term.kind === 'technology') {
 		score += exactMatches * field.weight * 1.8;
 	}
@@ -354,12 +607,14 @@ const evaluateQueryTermAgainstField = (field: SearchField, term: ResumeSearchQue
 
 	return {
 		score: score * term.importance,
-		coverage
+		coverage,
+		interpretedEvidence
 	};
 };
 
 const evaluateFieldMatch = (field: SearchField, parsedQuery: ParsedResumeSearchQuery) => {
 	const coverageByToken = new Map<string, number>();
+	const interpretedEvidenceByTerm = new Map<string, string[]>();
 	let score = 0;
 
 	for (const term of parsedQuery.terms) {
@@ -370,12 +625,23 @@ const evaluateFieldMatch = (field: SearchField, parsedQuery: ParsedResumeSearchQ
 			term.normalized,
 			Math.max(coverageByToken.get(term.normalized) ?? 0, termMatch.coverage)
 		);
+		if (termMatch.interpretedEvidence.length > 0) {
+			const existing = interpretedEvidenceByTerm.get(term.normalized) ?? [];
+			interpretedEvidenceByTerm.set(
+				term.normalized,
+				uniqueValues([...existing, ...termMatch.interpretedEvidence]).slice(
+					0,
+					MAX_INTERPRETED_EVIDENCE
+				)
+			);
+		}
 	}
 
 	if (score <= 0) {
 		return {
 			score: 0,
 			coverageByToken,
+			interpretedEvidenceByTerm,
 			reason: null
 		} satisfies FieldMatchResult;
 	}
@@ -383,6 +649,7 @@ const evaluateFieldMatch = (field: SearchField, parsedQuery: ParsedResumeSearchQ
 	return {
 		score,
 		coverageByToken,
+		interpretedEvidenceByTerm,
 		reason: {
 			label: field.label,
 			text: extractSnippet(field.text, parsedQuery),
@@ -397,6 +664,7 @@ const evaluateResumeMatch = (
 	parsedQuery: ParsedResumeSearchQuery
 ) => {
 	const coverageByToken = new Map<string, number>();
+	const interpretedEvidenceByTerm = new Map<string, string[]>();
 	const reasons: Array<{ score: number; reason: ResumeSearchReason }> = [];
 	let score = 0;
 
@@ -405,6 +673,7 @@ const evaluateResumeMatch = (
 		if (fieldMatch.score <= 0) continue;
 		score += fieldMatch.score;
 		mergeCoverage(coverageByToken, fieldMatch.coverageByToken);
+		mergeInterpretedEvidence(interpretedEvidenceByTerm, fieldMatch.interpretedEvidenceByTerm);
 		if (fieldMatch.reason) {
 			reasons.push({
 				score: fieldMatch.score,
@@ -431,6 +700,7 @@ const evaluateResumeMatch = (
 		isMain: resume.isMain,
 		score,
 		coverageByToken,
+		interpretedEvidenceByTerm,
 		reasons: topReasons
 	} satisfies ResumeMatchResult;
 };
@@ -498,22 +768,34 @@ export const buildResumeSearchIndex = async (
 ): Promise<ResumeSearchConsultantDocument[]> => {
 	if (talentIds !== null && talentIds.length === 0) return [];
 
-	const talentQuery = adminClient.from('talents').select('id, tech_stack, title, bio');
-	const talentsResult =
-		talentIds === null ? await talentQuery : await talentQuery.in('id', talentIds);
-	if (talentsResult.error) throw new Error(talentsResult.error.message);
-
-	const talentRows = (talentsResult.data ?? []) as TalentRow[];
+	const talentRows =
+		talentIds === null
+			? await adminClient
+					.from('talents')
+					.select('id, tech_stack, title, bio')
+					.then((result) => {
+						if (result.error) throw new Error(result.error.message);
+						return (result.data ?? []) as TalentRow[];
+					})
+			: await fetchBatchedRows<TalentRow>(talentIds, (batch) =>
+					adminClient.from('talents').select('id, tech_stack, title, bio').in('id', batch)
+				);
 	if (talentRows.length === 0) return [];
 
 	const scopedTalentIds = talentRows.map((row) => row.id);
-	const resumesResult = await adminClient
-		.from('resumes')
-		.select('id, talent_id, version_name, is_main')
-		.in('talent_id', scopedTalentIds);
-	if (resumesResult.error) throw new Error(resumesResult.error.message);
+	const resumeMetadataRows = await fetchBatchedRows<{
+		id: unknown;
+		talent_id: unknown;
+		version_name: unknown;
+		is_main: unknown;
+	}>(scopedTalentIds, (batch) =>
+		adminClient
+			.from('resumes')
+			.select('id, talent_id, version_name, is_main')
+			.in('talent_id', batch)
+	);
 
-	const resumeRows = (resumesResult.data ?? [])
+	const resumeRows = resumeMetadataRows
 		.map((row) => ({
 			id: normalizeId((row as { id: unknown }).id),
 			talentId: normalizeId((row as { talent_id: unknown }).talent_id),
@@ -525,43 +807,29 @@ export const buildResumeSearchIndex = async (
 		);
 
 	const resumeIds = resumeRows.map((row) => row.id);
-	const [basicsResult, resumeSkillsResult, resumeExperienceItemsResult] = await Promise.all([
+	const [basicsRows, resumeSkillRows, resumeExperienceRows] =
 		resumeIds.length === 0
-			? {
-					data: [] as ResumeBasicsRow[],
-					error: null
-				}
-			: adminClient
-					.from('resume_basics')
-					.select('resume_id, title_sv, title_en, summary_sv, summary_en')
-					.in('resume_id', resumeIds),
-		resumeIds.length === 0
-			? {
-					data: [] as ResumeSkillRow[],
-					error: null
-				}
-			: adminClient
-					.from('resume_skill_items')
-					.select('resume_id, value')
-					.in('resume_id', resumeIds),
-		resumeIds.length === 0
-			? {
-					data: [] as ResumeExperienceRow[],
-					error: null
-				}
-			: adminClient
-					.from('resume_experience_items')
-					.select(
-						'id, resume_id, experience_id, section, company_override, role_sv_override, role_en_override, description_sv_override, description_en_override, use_tech_override'
+			? [[] as ResumeBasicsRow[], [] as ResumeSkillRow[], [] as ResumeExperienceRow[]]
+			: await Promise.all([
+					fetchBatchedRows<ResumeBasicsRow>(resumeIds, (batch) =>
+						adminClient
+							.from('resume_basics')
+							.select('resume_id, title_sv, title_en, summary_sv, summary_en')
+							.in('resume_id', batch)
+					),
+					fetchBatchedRows<ResumeSkillRow>(resumeIds, (batch) =>
+						adminClient.from('resume_skill_items').select('resume_id, value').in('resume_id', batch)
+					),
+					fetchBatchedRows<ResumeExperienceRow>(resumeIds, (batch) =>
+						adminClient
+							.from('resume_experience_items')
+							.select(
+								'id, resume_id, experience_id, section, company_override, role_sv_override, role_en_override, description_sv_override, description_en_override, use_tech_override'
+							)
+							.in('resume_id', batch)
 					)
-					.in('resume_id', resumeIds)
-	]);
+				]);
 
-	if (basicsResult.error) throw new Error(basicsResult.error.message);
-	if (resumeSkillsResult.error) throw new Error(resumeSkillsResult.error.message);
-	if (resumeExperienceItemsResult.error) throw new Error(resumeExperienceItemsResult.error.message);
-
-	const resumeExperienceRows = (resumeExperienceItemsResult.data ?? []) as ResumeExperienceRow[];
 	const experienceIds = Array.from(
 		new Set(
 			resumeExperienceRows
@@ -577,49 +845,46 @@ export const buildResumeSearchIndex = async (
 		)
 	);
 
-	const [experienceLibraryResult, libraryTechsResult, overrideTechsResult] = await Promise.all([
+	const [experienceLibraryRows, libraryTechRows, overrideTechRows] = await Promise.all([
 		experienceIds.length === 0
-			? {
-					data: [] as ExperienceLibraryRow[],
-					error: null
-				}
-			: adminClient
-					.from('experience_library')
-					.select('id, company, role_sv, role_en, description_sv, description_en')
-					.in('id', experienceIds),
+			? Promise.resolve([] as ExperienceLibraryRow[])
+			: fetchBatchedRows<ExperienceLibraryRow>(experienceIds, (batch) =>
+					adminClient
+						.from('experience_library')
+						.select('id, company, role_sv, role_en, description_sv, description_en')
+						.in('id', batch)
+				),
 		experienceIds.length === 0
-			? {
-					data: [] as Array<{ experience_id: string; value: string }>,
-					error: null
-				}
-			: adminClient
-					.from('experience_library_technologies')
-					.select('experience_id, value')
-					.in('experience_id', experienceIds),
+			? Promise.resolve([] as Array<{ experience_id: string; value: string }>)
+			: fetchBatchedRows<Array<{ experience_id: string; value: string }>[number]>(
+					experienceIds,
+					(batch) =>
+						adminClient
+							.from('experience_library_technologies')
+							.select('experience_id, value')
+							.in('experience_id', batch)
+				),
 		resumeExperienceItemIds.length === 0
-			? {
-					data: [] as Array<{ resume_experience_item_id: string; value: string }>,
-					error: null
-				}
-			: adminClient
-					.from('resume_experience_tech_overrides')
-					.select('resume_experience_item_id, value')
-					.in('resume_experience_item_id', resumeExperienceItemIds)
+			? Promise.resolve([] as Array<{ resume_experience_item_id: string; value: string }>)
+			: fetchBatchedRows<Array<{ resume_experience_item_id: string; value: string }>[number]>(
+					resumeExperienceItemIds,
+					(batch) =>
+						adminClient
+							.from('resume_experience_tech_overrides')
+							.select('resume_experience_item_id, value')
+							.in('resume_experience_item_id', batch)
+				)
 	]);
 
-	if (experienceLibraryResult.error) throw new Error(experienceLibraryResult.error.message);
-	if (libraryTechsResult.error) throw new Error(libraryTechsResult.error.message);
-	if (overrideTechsResult.error) throw new Error(overrideTechsResult.error.message);
-
 	const basicsByResumeId = new Map<string, ResumeBasicsRow>();
-	for (const row of basicsResult.data ?? []) {
+	for (const row of basicsRows) {
 		const resumeId = normalizeId((row as { resume_id: unknown }).resume_id);
 		if (!resumeId) continue;
 		basicsByResumeId.set(resumeId, row as ResumeBasicsRow);
 	}
 
 	const resumeSkillsByResumeId = new Map<string, string[]>();
-	for (const row of resumeSkillsResult.data ?? []) {
+	for (const row of resumeSkillRows) {
 		const resumeId = normalizeId((row as { resume_id: unknown }).resume_id);
 		const value = getSafeText((row as { value: unknown }).value);
 		if (!resumeId || !value) continue;
@@ -629,14 +894,14 @@ export const buildResumeSearchIndex = async (
 	}
 
 	const experienceLibraryById = new Map<string, ExperienceLibraryRow>();
-	for (const row of experienceLibraryResult.data ?? []) {
+	for (const row of experienceLibraryRows) {
 		const experienceId = normalizeId((row as { id: unknown }).id);
 		if (!experienceId) continue;
 		experienceLibraryById.set(experienceId, row as ExperienceLibraryRow);
 	}
 
 	const libraryTechsByExperienceId = new Map<string, string[]>();
-	for (const row of libraryTechsResult.data ?? []) {
+	for (const row of libraryTechRows) {
 		const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
 		const value = getSafeText((row as { value: unknown }).value);
 		if (!experienceId || !value) continue;
@@ -646,7 +911,7 @@ export const buildResumeSearchIndex = async (
 	}
 
 	const overrideTechsByItemId = new Map<string, string[]>();
-	for (const row of overrideTechsResult.data ?? []) {
+	for (const row of overrideTechRows) {
 		const itemId = normalizeId(
 			(row as { resume_experience_item_id: unknown }).resume_experience_item_id
 		);
@@ -819,6 +1084,7 @@ export const searchResumeIndex = (
 
 	for (const document of documents) {
 		const profileCoverage = new Map<string, number>();
+		const profileInterpretedEvidence = new Map<string, string[]>();
 		const profileReasons: Array<{ score: number; reason: ResumeSearchReason }> = [];
 		let profileScore = 0;
 
@@ -827,6 +1093,7 @@ export const searchResumeIndex = (
 			if (fieldMatch.score <= 0) continue;
 			profileScore += fieldMatch.score;
 			mergeCoverage(profileCoverage, fieldMatch.coverageByToken);
+			mergeInterpretedEvidence(profileInterpretedEvidence, fieldMatch.interpretedEvidenceByTerm);
 			if (fieldMatch.reason) {
 				profileReasons.push({
 					score: fieldMatch.score,
@@ -847,16 +1114,29 @@ export const searchResumeIndex = (
 
 		const bestResumeMatch = resumeMatches[0] ?? null;
 		const coverageByToken = new Map<string, number>();
+		const interpretedEvidenceByTerm = new Map<string, string[]>();
 		mergeCoverage(coverageByToken, profileCoverage);
+		mergeInterpretedEvidence(interpretedEvidenceByTerm, profileInterpretedEvidence);
 		for (const resumeMatch of resumeMatches) {
 			mergeCoverage(coverageByToken, resumeMatch.coverageByToken);
+			mergeInterpretedEvidence(interpretedEvidenceByTerm, resumeMatch.interpretedEvidenceByTerm);
+		}
+		const documentEvidence = getDocumentInterpretedEvidence(document, parsedQuery);
+		mergeInterpretedEvidence(interpretedEvidenceByTerm, documentEvidence.interpretedEvidenceByTerm);
+		for (const [termKey] of documentEvidence.interpretedEvidenceByTerm.entries()) {
+			coverageByToken.set(termKey, Math.max(coverageByToken.get(termKey) ?? 0, 0.9));
 		}
 
 		const multiResumeBonus = Math.min(Math.max(resumeMatches.length - 1, 0) * 8, 24);
-		const score = profileScore + (bestResumeMatch?.score ?? 0) + multiResumeBonus;
+		const score =
+			profileScore + (bestResumeMatch?.score ?? 0) + documentEvidence.score + multiResumeBonus;
 		if (score <= 0) continue;
 
-		const reasons = [...profileTopReasons, ...(bestResumeMatch?.reasons ?? [])]
+		const reasons = [
+			...profileTopReasons,
+			...(bestResumeMatch?.reasons ?? []),
+			...documentEvidence.reasons.map((entry) => entry.reason)
+		]
 			.filter((reason) => Boolean(reason.text))
 			.filter((reason, index, all) => {
 				const key = `${reason.label}:${reason.resumeId ?? 'profile'}:${reason.text}`;
@@ -887,6 +1167,13 @@ export const searchResumeIndex = (
 			.filter((term) => (coverageByToken.get(term.normalized) ?? 0) < MIN_VISIBLE_TERM_COVERAGE)
 			.map((term) => term.display)
 			.slice(0, MAX_MATCHED_TECHS);
+		const interpretedMatches = parsedQuery.terms
+			.map((term) => ({
+				label: term.display,
+				key: term.normalized,
+				evidence: interpretedEvidenceByTerm.get(term.normalized) ?? []
+			}))
+			.filter((match) => match.evidence.length > 0);
 
 		items.push({
 			talentId: document.talentId,
@@ -897,6 +1184,7 @@ export const searchResumeIndex = (
 			matchedQueryTechs,
 			missingQueryTechs,
 			matchedTechs: getMatchedTechs(document.allTechs, parsedQuery),
+			...(interpretedMatches.length > 0 ? { interpretedMatches } : {}),
 			reasons,
 			bestResumeId: bestResumeMatch?.resumeId ?? null,
 			bestResumeTitle: bestResumeMatch?.resumeTitle ?? null

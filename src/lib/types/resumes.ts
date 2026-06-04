@@ -51,6 +51,14 @@ export type ResumeSearchFilterTerm = {
 	label: string;
 	key: string;
 	kind: ResumeSearchFilterKind;
+	requiredYears?: number | null;
+	interpretedFrom?: string | null;
+};
+
+export type ResumeSearchInterpretedMatch = {
+	label: string;
+	key: string;
+	evidence: string[];
 };
 
 export type ResumeSearchItem = {
@@ -62,9 +70,12 @@ export type ResumeSearchItem = {
 	matchedQueryTechs: string[];
 	missingQueryTechs: string[];
 	matchedTechs: string[];
+	interpretedMatches?: ResumeSearchInterpretedMatch[];
 	reasons: ResumeSearchReason[];
 	bestResumeId: string | null;
 	bestResumeTitle: string | null;
+	semanticSimilarity?: number | null;
+	semanticMatchPercent?: number | null;
 };
 
 export type ResumeSearchScope = {
@@ -73,11 +84,51 @@ export type ResumeSearchScope = {
 };
 
 export type ResumeSearchResponse = {
+	title: string;
 	query: string;
 	scope: ResumeSearchScope;
 	aiApplied: boolean;
 	analyzedTerms: ResumeSearchFilterTerm[];
 	appliedTerms: ResumeSearchFilterTerm[];
 	items: ResumeSearchItem[];
+	generatedAt: string;
+};
+
+export type ResumeSimpleSearchItem = {
+	talentId: string;
+	score: number;
+	matchPercent: number;
+	matchedTerms: string[];
+	reasons: ResumeSearchReason[];
+};
+
+export type ResumeSimpleSearchResponse = {
+	query: string;
+	scope: ResumeSearchScope;
+	items: ResumeSimpleSearchItem[];
+	hasMore: boolean;
+	generatedAt: string;
+};
+
+export type ResumeSearchJobStatus = 'queued' | 'processing' | 'succeeded' | 'failed';
+
+export type ResumeSearchJob = {
+	id: string;
+	status: ResumeSearchJobStatus;
+	title: string;
+	query: string;
+	scope: ResumeSearchScope;
+	errorMessage: string | null;
+	result: ResumeSearchResponse | null;
+	readAt: string | null;
+	startedAt: string | null;
+	completedAt: string | null;
+	createdAt: string | null;
+	updatedAt: string | null;
+	expiresAt: string | null;
+};
+
+export type ResumeSearchJobsResponse = {
+	jobs: ResumeSearchJob[];
 	generatedAt: string;
 };

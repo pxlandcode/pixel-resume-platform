@@ -27,23 +27,35 @@ export const MAX_RESUME_SEARCH_QUERY_LENGTH = 4_000;
 const STOP_WORDS = new Set([
 	'a',
 	'an',
+	'analytical',
 	'and',
 	'are',
 	'ar',
 	'as',
 	'at',
 	'att',
+	'audience',
+	'audiences',
 	'av',
+	'avser',
 	'be',
+	'behov',
+	'behover',
 	'by',
+	'communication',
+	'communications',
 	'de',
 	'den',
+	'denna',
 	'det',
 	'du',
 	'en',
 	'eller',
+	'excellent',
 	'ett',
+	'efter',
 	'for',
+	'forsta',
 	'fran',
 	'from',
 	'har',
@@ -56,8 +68,14 @@ const STOP_WORDS = new Set([
 	'it',
 	'kan',
 	'kommer',
+	'kund',
+	'kunden',
+	'kundens',
 	'krav',
+	'kraver',
+	'consultant',
 	'med',
+	'men',
 	'nu',
 	'och',
 	'of',
@@ -65,9 +83,15 @@ const STOP_WORDS = new Set([
 	'on',
 	'or',
 	'pa',
+	'problem',
 	'samt',
 	'sig',
 	'ska',
+	'skall',
+	'skill',
+	'skills',
+	'solving',
+	'strong',
 	'som',
 	'tal',
 	'the',
@@ -76,9 +100,107 @@ const STOP_WORDS = new Set([
 	'till',
 	'till',
 	'to',
+	'uppdrag',
+	'uppdraget',
+	'uppdragets',
+	'var',
+	'varit',
 	'vara',
 	'vi',
 	'with'
+]);
+
+const GENERIC_CONCEPT_TERMS = new Set([
+	'ability',
+	'avser',
+	'avveckla',
+	'bankens',
+	'beskrivning',
+	'beslutat',
+	'communication',
+	'communication skills',
+	'consultant',
+	'dar',
+	'del',
+	'denna',
+	'efter',
+	'erbjudande',
+	'forandring',
+	'forandringar',
+	'fortsatt',
+	'kund',
+	'kunden',
+	'kundens',
+	'letar',
+	'leverantoren',
+	'losning',
+	'losningen',
+	'problem solving',
+	'nodvandig',
+	'nuvarande',
+	'owner',
+	'overga',
+	'premises',
+	'renodlat',
+	'saaa',
+	'sakerstalla',
+	'stallet',
+	'stod',
+	'teknisk',
+	'tjanst',
+	'transformation',
+	'uppdrag',
+	'uppdraget',
+	'var'
+]);
+
+const NON_TECH_REQUIREMENT_TERMS = new Set([
+	'analytical',
+	'analytical skills',
+	'communication',
+	'communication skills',
+	'consultant',
+	'consulting',
+	'excellent communication',
+	'excellent communication skills',
+	'problem solving',
+	'problem solving skills',
+	'strong analytical skills',
+	'strong problem solving',
+	'strong problem solving skills',
+	'technical and non technical audiences'
+]);
+
+const GENERIC_ROLE_TERMS = new Set(['consultant']);
+const GENERIC_STANDALONE_ROLE_TERMS = new Set([
+	'coach',
+	'developer',
+	'engineer',
+	'lead',
+	'manager',
+	'specialist'
+]);
+
+const FALLBACK_HIGH_SIGNAL_CONCEPT_TERMS = new Set([
+	'bank',
+	'banking',
+	'finans',
+	'finance',
+	'fintech',
+	'forsakring',
+	'forsakringsbolag',
+	'gambling',
+	'gaming',
+	'healthcare',
+	'igaming',
+	'kommun',
+	'medtech',
+	'municipality',
+	'offentlig',
+	'offentlig sektor',
+	'public sector',
+	'sjukvard',
+	'telecom'
 ]);
 
 const QUERY_ANALYSIS_KIND_PRIORITY: Record<ResumeSearchQueryTermKind, number> = {
@@ -90,21 +212,33 @@ const QUERY_ANALYSIS_KIND_PRIORITY: Record<ResumeSearchQueryTermKind, number> = 
 const FALLBACK_DISPLAY_CASE_OVERRIDES = new Map<string, string>([
 	['ai', 'AI'],
 	['api', 'API'],
+	['artifactory', 'Artifactory'],
 	['aws', 'AWS'],
 	['azure', 'Azure'],
+	['backstage', 'Backstage'],
+	['bamboo', 'Bamboo'],
 	['bi', 'BI'],
+	['bitbucket', 'Bitbucket'],
 	['ci', 'CI'],
 	['cd', 'CD'],
 	['css', 'CSS'],
+	['datadog', 'Datadog'],
 	['dbt', 'dbt'],
+	['dynamodb', 'DynamoDB'],
 	['etl', 'ETL'],
+	['erp', 'ERP'],
+	['epic', 'Epic'],
 	['figma', 'Figma'],
 	['gcp', 'GCP'],
 	['git', 'Git'],
+	['helix', 'Helix'],
 	['html', 'HTML'],
 	['ios', 'iOS'],
 	['javascript', 'JavaScript'],
+	['jenkins', 'Jenkins'],
+	['jira', 'Jira'],
 	['js', 'JavaScript'],
+	['kafka', 'Kafka'],
 	['kotlin', 'Kotlin'],
 	['ml', 'ML'],
 	['mysql', 'MySQL'],
@@ -113,12 +247,19 @@ const FALLBACK_DISPLAY_CASE_OVERRIDES = new Map<string, string>([
 	['postgresql', 'PostgreSQL'],
 	['python', 'Python'],
 	['qa', 'QA'],
+	['qtest', 'qTest'],
 	['react', 'React'],
+	['s3', 'S3'],
+	['saas', 'SaaS'],
+	['sonarqube', 'SonarQube'],
 	['sql', 'SQL'],
+	['sqs', 'SQS'],
+	['swagger', 'Swagger'],
 	['swift', 'Swift'],
 	['typescript', 'TypeScript'],
 	['ts', 'TypeScript'],
 	['ui', 'UI'],
+	['unit4', 'Unit4'],
 	['ux', 'UX']
 ]);
 
@@ -135,6 +276,7 @@ const FALLBACK_TECH_TERMS = new Set([
 	'github',
 	'graphql',
 	'java',
+	'kafka',
 	'kubernetes',
 	'mongodb',
 	'postgres',
@@ -149,10 +291,201 @@ const FALLBACK_TECH_TERMS = new Set([
 	'vue'
 ]);
 
+const FALLBACK_PHRASE_TERMS: Array<{
+	label: string;
+	kind: ResumeSearchQueryTermKind;
+	aliases?: string[];
+	importance?: number;
+}> = [
+	{
+		label: 'React Native',
+		kind: 'technology',
+		aliases: ['react-native']
+	},
+	{
+		label: 'Node.js',
+		kind: 'technology',
+		aliases: ['node js', 'nodejs']
+	},
+	{
+		label: 'TypeScript',
+		kind: 'technology'
+	},
+	{
+		label: 'PostgreSQL',
+		kind: 'technology',
+		aliases: ['postgres']
+	},
+	{
+		label: 'DynamoDB',
+		kind: 'technology',
+		aliases: ['dynamo db']
+	},
+	{
+		label: 'Kafka',
+		kind: 'technology'
+	},
+	{
+		label: 'SQS',
+		kind: 'technology'
+	},
+	{
+		label: 'AWS',
+		kind: 'technology',
+		aliases: ['aws services', 'amazon web services']
+	},
+	{
+		label: 'S3',
+		kind: 'technology',
+		aliases: ['aws s3', 'amazon s3']
+	},
+	{
+		label: 'Datadog',
+		kind: 'technology'
+	},
+	{
+		label: 'Fullstack Engineer',
+		kind: 'role',
+		aliases: [
+			'full stack engineer',
+			'full-stack engineer',
+			'fullstack developer',
+			'full stack developer',
+			'full-stack developer',
+			'full stack developer consultant',
+			'full-stack developer consultant',
+			'full stack consultant',
+			'full-stack consultant'
+		]
+	},
+	{
+		label: 'SDLC Toolchain',
+		kind: 'concept',
+		aliases: ['sdlc tools', 'sdlc toolchain'],
+		importance: 1.08
+	},
+	{
+		label: 'API Engine',
+		kind: 'concept',
+		aliases: ['api engine application'],
+		importance: 1.08
+	},
+	{
+		label: 'Identity Mapping',
+		kind: 'concept',
+		aliases: ['identity mapping system', 'entity mapping'],
+		importance: 1.08
+	},
+	{
+		label: 'Internal Developer Platform',
+		kind: 'concept',
+		aliases: ['developer platform', 'idp'],
+		importance: 1.08
+	},
+	{
+		label: 'Backend Services',
+		kind: 'concept',
+		importance: 1.08
+	},
+	{
+		label: 'Cloud Native',
+		kind: 'concept',
+		aliases: ['cloud-native'],
+		importance: 1.08
+	},
+	{
+		label: 'Data Intensive Applications',
+		kind: 'concept',
+		aliases: ['data-intensive applications', 'data intensive environment'],
+		importance: 1.08
+	},
+	{
+		label: 'Distributed Systems',
+		kind: 'concept',
+		importance: 1.08
+	},
+	{
+		label: 'Event Driven Architecture',
+		kind: 'concept',
+		aliases: [
+			'event-driven architecture',
+			'event driven architectures',
+			'event-driven architectures'
+		],
+		importance: 1.08
+	},
+	{
+		label: 'Serverless Messaging',
+		kind: 'concept',
+		aliases: ['serverless messaging', 'cloud messaging', 'message queues', 'messaging services'],
+		importance: 1.08
+	},
+	{
+		label: 'Feature Flags',
+		kind: 'concept',
+		aliases: ['feature flagging'],
+		importance: 1.08
+	},
+	{
+		label: 'A/B Testing',
+		kind: 'concept',
+		aliases: ['ab testing', 'a b testing'],
+		importance: 1.08
+	},
+	{
+		label: 'Mobile Applications',
+		kind: 'concept',
+		aliases: ['mobile application', 'mobile app', 'mobile apps'],
+		importance: 1.08
+	},
+	{
+		label: 'Web Applications',
+		kind: 'concept',
+		aliases: ['web application', 'web app', 'web apps'],
+		importance: 1.08
+	},
+	{
+		label: 'Microservices',
+		kind: 'concept',
+		aliases: ['micro services', 'micro-services'],
+		importance: 1.08
+	},
+	{
+		label: 'Monitoring',
+		kind: 'concept',
+		importance: 1.08
+	},
+	{
+		label: 'Observability',
+		kind: 'concept',
+		importance: 1.08
+	},
+	{
+		label: 'High Transaction Volumes',
+		kind: 'concept',
+		importance: 1.08
+	},
+	{
+		label: 'Complex Data Flows',
+		kind: 'concept',
+		importance: 1.08
+	},
+	{
+		label: 'Fintech',
+		kind: 'concept',
+		importance: 1.08
+	},
+	{
+		label: 'Regulated Industry',
+		kind: 'concept',
+		aliases: ['regulated industries'],
+		importance: 1.08
+	}
+];
+
 const FALLBACK_ROLE_TERMS = new Set([
 	'architect',
 	'coach',
-	'consultant',
 	'designer',
 	'developer',
 	'engineer',
@@ -193,6 +526,7 @@ export type ResumeSearchQueryTerm = {
 	tokens: string[];
 	kind: ResumeSearchQueryTermKind;
 	importance: number;
+	interpretedFrom?: string | null;
 };
 
 export type ParsedResumeSearchQuery = {
@@ -258,6 +592,14 @@ const getFallbackTermKind = (normalized: string): ResumeSearchQueryTermKind => {
 	return 'concept';
 };
 
+const isGenericConceptTerm = (term: Pick<ResumeSearchQueryTerm, 'kind' | 'normalized'>) =>
+	term.kind === 'concept' && GENERIC_CONCEPT_TERMS.has(term.normalized);
+
+const isConservativeFallbackTerm = (term: ResumeSearchQueryTerm) =>
+	term.kind !== 'concept' ||
+	term.importance > 1 ||
+	FALLBACK_HIGH_SIGNAL_CONCEPT_TERMS.has(term.normalized);
+
 const sanitizeTermDisplay = (value: unknown, maxLength = 80) => {
 	if (typeof value !== 'string') return '';
 	return collapseWhitespace(stripTags(value)).slice(0, maxLength).trim();
@@ -272,29 +614,86 @@ const toTitleCaseDisplay = (value: string) => {
 	});
 };
 
+const getCanonicalFallbackPhraseLabel = (normalized: string, kind: ResumeSearchQueryTermKind) => {
+	const entry = FALLBACK_PHRASE_TERMS.find((candidate) => {
+		if (candidate.kind !== kind) return false;
+		return [candidate.label, ...(candidate.aliases ?? [])].some(
+			(value) => normalizeSearchText(value) === normalized
+		);
+	});
+
+	return entry?.label ?? null;
+};
+
+const isRejectedTechnologyTerm = (normalized: string) =>
+	NON_TECH_REQUIREMENT_TERMS.has(normalized) ||
+	/\b(communication|communicative|problem solving|analytical skills|soft skills)\b/.test(
+		normalized
+	);
+
 const buildSearchTerm = (
 	value: unknown,
 	kind: ResumeSearchQueryTermKind,
-	importance: number
+	importance: number,
+	interpretedFrom: string | null = null
 ): ResumeSearchQueryTerm | null => {
 	const rawDisplay = sanitizeTermDisplay(value);
-	const display = kind === 'technology' ? rawDisplay : toTitleCaseDisplay(rawDisplay);
+	const rawNormalized = normalizeSearchText(rawDisplay);
+	if (!rawNormalized) return null;
+	if (kind === 'technology' && isRejectedTechnologyTerm(rawNormalized)) return null;
+	if (kind === 'role' && GENERIC_ROLE_TERMS.has(rawNormalized)) return null;
+
+	const canonicalPhraseLabel = getCanonicalFallbackPhraseLabel(rawNormalized, kind);
+	const display =
+		kind === 'technology'
+			? (canonicalPhraseLabel ?? rawDisplay)
+			: toTitleCaseDisplay(canonicalPhraseLabel ?? rawDisplay);
 	if (!display) return null;
 
 	const normalized = normalizeSearchText(display);
 	if (!normalized) return null;
+	if (kind === 'concept' && GENERIC_CONCEPT_TERMS.has(normalized)) return null;
+	if (kind === 'technology' && isRejectedTechnologyTerm(normalized)) return null;
+	if (kind === 'role' && GENERIC_ROLE_TERMS.has(normalized)) return null;
 
 	const tokens = tokenizeQuery(normalized);
 	if (tokens.length === 0) return null;
+	const resolvedInterpretedFrom =
+		interpretedFrom ?? (canonicalPhraseLabel && rawNormalized !== normalized ? rawDisplay : null);
 
 	return {
 		display,
 		normalized,
 		tokens,
 		kind,
-		importance
+		importance,
+		...(resolvedInterpretedFrom ? { interpretedFrom: resolvedInterpretedFrom } : {})
 	};
 };
+
+const normalizedTextIncludesPhrase = (normalizedText: string, normalizedPhrase: string) =>
+	normalizedPhrase.length > 0 && ` ${normalizedText} `.includes(` ${normalizedPhrase} `);
+
+const buildFallbackPhraseTerms = (normalized: string) =>
+	FALLBACK_PHRASE_TERMS.flatMap((entry) => {
+		const candidates = [entry.label, ...(entry.aliases ?? [])]
+			.map((candidate) => ({ raw: candidate, normalized: normalizeSearchText(candidate) }))
+			.filter((candidate) => Boolean(candidate.normalized));
+		const matchedCandidate = candidates.find((candidate) =>
+			normalizedTextIncludesPhrase(normalized, candidate.normalized)
+		);
+		if (!matchedCandidate) {
+			return [];
+		}
+
+		const normalizedLabel = normalizeSearchText(entry.label);
+		const interpretedFrom =
+			matchedCandidate.normalized !== normalizedLabel ? matchedCandidate.raw : null;
+		const importance =
+			entry.importance ?? (entry.kind === 'technology' ? 1.45 : entry.kind === 'role' ? 1.2 : 1.08);
+		const term = buildSearchTerm(entry.label, entry.kind, importance, interpretedFrom);
+		return term ? [term] : [];
+	});
 
 const dedupeTerms = (terms: ResumeSearchQueryTerm[]) => {
 	const deduped = new Map<string, ResumeSearchQueryTerm>();
@@ -322,21 +721,53 @@ const dedupeTerms = (terms: ResumeSearchQueryTerm[]) => {
 	return Array.from(deduped.values());
 };
 
+const removeSubsumedTerms = (terms: ResumeSearchQueryTerm[]) =>
+	terms.filter(
+		(term) =>
+			!terms.some(
+				(candidate) =>
+					candidate.kind === term.kind &&
+					candidate.normalized !== term.normalized &&
+					candidate.tokens.length > term.tokens.length &&
+					candidate.importance >= term.importance &&
+					term.tokens.every((token) => candidate.tokens.includes(token))
+			)
+	);
+
+const removeGenericStandaloneRoles = (terms: ResumeSearchQueryTerm[]) => {
+	const hasSpecificRole = terms.some(
+		(term) =>
+			term.kind === 'role' &&
+			term.tokens.length > 1 &&
+			!GENERIC_STANDALONE_ROLE_TERMS.has(term.normalized)
+	);
+	if (!hasSpecificRole) return terms;
+
+	return terms.filter(
+		(term) => term.kind !== 'role' || !GENERIC_STANDALONE_ROLE_TERMS.has(term.normalized)
+	);
+};
+
 const buildFallbackTerms = (normalized: string) =>
-	tokenizeQuery(normalized).map((token) => {
-		const kind = getFallbackTermKind(token);
-		const display =
-			kind === 'technology'
-				? formatFallbackDisplay(token)
-				: toTitleCaseDisplay(formatFallbackDisplay(token));
-		return {
-			display,
-			normalized: token,
-			tokens: [token],
-			kind,
-			importance: kind === 'technology' ? 1.2 : kind === 'role' ? 1.05 : 1
-		};
-	}) satisfies ResumeSearchQueryTerm[];
+	dedupeTerms([
+		...buildFallbackPhraseTerms(normalized),
+		...tokenizeQuery(normalized)
+			.map((token) => {
+				const kind = getFallbackTermKind(token);
+				const display =
+					kind === 'technology'
+						? formatFallbackDisplay(token)
+						: toTitleCaseDisplay(formatFallbackDisplay(token));
+				return (
+					buildSearchTerm(
+						display,
+						kind,
+						kind === 'technology' ? 1.2 : kind === 'role' ? 1.05 : 1
+					) ?? null
+				);
+			})
+			.filter((term): term is ResumeSearchQueryTerm => term !== null)
+	]);
 
 const buildParsedQuery = (payload: {
 	raw: string;
@@ -344,7 +775,10 @@ const buildParsedQuery = (payload: {
 	terms: ResumeSearchQueryTerm[];
 	aiApplied: boolean;
 }): ParsedResumeSearchQuery | null => {
-	const terms = dedupeTerms(payload.terms).slice(0, MAX_TERMS_PER_KIND * 3);
+	const terms = removeGenericStandaloneRoles(removeSubsumedTerms(dedupeTerms(payload.terms))).slice(
+		0,
+		MAX_TERMS_PER_KIND * 3
+	);
 	if (terms.length === 0) return null;
 
 	return {
@@ -368,6 +802,23 @@ export const parseResumeSearchQueryFallback = (query: string): ParsedResumeSearc
 		terms: buildFallbackTerms(normalized),
 		aiApplied: false
 	});
+};
+
+const buildConservativeFallbackQuery = (query: ParsedResumeSearchQuery) =>
+	buildParsedQuery({
+		raw: query.raw,
+		normalized: query.normalized,
+		terms: query.terms.filter(isConservativeFallbackTerm),
+		aiApplied: false
+	});
+
+export const getResumeSimpleSearchDisplayTerms = (query: string) => {
+	const normalized = normalizeSearchText(query);
+	if (!normalized) return [];
+	return buildFallbackTerms(normalized)
+		.filter((term) => !isGenericConceptTerm(term))
+		.slice(0, 12)
+		.map((term) => term.display);
 };
 
 const shouldUseAiForQuery = (query: ParsedResumeSearchQuery) => {
@@ -456,7 +907,7 @@ const sanitizeAiTerms = (payload: QueryAnalysisPayload) => {
 	);
 
 	return dedupeTerms([...technologies, ...roles, ...concepts]).filter(
-		(term) => !ignored.has(term.normalized)
+		(term) => !ignored.has(term.normalized) && !isGenericConceptTerm(term)
 	);
 };
 
@@ -481,6 +932,42 @@ const buildCatalogCanonicalLabelByMatchKey = (
 	return canonicalLabelByMatchKey;
 };
 
+const buildCatalogMatchedTerms = (
+	normalized: string,
+	catalogContext: ResumeSearchQueryCatalogContext | null | undefined
+) => {
+	if (!catalogContext) return [];
+
+	const terms: ResumeSearchQueryTerm[] = [];
+	const seen = new Set<string>();
+
+	for (const technology of catalogContext.technologies) {
+		const canonicalLabel = sanitizeTermDisplay(technology.label);
+		if (!canonicalLabel) continue;
+		const canonicalKey = normalizeSearchText(canonicalLabel);
+		if (!canonicalKey || seen.has(canonicalKey)) continue;
+
+		const candidates = uniqueValues([technology.label, ...technology.aliases])
+			.map((candidate) => ({ raw: candidate, normalized: normalizeSearchText(candidate) }))
+			.filter((candidate) => candidate.normalized.length > 0);
+		const matchedCandidate = candidates.find((candidate) =>
+			normalizedTextIncludesPhrase(normalized, candidate.normalized)
+		);
+		if (!matchedCandidate) {
+			continue;
+		}
+
+		seen.add(canonicalKey);
+
+		const interpretedFrom =
+			matchedCandidate.normalized !== canonicalKey ? matchedCandidate.raw : null;
+		const term = buildSearchTerm(canonicalLabel, 'technology', 1.5, interpretedFrom);
+		if (term) terms.push(term);
+	}
+
+	return terms.slice(0, MAX_TERMS_PER_KIND);
+};
+
 const canonicalizeTermsWithCatalogContext = (
 	terms: ResumeSearchQueryTerm[],
 	catalogContext: ResumeSearchQueryCatalogContext | null | undefined
@@ -490,15 +977,20 @@ const canonicalizeTermsWithCatalogContext = (
 
 	return dedupeTerms(
 		terms.map((term) => {
-			if (term.kind !== 'technology') return term;
-
 			const canonicalLabel = canonicalLabelByMatchKey.get(term.normalized);
 			if (!canonicalLabel || canonicalLabel === term.display) return term;
 
 			return (
-				buildSearchTerm(canonicalLabel, 'technology', term.importance) ?? {
+				buildSearchTerm(
+					canonicalLabel,
+					'technology',
+					Math.max(term.importance, 1.35),
+					term.interpretedFrom ?? term.display
+				) ?? {
 					...term,
-					display: canonicalLabel
+					display: canonicalLabel,
+					kind: 'technology',
+					interpretedFrom: term.interpretedFrom ?? term.display
 				}
 			);
 		})
@@ -548,7 +1040,8 @@ export const toResumeSearchFilterTerms = (
 	terms.map((term) => ({
 		label: term.display,
 		key: term.normalized,
-		kind: term.kind
+		kind: term.kind,
+		...(term.interpretedFrom ? { interpretedFrom: term.interpretedFrom } : {})
 	}));
 
 export const buildParsedResumeSearchQueryFromFilterTerms = (payload: {
@@ -560,7 +1053,14 @@ export const buildParsedResumeSearchQueryFromFilterTerms = (payload: {
 	const normalized = normalizeSearchText(raw);
 	const terms = dedupeTerms(
 		payload.terms
-			.map((term) => buildSearchTerm(term.label, term.kind, getKindImportance(term.kind)))
+			.map((term) =>
+				buildSearchTerm(
+					term.label,
+					term.kind,
+					getKindImportance(term.kind),
+					term.interpretedFrom ?? null
+				)
+			)
 			.filter((term): term is ResumeSearchQueryTerm => term !== null)
 	).slice(0, MAX_TERMS_PER_KIND * 3);
 
@@ -583,19 +1083,26 @@ export const buildParsedResumeSearchQueryFromFilterTerms = (payload: {
 
 const analyzeQueryWithAi = async (
 	fallbackQuery: ParsedResumeSearchQuery,
-	catalogContext: ResumeSearchQueryCatalogContext | null = null
+	catalogContext: ResumeSearchQueryCatalogContext | null = null,
+	failureFallbackQuery: ParsedResumeSearchQuery | null = fallbackQuery
 ): Promise<ParsedResumeSearchQuery | null> => {
-	if (!process.env.OPENAI_API_KEY?.trim()) return fallbackQuery;
+	const deterministicTerms = dedupeTerms([
+		...buildFallbackPhraseTerms(fallbackQuery.normalized),
+		...buildCatalogMatchedTerms(fallbackQuery.normalized, catalogContext),
+		...(failureFallbackQuery?.terms ?? [])
+	]);
+
+	if (!process.env.OPENAI_API_KEY?.trim()) return failureFallbackQuery;
 
 	const sanitizedInput = sanitizeQueryAnalysisInput(fallbackQuery.raw);
-	if (!sanitizedInput) return fallbackQuery;
+	if (!sanitizedInput) return failureFallbackQuery;
 
 	const cacheKey = catalogContext
 		? `${catalogContext.cacheKey}:${fallbackQuery.normalized}`
 		: fallbackQuery.normalized;
 	const cached = queryAnalysisCache.get(cacheKey);
 	if (cached && cached.expiresAt > Date.now()) {
-		return cached.value ?? fallbackQuery;
+		return cached.value ?? failureFallbackQuery;
 	}
 
 	try {
@@ -621,7 +1128,7 @@ Return JSON only with this exact shape:
 
 Rules:
 - technologies: only concrete technologies, programming languages, frameworks, databases, platforms, tools, cloud services, or named engineering methods with clear resume-search value.
-- roles: only job titles or specialist role names.
+- roles: only job titles or specialist role names. Do not output staffing words like consultant unless attached to a specific role and then normalize to the role, e.g. "Full Stack Developer Consultant" -> "Fullstack Engineer".
 - concepts: only short meaningful noun phrases for non-technology requirements, responsibilities, domains, industries, branches, or focus areas.
 - ignore: words or phrases from the text that should not be used as searchable requirements.
 - When a technology clearly matches the provided tech catalog or one of its aliases, prefer the exact catalog label.
@@ -629,17 +1136,21 @@ Rules:
 - Domain and industry experience are important concepts. Examples: medtech, medical devices, municipality, kommun, public sector, offentlig sektor, gaming, gambling, iGaming, fintech, telecom, banking, insurance, healthcare.
 - Searches may be written in Swedish or English. If the query clearly refers to a domain or industry, keep it as a searchable concept even if the resume may phrase it differently.
 - Still include technologies that are not in the catalog when they are clearly relevant.
-- Never output generic verbs, adjectives, filler, locations, dates, percentages, contact details, company boilerplate, or language-fluency phrases unless they are directly technical.
+- Never output generic verbs, adjectives, filler, locations, dates, percentages, contact details, company boilerplate, staffing words, soft skills, or language-fluency phrases unless they are directly technical.
+- Put soft skills in ignore, never technologies/concepts/roles. Examples: problem solving, analytical skills, communication skills, excellent communication.
 - Never split a technology into fragments.
 - Keep each item concise, usually 1-4 words.
 - Prefer normalized searchable phrases over full sentences.
 - Do not duplicate the same concept across categories.
 
-Good technologies: Python, DataOps, dbt, Snowflake, SQL, Git, React Native, Swift.
-Bad technologies: engineer, bygga, arbeta, tal, skrift, stark erfarenhet, modern.
+Good technologies: Python, DataOps, dbt, Snowflake, SQL, Git, React Native, Swift, Jira, Bitbucket, Jenkins, SonarQube, Backstage, Swagger.
+Bad technologies: engineer, consultant, problem solving, analytical skills, communication skills, bygga, arbeta, tal, skrift, stark erfarenhet, modern.
 
-Good concepts: data platform, data modeling, data quality, pipelines, mobile app maintenance, medtech, municipality, public sector, gaming, gambling, fintech.
-Bad concepts: vår kund, spännande uppdrag, asap, stockholm, onsite.`
+Good roles: Fullstack Engineer, Backend Developer, Frontend Developer, Platform Engineer, Software Architect.
+Bad roles: consultant, experienced consultant, problem solver.
+
+Good concepts: API engine, identity mapping, SDLC toolchain, internal developer platform, data platform, data modeling, data quality, pipelines, medtech, municipality, public sector, gaming, gambling, fintech.
+Bad concepts: problem solving, analytical skills, communication skills, vår kund, kund, efter, lösning, förändring, denna, del, säkerställa, fortsatt, stöd, spännande uppdrag, asap, stockholm, onsite.`
 				},
 				{
 					role: 'user',
@@ -653,13 +1164,14 @@ ${sanitizedInput}`
 		const rawOutput = response.output_text ?? '';
 		const payload = extractJsonPayload(rawOutput);
 		const aiTerms = canonicalizeTermsWithCatalogContext(sanitizeAiTerms(payload), catalogContext);
+		const mergedTerms = dedupeTerms([...deterministicTerms, ...aiTerms]);
 		const value =
 			buildParsedQuery({
 				raw: fallbackQuery.raw,
 				normalized: fallbackQuery.normalized,
-				terms: aiTerms.length > 0 ? aiTerms : fallbackQuery.terms,
+				terms: mergedTerms.length > 0 ? mergedTerms : (failureFallbackQuery?.terms ?? []),
 				aiApplied: aiTerms.length > 0
-			}) ?? fallbackQuery;
+			}) ?? failureFallbackQuery;
 
 		queryAnalysisCache.set(cacheKey, {
 			expiresAt: Date.now() + AI_QUERY_ANALYSIS_CACHE_TTL_MS,
@@ -671,9 +1183,9 @@ ${sanitizedInput}`
 		console.error('[resume-search] AI query analysis failed, using fallback parser', error);
 		queryAnalysisCache.set(cacheKey, {
 			expiresAt: Date.now() + 60_000,
-			value: fallbackQuery
+			value: failureFallbackQuery
 		});
-		return fallbackQuery;
+		return failureFallbackQuery;
 	}
 };
 
@@ -690,9 +1202,16 @@ export const analyzeResumeSearchQuery = async (
 		buildParsedQuery({
 			raw: fallbackQuery.raw,
 			normalized: fallbackQuery.normalized,
-			terms: canonicalizeTermsWithCatalogContext(fallbackQuery.terms, catalogContext),
+			terms: dedupeTerms([
+				...buildCatalogMatchedTerms(fallbackQuery.normalized, catalogContext),
+				...canonicalizeTermsWithCatalogContext(fallbackQuery.terms, catalogContext)
+			]),
 			aiApplied: fallbackQuery.aiApplied
 		}) ?? fallbackQuery;
 	if (!shouldUseAiForQuery(canonicalFallbackQuery)) return canonicalFallbackQuery;
-	return analyzeQueryWithAi(canonicalFallbackQuery, catalogContext);
+	return analyzeQueryWithAi(
+		canonicalFallbackQuery,
+		catalogContext,
+		buildConservativeFallbackQuery(canonicalFallbackQuery)
+	);
 };
