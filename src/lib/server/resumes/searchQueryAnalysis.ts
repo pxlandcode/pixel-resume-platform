@@ -123,6 +123,7 @@ const GENERIC_CONCEPT_TERMS = new Set([
 	'dar',
 	'del',
 	'denna',
+	'developer experience',
 	'efter',
 	'erbjudande',
 	'forandring',
@@ -161,6 +162,7 @@ const NON_TECH_REQUIREMENT_TERMS = new Set([
 	'communication skills',
 	'consultant',
 	'consulting',
+	'developer experience',
 	'excellent communication',
 	'excellent communication skills',
 	'problem solving',
@@ -1150,7 +1152,7 @@ Good roles: Fullstack Engineer, Backend Developer, Frontend Developer, Platform 
 Bad roles: consultant, experienced consultant, problem solver.
 
 Good concepts: API engine, identity mapping, SDLC toolchain, internal developer platform, data platform, data modeling, data quality, pipelines, medtech, municipality, public sector, gaming, gambling, fintech.
-Bad concepts: problem solving, analytical skills, communication skills, vår kund, kund, efter, lösning, förändring, denna, del, säkerställa, fortsatt, stöd, spännande uppdrag, asap, stockholm, onsite.`
+Bad concepts: developer experience, problem solving, analytical skills, communication skills, vår kund, kund, efter, lösning, förändring, denna, del, säkerställa, fortsatt, stöd, spännande uppdrag, asap, stockholm, onsite.`
 				},
 				{
 					role: 'user',

@@ -2,6 +2,36 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ResumeTechIndexItem } from '$lib/types/resumes';
 import { loadTechCatalogMatchState, resolveTechCatalogMatchKeys } from '$lib/server/techCatalog';
 
+const IN_FILTER_BATCH_SIZE = 200;
+
+type BatchedQueryResult = {
+	data: unknown[] | null;
+	error: { message: string } | null;
+};
+
+const chunkValues = <T>(values: T[], size = IN_FILTER_BATCH_SIZE) => {
+	const chunks: T[][] = [];
+	for (let index = 0; index < values.length; index += size) {
+		chunks.push(values.slice(index, index + size));
+	}
+	return chunks;
+};
+
+const fetchBatchedRows = async <T>(
+	values: string[],
+	runQuery: (batch: string[]) => PromiseLike<BatchedQueryResult>
+): Promise<T[]> => {
+	const rows: T[] = [];
+	for (const batch of chunkValues(values)) {
+		const result = await runQuery(batch);
+		if (result.error) {
+			throw new Error(result.error.message);
+		}
+		rows.push(...((result.data ?? []) as T[]));
+	}
+	return rows;
+};
+
 const toStringArray = (value: unknown): string[] => {
 	if (!Array.isArray(value)) return [];
 	return value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
@@ -91,9 +121,14 @@ const fetchTalentRows = async (
 ): Promise<Array<{ id: string; tech_stack: unknown }>> => {
 	if (talentIds !== null && talentIds.length === 0) return [];
 
-	const query = adminClient.from('talents').select('id, tech_stack');
-	const result = talentIds === null ? await query : await query.in('id', talentIds);
+	if (talentIds !== null) {
+		return fetchBatchedRows<Array<{ id: string; tech_stack: unknown }>[number]>(
+			talentIds,
+			(batch) => adminClient.from('talents').select('id, tech_stack').in('id', batch)
+		);
+	}
 
+	const result = await adminClient.from('talents').select('id, tech_stack');
 	if (result.error) {
 		throw new Error(result.error.message);
 	}
@@ -112,15 +147,10 @@ export const buildResumeTechIndex = async (
 	const scopedTalentIds = Array.from(scopedTalentIdSet);
 	const techCatalogMatchState = await loadTechCatalogMatchState(adminClient);
 
-	const resumesResult = await adminClient
-		.from('resumes')
-		.select('id, talent_id')
-		.in('talent_id', scopedTalentIds);
-	if (resumesResult.error) {
-		throw new Error(resumesResult.error.message);
-	}
-
-	const resumeRows = resumesResult.data ?? [];
+	const resumeRows = await fetchBatchedRows<Array<{ id: unknown; talent_id: unknown }>[number]>(
+		scopedTalentIds,
+		(batch) => adminClient.from('resumes').select('id, talent_id').in('talent_id', batch)
+	);
 	const resumeMetadata = resumeRows
 		.map((row) => ({
 			id: normalizeId((row as { id: unknown }).id) ?? '',
@@ -132,22 +162,20 @@ export const buildResumeTechIndex = async (
 		resumeMetadata.map((row) => [row.id, row.talentId])
 	);
 
-	const talentOrganisationRowsResult =
+	const talentOrganisationRows =
 		scopedTalentIds.length === 0
-			? {
-					data: [] as Array<{ talent_id: string; organisation_id: string }>,
-					error: null
-				}
-			: await adminClient
-					.from('organisation_talents')
-					.select('talent_id, organisation_id')
-					.in('talent_id', scopedTalentIds);
-	if (talentOrganisationRowsResult.error) {
-		throw new Error(talentOrganisationRowsResult.error.message);
-	}
+			? []
+			: await fetchBatchedRows<Array<{ talent_id: string; organisation_id: string }>[number]>(
+					scopedTalentIds,
+					(batch) =>
+						adminClient
+							.from('organisation_talents')
+							.select('talent_id, organisation_id')
+							.in('talent_id', batch)
+				);
 
 	const organisationIdByTalentId = new Map<string, string>();
-	for (const row of talentOrganisationRowsResult.data ?? []) {
+	for (const row of talentOrganisationRows) {
 		if (typeof row.talent_id !== 'string' || typeof row.organisation_id !== 'string') continue;
 		organisationIdByTalentId.set(row.talent_id, row.organisation_id);
 	}
@@ -159,12 +187,31 @@ export const buildResumeTechIndex = async (
 			organisationIdByTalentId.get(talentId) ?? null
 		);
 
-	const [resumeSkillRowsResult, resumeExperienceRowsResult] =
+	const [resumeSkillRows, resumeExperienceRows] =
 		resumeIds.length === 0
 			? [
-					{ data: [] as Array<{ resume_id: string; value: string }>, error: null },
-					{
-						data: [] as Array<{
+					[] as Array<{ resume_id: string; value: string }>,
+					[] as Array<{
+						id: string;
+						resume_id: string;
+						experience_id: string | null;
+						section: 'highlighted' | 'experience';
+						use_tech_override: boolean;
+						start_date_override: string | null;
+						end_date_override: string | null;
+					}>
+				]
+			: await Promise.all([
+					fetchBatchedRows<Array<{ resume_id: string; value: string }>[number]>(
+						resumeIds,
+						(batch) =>
+							adminClient
+								.from('resume_skill_items')
+								.select('resume_id, value')
+								.in('resume_id', batch)
+					),
+					fetchBatchedRows<
+						Array<{
 							id: string;
 							resume_id: string;
 							experience_id: string | null;
@@ -172,31 +219,16 @@ export const buildResumeTechIndex = async (
 							use_tech_override: boolean;
 							start_date_override: string | null;
 							end_date_override: string | null;
-						}>,
-						error: null
-					}
-				]
-			: await Promise.all([
-					adminClient
-						.from('resume_skill_items')
-						.select('resume_id, value')
-						.in('resume_id', resumeIds),
-					adminClient
-						.from('resume_experience_items')
-						.select(
-							'id, resume_id, experience_id, section, use_tech_override, start_date_override, end_date_override'
-						)
-						.in('resume_id', resumeIds)
+						}>[number]
+					>(resumeIds, (batch) =>
+						adminClient
+							.from('resume_experience_items')
+							.select(
+								'id, resume_id, experience_id, section, use_tech_override, start_date_override, end_date_override'
+							)
+							.in('resume_id', batch)
+					)
 				]);
-
-	if (resumeSkillRowsResult.error) {
-		throw new Error(resumeSkillRowsResult.error.message);
-	}
-	if (resumeExperienceRowsResult.error) {
-		throw new Error(resumeExperienceRowsResult.error.message);
-	}
-
-	const resumeExperienceRows = resumeExperienceRowsResult.data ?? [];
 	const experienceIds = Array.from(
 		new Set(
 			resumeExperienceRows
@@ -208,46 +240,52 @@ export const buildResumeTechIndex = async (
 		.map((row) => normalizeId((row as { id: unknown }).id))
 		.filter((id): id is string => Boolean(id));
 
-	const [libraryRowsResult, libraryTechRowsResult, overrideTechRowsResult] = await Promise.all([
+	const [libraryRows, libraryTechRows, overrideTechRows] = await Promise.all([
 		experienceIds.length === 0
-			? {
-					data: [] as Array<{
+			? ([] as Array<{
+					id: string;
+					company: string;
+					role_sv: string;
+					role_en: string;
+					start_date: string;
+					end_date: string | null;
+				}>)
+			: fetchBatchedRows<
+					Array<{
 						id: string;
 						company: string;
 						role_sv: string;
 						role_en: string;
 						start_date: string;
 						end_date: string | null;
-					}>,
-					error: null
-				}
-			: adminClient
-					.from('experience_library')
-					.select('id, company, role_sv, role_en, start_date, end_date')
-					.in('id', experienceIds),
+					}>[number]
+				>(experienceIds, (batch) =>
+					adminClient
+						.from('experience_library')
+						.select('id, company, role_sv, role_en, start_date, end_date')
+						.in('id', batch)
+				),
 		experienceIds.length === 0
-			? { data: [] as Array<{ experience_id: string; value: string }>, error: null }
-			: adminClient
-					.from('experience_library_technologies')
-					.select('experience_id, value')
-					.in('experience_id', experienceIds),
+			? ([] as Array<{ experience_id: string; value: string }>)
+			: fetchBatchedRows<Array<{ experience_id: string; value: string }>[number]>(
+					experienceIds,
+					(batch) =>
+						adminClient
+							.from('experience_library_technologies')
+							.select('experience_id, value')
+							.in('experience_id', batch)
+				),
 		resumeExperienceItemIds.length === 0
-			? { data: [] as Array<{ resume_experience_item_id: string; value: string }>, error: null }
-			: adminClient
-					.from('resume_experience_tech_overrides')
-					.select('resume_experience_item_id, value')
-					.in('resume_experience_item_id', resumeExperienceItemIds)
+			? ([] as Array<{ resume_experience_item_id: string; value: string }>)
+			: fetchBatchedRows<Array<{ resume_experience_item_id: string; value: string }>[number]>(
+					resumeExperienceItemIds,
+					(batch) =>
+						adminClient
+							.from('resume_experience_tech_overrides')
+							.select('resume_experience_item_id, value')
+							.in('resume_experience_item_id', batch)
+				)
 	]);
-
-	if (libraryRowsResult.error) {
-		throw new Error(libraryRowsResult.error.message);
-	}
-	if (libraryTechRowsResult.error) {
-		throw new Error(libraryTechRowsResult.error.message);
-	}
-	if (overrideTechRowsResult.error) {
-		throw new Error(overrideTechRowsResult.error.message);
-	}
 
 	const libraryById = new Map<
 		string,
@@ -259,7 +297,7 @@ export const buildResumeTechIndex = async (
 			end_date: string | null;
 		}
 	>();
-	for (const row of libraryRowsResult.data ?? []) {
+	for (const row of libraryRows) {
 		const libraryId = normalizeId((row as { id: unknown }).id);
 		if (!libraryId) continue;
 		libraryById.set(libraryId, {
@@ -272,7 +310,7 @@ export const buildResumeTechIndex = async (
 	}
 
 	const libraryTechByExperienceId = new Map<string, Set<string>>();
-	for (const row of libraryTechRowsResult.data ?? []) {
+	for (const row of libraryTechRows) {
 		const experienceId = normalizeId((row as { experience_id: unknown }).experience_id);
 		if (!experienceId) continue;
 		const value = getSafeText(row.value);
@@ -283,7 +321,7 @@ export const buildResumeTechIndex = async (
 	}
 
 	const overrideTechByItemId = new Map<string, Set<string>>();
-	for (const row of overrideTechRowsResult.data ?? []) {
+	for (const row of overrideTechRows) {
 		const itemId = normalizeId(
 			(row as { resume_experience_item_id: unknown }).resume_experience_item_id
 		);
@@ -296,7 +334,7 @@ export const buildResumeTechIndex = async (
 	}
 
 	const resumeSearchMap = new Map<string, Set<string>>();
-	for (const row of resumeSkillRowsResult.data ?? []) {
+	for (const row of resumeSkillRows) {
 		const resumeId = normalizeId((row as { resume_id: unknown }).resume_id);
 		if (!resumeId) continue;
 		const value = getSafeText(row.value);
