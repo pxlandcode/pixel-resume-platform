@@ -8,6 +8,7 @@ import type {
 	TechCategory,
 	ExperienceLibraryItem
 } from '$lib/types/resume';
+import { refreshResumeSearchDocumentForTalentQuietly } from '$lib/server/resumes/searchDocuments';
 
 type LanguagePair = { sv: string; en: string };
 
@@ -950,6 +951,8 @@ export const saveResumeData = async (
 		.eq('id', resumeId)
 		.eq('talent_id', talentId);
 	if (updateError) throw new Error(updateError.message);
+
+	await refreshResumeSearchDocumentForTalentQuietly(adminClient, talentId);
 };
 
 export const initResumeData = async (

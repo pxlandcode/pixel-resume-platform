@@ -1,24 +1,31 @@
 <script lang="ts">
-	import { Input, Toaster, toast } from '@pixelcode_/blocks/components';
-	import { Search } from 'lucide-svelte';
-	import { onDestroy } from 'svelte';
+	import { Button, Input, Toaster, toast } from '@pixelcode_/blocks/components';
+	import { RefreshCw, Search } from 'lucide-svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { getEarliestAvailabilityDate } from '$lib/utils/availability';
+	import { clickOutside } from '$lib/utils/clickOutside';
+	import { tooltip } from '$lib/utils/tooltip';
 	import { userSettingsStore } from '$lib/stores/userSettings';
 	import type { ViewMode } from '$lib/types/userSettings';
 	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 	import type {
 		ResumeSearchFilterTerm,
+		ResumeSearchJob,
+		ResumeSearchJobsResponse,
 		ResumeSearchItem,
-		ResumeSearchResponse,
+		ResumeSimpleSearchResponse,
 		ResumeTechIndexResponse
 	} from '$lib/types/resumes';
 	import ResumeDefaultResults from '$lib/components/resumes/ResumeDefaultResults.svelte';
 	import ResumeEmptyState from '$lib/components/resumes/ResumeEmptyState.svelte';
 	import ResumeFreeTextResults from '$lib/components/resumes/ResumeFreeTextResults.svelte';
 	import ResumeGroupedTechResults from '$lib/components/resumes/ResumeGroupedTechResults.svelte';
+	import ResumeSearchJobTray from '$lib/components/resumes/ResumeSearchJobTray.svelte';
+	import ResumeSearchResultsDrawer from '$lib/components/resumes/ResumeSearchResultsDrawer.svelte';
 	import ResumesFiltersPanel from '$lib/components/resumes/ResumesFiltersPanel.svelte';
 	import ResumesPageToolbar from '$lib/components/resumes/ResumesPageToolbar.svelte';
+	import TechStackSelector from '$lib/components/tech-stack-selector/tech-stack-selector.svelte';
 	import {
 		type AvailabilityMode,
 		type FreeTextTalentResult,
@@ -27,6 +34,7 @@
 		type TechMatch,
 		type TechMatchSummary,
 		type TalentGroup,
+		formatYears,
 		getTalentName
 	} from '$lib/components/resumes/pageShared';
 	import type { PageData } from './$types';
@@ -36,8 +44,6 @@
 	type FreeTextSearchCacheEntry = {
 		generatedAt: string | null;
 		aiApplied: boolean;
-		analyzedTerms: ResumeSearchFilterTerm[];
-		appliedTerms: ResumeSearchFilterTerm[];
 		items: ResumeSearchItem[];
 	};
 	type Talent = NonNullable<PageData['talents']>[number];
@@ -48,6 +54,8 @@
 
 	const DEFAULT_AVAILABILITY_WITHIN_DAYS = 30;
 	const MS_PER_DAY = 24 * 60 * 60 * 1000;
+	const SEARCH_JOBS_POLL_INTERVAL_MS = 3500;
+	const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 	const serverTalents = (data.talents ?? []) as Talent[];
 
 	const buildTalentLabelState = (talents: Talent[]) =>
@@ -65,12 +73,9 @@
 		itemsByTalentId: Record<string, TalentTechData>;
 	};
 	type TalentWithScore = Talent & TechMatchSummary;
-	type SearchFilterTermInput = Pick<SelectedSearchFilter, 'label' | 'key' | 'kind'>;
 
 	let selectedTechs = $state<string[]>([]);
-	let analyzedSearchTerms = $state<ResumeSearchFilterTerm[]>([]);
 	let extractedSearchTerms = $state<ResumeSearchFilterTerm[]>([]);
-	let analyzedSearchTermsBaseKey = $state<string | null>(null);
 	let requiredYearsByFilterKey = $state<Record<string, number>>({});
 	let filtersOpen = $state(false);
 	let searchQuery = $state('');
@@ -89,7 +94,6 @@
 	let techRequirementDraft = $state('');
 	let techRequirementError = $state('');
 	let availabilityWithinDaysDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-	let freeTextSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 	let techIndexStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let techIndexError = $state<string | null>(null);
 	let loadedTechScopeSignature = $state<string | null>(null);
@@ -102,6 +106,22 @@
 	let activeFreeTextSearchCacheKey = $state<string | null>(null);
 	let freeTextSearchAbortController: AbortController | null = null;
 	let freeTextSearchCache = $state<Record<string, FreeTextSearchCacheEntry>>({});
+	let deepSearchStartStatus = $state<'idle' | 'loading' | 'error'>('idle');
+	let searchJobs = $state<ResumeSearchJob[]>([]);
+	let searchResultsOpen = $state(false);
+	let selectedSearchJobId = $state<string | null>(null);
+	let activeResultTuneJobId = $state<string | null>(null);
+	let activeResultSearchTerms = $state<ResumeSearchFilterTerm[]>([]);
+	let activeResultRequiredYearsByFilterKey = $state<Record<string, number>>({});
+	let activeResultOpenTechRequirementKey = $state<string | null>(null);
+	let activeResultTechRequirementDraft = $state('');
+	let activeResultTechRequirementError = $state('');
+	let activeResultTuneStatus = $state<'idle' | 'loading' | 'error'>('idle');
+	let activeResultTuneError = $state<string | null>(null);
+	let searchJobsAbortController: AbortController | null = null;
+	let searchJobsPollTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	let hasLoadedSearchJobs = $state(false);
+	let knownSearchJobStatuses = $state<Record<string, ResumeSearchJob['status']>>({});
 	let talentLabelsById = $state<Record<string, TalentLabelDefinition[]>>(
 		buildTalentLabelState(serverTalents)
 	);
@@ -144,13 +164,19 @@
 		}))
 	);
 	const availableOrganisationIds = $derived(
-		organisationFilterOptions.map((org: { label: string; value: string }) => org.value)
+		organisationFilterOptions
+			.map((org: { label: string; value: string }) => org.value.trim())
+			.filter((id) => UUID_REGEX.test(id))
 	);
 
 	const sanitizeOrganisationIds = (ids: string[]) => {
 		const allowed = new Set(availableOrganisationIds);
 		return Array.from(
-			new Set(ids.map((id) => id.trim()).filter((id) => id.length > 0 && allowed.has(id)))
+			new Set(
+				ids
+					.map((id) => id.trim())
+					.filter((id) => id.length > 0 && UUID_REGEX.test(id) && allowed.has(id))
+			)
 		);
 	};
 	const sanitizeLabelIds = (ids: string[]) => {
@@ -176,7 +202,9 @@
 	});
 
 	const techScopeOrgIds = $derived(
-		Array.from(new Set(selectedOrganisationIds.map((id) => id.trim()).filter(Boolean))).sort()
+		Array.from(
+			new Set(selectedOrganisationIds.map((id) => id.trim()).filter((id) => UUID_REGEX.test(id)))
+		).sort()
 	);
 	const techCatalogScope = $derived<'global' | 'organisation'>(
 		homeOrganisationId ? 'organisation' : 'global'
@@ -210,23 +238,6 @@
 		role: 1,
 		concept: 2
 	};
-
-	const serializeSearchFilterTerms = (terms: SearchFilterTermInput[]) =>
-		JSON.stringify(
-			terms
-				.map((term) => ({
-					label: term.label.trim(),
-					key: normalize(term.key),
-					kind: term.kind
-				}))
-				.sort((left, right) => {
-					if (left.kind !== right.kind) return left.kind.localeCompare(right.kind);
-					return left.key.localeCompare(right.key);
-				})
-		);
-
-	const searchFilterTermsEqual = (left: SearchFilterTermInput[], right: SearchFilterTermInput[]) =>
-		serializeSearchFilterTerms(left) === serializeSearchFilterTerms(right);
 
 	const sortSelectedSearchFilters = (filters: SelectedSearchFilter[]) =>
 		[...filters].sort((left, right) => {
@@ -267,12 +278,6 @@
 		availabilityWithinDaysDebounceTimer = null;
 	};
 
-	const clearFreeTextSearchDebounce = () => {
-		if (freeTextSearchDebounceTimer === null) return;
-		clearTimeout(freeTextSearchDebounceTimer);
-		freeTextSearchDebounceTimer = null;
-	};
-
 	const scheduleAvailabilityWithinDaysApply = (rawValue: string) => {
 		availabilityWithinDaysInput = rawValue;
 		clearAvailabilityDaysDebounce();
@@ -290,17 +295,10 @@
 
 	const scheduleFreeTextSearchApply = (rawValue: string) => {
 		freeTextSearchInput = rawValue;
-		clearFreeTextSearchDebounce();
-		freeTextSearchDebounceTimer = setTimeout(() => {
-			freeTextSearchApplied = rawValue;
-			freeTextSearchDebounceTimer = null;
-		}, 220);
 	};
 
 	const applyFreeTextSearchNow = (rawValue: string) => {
 		freeTextSearchInput = rawValue;
-		freeTextSearchApplied = rawValue;
-		clearFreeTextSearchDebounce();
 	};
 
 	const setTalentLabels = (talentId: string, labels: TalentLabelDefinition[]) => {
@@ -323,6 +321,18 @@
 	const showLabelMutationError = (message: string) => {
 		if (typeof toast.error === 'function') {
 			toast.error(message);
+			return;
+		}
+		toast(message);
+	};
+
+	const showSearchToast = (message: string, kind: 'success' | 'error' = 'success') => {
+		if (kind === 'error' && typeof toast.error === 'function') {
+			toast.error(message);
+			return;
+		}
+		if (kind === 'success' && typeof toast.success === 'function') {
+			toast.success(message);
 			return;
 		}
 		toast(message);
@@ -360,9 +370,10 @@
 				},
 				body: JSON.stringify(payload)
 			});
-			const result = (await response.json().catch(() => null)) as
-				| { labels?: TalentLabelDefinition[]; message?: string }
-				| null;
+			const result = (await response.json().catch(() => null)) as {
+				labels?: TalentLabelDefinition[];
+				message?: string;
+			} | null;
 
 			if (!response.ok || !Array.isArray(result?.labels)) {
 				throw new Error(result?.message || 'Could not update labels.');
@@ -371,9 +382,7 @@
 			setTalentLabels(payload.talentId, result.labels);
 		} catch (error) {
 			setTalentLabels(payload.talentId, previousLabels);
-			showLabelMutationError(
-				error instanceof Error ? error.message : 'Could not update labels.'
-			);
+			showLabelMutationError(error instanceof Error ? error.message : 'Could not update labels.');
 		} finally {
 			setTalentLabelMutation(payload.talentId, false);
 		}
@@ -390,7 +399,15 @@
 	const clearFreeTextSearch = () => {
 		freeTextSearchInput = '';
 		freeTextSearchApplied = '';
-		clearFreeTextSearchDebounce();
+		if (freeTextSearchStatus === 'loading') {
+			freeTextSearchAbortController?.abort();
+			freeTextSearchAbortController = null;
+		}
+		freeTextSearchStatus = 'idle';
+		freeTextSearchError = null;
+		loadedFreeTextSearchCacheKey = null;
+		activeFreeTextSearchCacheKey = null;
+		extractedSearchTerms = [];
 	};
 
 	const handleAvailabilityWithinDaysKeydown = (event: KeyboardEvent) => {
@@ -401,11 +418,13 @@
 
 	onDestroy(() => {
 		clearAvailabilityDaysDebounce();
-		clearFreeTextSearchDebounce();
 		techIndexAbortController?.abort();
 		techIndexAbortController = null;
 		freeTextSearchAbortController?.abort();
 		freeTextSearchAbortController = null;
+		searchJobsAbortController?.abort();
+		searchJobsAbortController = null;
+		stopSearchJobsPoll();
 	});
 
 	const isAvailableNow = (availability: Talent['availability'] | null | undefined) =>
@@ -470,25 +489,26 @@
 			label: term.label,
 			key: term.key,
 			kind: term.kind,
-			requiredYears: requiredYearsByFilterKey[term.key] ?? null
+			requiredYears: requiredYearsByFilterKey[term.key] ?? term.requiredYears ?? null,
+			interpretedFrom: term.interpretedFrom ?? null
 		}))
 	);
 
 	const selectedSearchFilters = $derived.by<SelectedSearchFilter[]>(() => {
-		const filtersByKey = new Map<string, SelectedSearchFilter>();
+		const filtersByKey: Record<string, SelectedSearchFilter> = {};
 
 		for (const filter of extractedSearchFilters) {
-			filtersByKey.set(filter.key, filter);
+			filtersByKey[filter.key] = filter;
 		}
 
 		for (const filter of manualTechFilters) {
-			filtersByKey.set(filter.key, {
+			filtersByKey[filter.key] = {
 				...filter,
 				kind: 'technology'
-			});
+			};
 		}
 
-		return sortSelectedSearchFilters(Array.from(filtersByKey.values()));
+		return sortSelectedSearchFilters(Object.values(filtersByKey));
 	});
 
 	const selectedTechFilters = $derived.by<SelectedTechFilter[]>(() =>
@@ -500,7 +520,8 @@
 			.map((filter) => ({
 				label: filter.label,
 				key: filter.key,
-				requiredYears: filter.requiredYears
+				requiredYears: filter.requiredYears,
+				interpretedFrom: filter.interpretedFrom ?? null
 			}))
 	);
 
@@ -516,37 +537,9 @@
 	const techIndexIsLoadingForScope = $derived(
 		techIndexStatus === 'loading' && activeTechScopeSignature === techScopeSignature
 	);
-	const baselineExtractedSearchTermInputs = $derived.by<SearchFilterTermInput[]>(() =>
-		analyzedSearchTerms.map((term) => ({
-			label: term.label,
-			key: term.key,
-			kind: term.kind
-		}))
-	);
-	const selectedSearchFilterInputs = $derived.by<SearchFilterTermInput[]>(() =>
-		selectedSearchFilters.map((filter) => ({
-			label: filter.label,
-			key: filter.key,
-			kind: filter.kind
-		}))
-	);
-	const activeFreeTextRequestTerms = $derived.by<ResumeSearchFilterTerm[] | null>(() => {
-		if (!hasFreeTextSearch) return null;
-		if (analyzedSearchTermsBaseKey !== freeTextSearchBaseKey) return null;
-		if (searchFilterTermsEqual(selectedSearchFilterInputs, baselineExtractedSearchTermInputs)) {
-			return null;
-		}
-
-		return selectedSearchFilterInputs.map((term) => ({
-			label: term.label,
-			key: term.key,
-			kind: term.kind
-		}));
-	});
 	const freeTextSearchRequestKey = $derived.by(() => {
 		if (!freeTextSearchBaseKey) return null;
-		if (activeFreeTextRequestTerms === null) return `${freeTextSearchBaseKey}::auto`;
-		return `${freeTextSearchBaseKey}::terms:${serializeSearchFilterTerms(activeFreeTextRequestTerms)}`;
+		return `${freeTextSearchBaseKey}::simple`;
 	});
 	const freeTextSearchReady = $derived(
 		hasFreeTextSearch &&
@@ -562,6 +555,45 @@
 			: null
 	);
 	const activeFreeTextSearchResults = $derived(activeFreeTextSearchResponse?.items ?? []);
+	const activeSearchJobs = $derived(searchJobs.filter(isSearchJobActive));
+	const activeSearchJobCount = $derived(activeSearchJobs.length);
+	const selectedSearchJob = $derived.by(
+		() => searchJobs.find((candidate) => candidate.id === selectedSearchJobId) ?? null
+	);
+	const activeDeepSearchJob = $derived(selectedSearchJob?.result ? selectedSearchJob : null);
+	const hasActiveDeepSearchResult = $derived(Boolean(activeDeepSearchJob));
+	const hasUnreadSearchResults = $derived(
+		searchJobs.some((job) => job.status === 'succeeded' && !job.readAt)
+	);
+	const deepSearchLoading = $derived(deepSearchStartStatus === 'loading');
+	const activeResultSearchFilters = $derived.by<SelectedSearchFilter[]>(() =>
+		sortSelectedSearchFilters(
+			activeResultSearchTerms.map((term) => ({
+				label: term.label,
+				key: term.key,
+				kind: term.kind,
+				requiredYears: activeResultRequiredYearsByFilterKey[term.key] ?? term.requiredYears ?? null,
+				interpretedFrom: term.interpretedFrom ?? null
+			}))
+		)
+	);
+	const activeResultTechFilters = $derived.by<SelectedTechFilter[]>(() =>
+		activeResultSearchFilters
+			.filter(
+				(filter): filter is SelectedSearchFilter & { kind: 'technology' } =>
+					filter.kind === 'technology'
+			)
+			.map((filter) => ({
+				label: filter.label,
+				key: filter.key,
+				requiredYears: filter.requiredYears,
+				interpretedFrom: filter.interpretedFrom ?? null
+			}))
+	);
+	const activeResultSelectedTechs = $derived(activeResultTechFilters.map((filter) => filter.label));
+	const hasActiveResultTechFilters = $derived(activeResultTechFilters.length > 0);
+	const needsTechIndex = $derived(hasSelectedTechFilters || hasActiveResultTechFilters);
+	const activeResultTuneLoading = $derived(activeResultTuneStatus === 'loading');
 
 	const toItemsByTalentId = (items: ResumeTechIndexResponse['items']) => {
 		const normalizedItems: Record<string, TalentTechData> = {};
@@ -608,6 +640,52 @@
 			[cacheKey]: entry
 		};
 	};
+
+	const normalizeRequiredYears = (value: unknown): number | null => {
+		if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+		return value;
+	};
+
+	const getInterpretedTooltip = (source: string) => `Search term interpreted from "${source}"`;
+
+	const normalizeSearchFilterTerm = (
+		term: Pick<ResumeSearchFilterTerm, 'label' | 'kind'> & {
+			key?: string;
+			requiredYears?: number | null;
+			interpretedFrom?: string | null;
+		}
+	): ResumeSearchFilterTerm | null => {
+		const label = term.label.trim();
+		if (!label) return null;
+		const key = (term.key?.trim() || normalize(label)).toLowerCase();
+		if (!key) return null;
+		const requiredYears =
+			term.kind === 'technology'
+				? normalizeRequiredYears((term as ResumeSearchFilterTerm).requiredYears)
+				: null;
+		const interpretedFrom =
+			typeof term.interpretedFrom === 'string' && term.interpretedFrom.trim().length > 0
+				? term.interpretedFrom.trim()
+				: null;
+		return {
+			label,
+			key,
+			kind: term.kind,
+			...(requiredYears !== null ? { requiredYears } : {}),
+			...(interpretedFrom ? { interpretedFrom } : {})
+		};
+	};
+
+	const buildDeepSearchTermOverrides = (): ResumeSearchFilterTerm[] =>
+		selectedSearchFilters.map((filter) => ({
+			label: filter.label,
+			key: filter.key,
+			kind: filter.kind,
+			...(filter.kind === 'technology' && filter.requiredYears !== null
+				? { requiredYears: filter.requiredYears }
+				: {}),
+			...(filter.interpretedFrom ? { interpretedFrom: filter.interpretedFrom } : {})
+		}));
 
 	const loadTechIndexForScope = async (scopeSignature: string, orgIds: string[]) => {
 		if (techIndexStatus === 'loading' && activeTechScopeSignature === scopeSignature) return;
@@ -692,14 +770,10 @@
 	const loadFreeTextSearchForScope = async (
 		scopeSignature: string,
 		orgIds: string[],
-		query: string,
-		termOverrides: ResumeSearchFilterTerm[] | null
+		query: string
 	) => {
 		const trimmedQuery = query.trim();
-		const cacheKey =
-			termOverrides === null
-				? `${scopeSignature}::${trimmedQuery}::auto`
-				: `${scopeSignature}::${trimmedQuery}::terms:${serializeSearchFilterTerms(termOverrides)}`;
+		const cacheKey = `${scopeSignature}::${trimmedQuery}::simple`;
 		if (freeTextSearchStatus === 'loading' && activeFreeTextSearchCacheKey === cacheKey) return;
 
 		const cached = freeTextSearchCache[cacheKey];
@@ -719,7 +793,7 @@
 		freeTextSearchError = null;
 
 		try {
-			const response = await fetch('/internal/api/resumes/search', {
+			const response = await fetch('/internal/api/resumes/search/simple', {
 				method: 'POST',
 				credentials: 'include',
 				headers: {
@@ -728,7 +802,7 @@
 				body: JSON.stringify({
 					q: trimmedQuery,
 					orgIds,
-					...(termOverrides !== null ? { terms: termOverrides } : {})
+					limit: 100
 				}),
 				signal: controller.signal
 			});
@@ -738,7 +812,7 @@
 				throw new Error(message || 'Could not load free text search results.');
 			}
 
-			const payload = (await response.json()) as ResumeSearchResponse;
+			const payload = (await response.json()) as ResumeSimpleSearchResponse;
 			const responseScopeSignature =
 				typeof payload?.scope?.signature === 'string' && payload.scope.signature.trim().length > 0
 					? payload.scope.signature.trim()
@@ -747,20 +821,30 @@
 				typeof payload?.query === 'string' && payload.query.trim().length > 0
 					? payload.query.trim()
 					: trimmedQuery;
-			const responseCacheKey =
-				termOverrides === null
-					? `${responseScopeSignature}::${responseQuery}::auto`
-					: `${responseScopeSignature}::${responseQuery}::terms:${serializeSearchFilterTerms(termOverrides)}`;
+			const responseCacheKey = `${responseScopeSignature}::${responseQuery}::simple`;
+			const items: ResumeSearchItem[] = Array.isArray(payload?.items)
+				? payload.items.map((item) => ({
+						talentId: item.talentId,
+						score: item.score,
+						matchPercent: item.matchPercent,
+						matchedTerms: Array.isArray(item.matchedTerms) ? item.matchedTerms : [],
+						missingTerms: [],
+						matchedQueryTechs: [],
+						missingQueryTechs: [],
+						matchedTechs: [],
+						reasons: Array.isArray(item.reasons) ? item.reasons : [],
+						bestResumeId: null,
+						bestResumeTitle: null
+					}))
+				: [];
 
 			setFreeTextSearchCacheEntry(responseCacheKey, {
 				generatedAt:
 					typeof payload?.generatedAt === 'string' && payload.generatedAt.trim().length > 0
 						? payload.generatedAt
 						: null,
-				aiApplied: Boolean(payload?.aiApplied),
-				analyzedTerms: Array.isArray(payload?.analyzedTerms) ? payload.analyzedTerms : [],
-				appliedTerms: Array.isArray(payload?.appliedTerms) ? payload.appliedTerms : [],
-				items: Array.isArray(payload?.items) ? payload.items : []
+				aiApplied: false,
+				items
 			});
 
 			if (controller.signal.aborted) return;
@@ -781,8 +865,462 @@
 		}
 	};
 
+	function isSearchJobActive(job: ResumeSearchJob) {
+		return job.status === 'queued' || job.status === 'processing';
+	}
+
+	const getSearchJobTitle = (job: ResumeSearchJob) =>
+		job.title || job.result?.title || 'Deep search';
+
+	function stopSearchJobsPoll() {
+		if (searchJobsPollTimeoutId === null) return;
+		clearTimeout(searchJobsPollTimeoutId);
+		searchJobsPollTimeoutId = null;
+	}
+
+	function scheduleSearchJobsPoll() {
+		stopSearchJobsPoll();
+		searchJobsPollTimeoutId = setTimeout(() => {
+			searchJobsPollTimeoutId = null;
+			void loadSearchJobs(true);
+		}, SEARCH_JOBS_POLL_INTERVAL_MS);
+	}
+
+	async function loadSearchJobs(announceTransitions = false) {
+		stopSearchJobsPoll();
+		searchJobsAbortController?.abort();
+		const controller = new AbortController();
+		searchJobsAbortController = controller;
+
+		try {
+			const response = await fetch('/internal/api/resumes/search/jobs', {
+				method: 'GET',
+				credentials: 'include',
+				signal: controller.signal
+			});
+
+			if (!response.ok) {
+				const payload = (await response.json().catch(() => null)) as { message?: unknown } | null;
+				const message =
+					typeof payload?.message === 'string' && payload.message.trim()
+						? payload.message.trim()
+						: 'Could not load deep-search jobs.';
+				throw new Error(message);
+			}
+
+			const payload = (await response.json()) as ResumeSearchJobsResponse;
+			const nextJobs = Array.isArray(payload?.jobs) ? payload.jobs : [];
+			const nextKnownStatuses = { ...knownSearchJobStatuses };
+
+			if (announceTransitions && hasLoadedSearchJobs) {
+				for (const job of nextJobs) {
+					const previousStatus = knownSearchJobStatuses[job.id];
+					const wasRunning = previousStatus === 'queued' || previousStatus === 'processing';
+					if (!wasRunning) continue;
+
+					if (job.status === 'succeeded') {
+						showSearchToast(`Deep search finished: ${getSearchJobTitle(job)}`, 'success');
+					} else if (job.status === 'failed') {
+						showSearchToast(`Deep search failed: ${getSearchJobTitle(job)}`, 'error');
+					}
+				}
+			}
+
+			for (const job of nextJobs) {
+				nextKnownStatuses[job.id] = job.status;
+			}
+
+			if (controller.signal.aborted) return;
+			searchJobs = nextJobs;
+			knownSearchJobStatuses = nextKnownStatuses;
+			hasLoadedSearchJobs = true;
+
+			if (nextJobs.some(isSearchJobActive)) {
+				scheduleSearchJobsPoll();
+			}
+		} catch {
+			if (controller.signal.aborted) return;
+		} finally {
+			if (searchJobsAbortController === controller) {
+				searchJobsAbortController = null;
+			}
+		}
+	}
+
+	async function runSimpleSearch() {
+		const trimmedQuery = freeTextSearchInput.trim();
+		if (!trimmedQuery) {
+			clearFreeTextSearch();
+			return;
+		}
+
+		freeTextSearchInput = trimmedQuery;
+		freeTextSearchApplied = trimmedQuery;
+		selectedSearchJobId = null;
+
+		await loadFreeTextSearchForScope(techScopeSignature, techScopeOrgIds, trimmedQuery);
+	}
+
+	async function runDeepSearch() {
+		const trimmedQuery = freeTextSearchInput.trim();
+		if (!trimmedQuery || deepSearchStartStatus === 'loading') return;
+
+		deepSearchStartStatus = 'loading';
+		selectedSearchJobId = null;
+		let createdJobId: string | null = null;
+
+		try {
+			const termOverrides = buildDeepSearchTermOverrides();
+			const createResponse = await fetch('/internal/api/resumes/search/jobs', {
+				method: 'POST',
+				credentials: 'include',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({
+					q: trimmedQuery,
+					orgIds: techScopeOrgIds,
+					...(termOverrides.length > 0 ? { termOverrides } : {})
+				})
+			});
+			const createPayload = (await createResponse.json().catch(() => null)) as {
+				jobId?: unknown;
+				message?: unknown;
+			} | null;
+
+			if (!createResponse.ok || typeof createPayload?.jobId !== 'string') {
+				const message =
+					typeof createPayload?.message === 'string' && createPayload.message.trim()
+						? createPayload.message.trim()
+						: 'Could not create deep-search job.';
+				throw new Error(message);
+			}
+
+			const jobId = createPayload.jobId;
+			createdJobId = jobId;
+			searchResultsOpen = true;
+			await loadSearchJobs(false);
+
+			const runResponse = await fetch(
+				`/internal/api/resumes/search/jobs/${encodeURIComponent(jobId)}/run`,
+				{
+					method: 'POST',
+					credentials: 'include'
+				}
+			);
+			if (!runResponse.ok) {
+				const runPayload = (await runResponse.json().catch(() => null)) as {
+					message?: unknown;
+				} | null;
+				const message =
+					typeof runPayload?.message === 'string' && runPayload.message.trim()
+						? runPayload.message.trim()
+						: 'Could not start deep-search job.';
+				throw new Error(message);
+			}
+
+			deepSearchStartStatus = 'idle';
+			await loadSearchJobs(true);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Could not start deep-search job.';
+			deepSearchStartStatus = 'error';
+			showSearchToast(message, 'error');
+			if (createdJobId) {
+				void loadSearchJobs(false);
+			}
+		}
+	}
+
+	function setActiveResultTuneDraftFromJob(job: ResumeSearchJob | null) {
+		if (!job?.result) {
+			activeResultTuneJobId = null;
+			activeResultSearchTerms = [];
+			activeResultRequiredYearsByFilterKey = {};
+			activeResultOpenTechRequirementKey = null;
+			activeResultTechRequirementDraft = '';
+			activeResultTechRequirementError = '';
+			activeResultTuneStatus = 'idle';
+			activeResultTuneError = null;
+			return;
+		}
+
+		const sourceTerms =
+			job.result.appliedTerms.length > 0 ? job.result.appliedTerms : job.result.analyzedTerms;
+		const normalizedTerms: ResumeSearchFilterTerm[] = [];
+		const yearsByKey: Record<string, number> = {};
+
+		for (const term of sourceTerms) {
+			const normalizedTerm = normalizeSearchFilterTerm(term);
+			if (!normalizedTerm) continue;
+			normalizedTerms.push(normalizedTerm);
+			const requiredYears = normalizeRequiredYears(normalizedTerm.requiredYears);
+			if (normalizedTerm.kind === 'technology' && requiredYears !== null) {
+				yearsByKey[normalizedTerm.key] = requiredYears;
+			}
+		}
+
+		activeResultTuneJobId = job.id;
+		activeResultSearchTerms = normalizedTerms;
+		activeResultRequiredYearsByFilterKey = yearsByKey;
+		activeResultOpenTechRequirementKey = null;
+		activeResultTechRequirementDraft = '';
+		activeResultTechRequirementError = '';
+		activeResultTuneStatus = 'idle';
+		activeResultTuneError = null;
+	}
+
+	function setActiveResultSelectedTechs(techs: string[]) {
+		const existingTechTermsByKey = new Map(
+			activeResultSearchTerms
+				.filter((term) => term.kind === 'technology')
+				.map((term) => [term.key, term])
+		);
+		const nextTechnologyTerms: ResumeSearchFilterTerm[] = [];
+		const selectedTechnologyKeys: string[] = [];
+
+		for (const tech of techs) {
+			const normalizedTerm = normalizeSearchFilterTerm({ label: tech, kind: 'technology' });
+			if (!normalizedTerm || selectedTechnologyKeys.includes(normalizedTerm.key)) continue;
+
+			const existingTerm = existingTechTermsByKey.get(normalizedTerm.key);
+			nextTechnologyTerms.push(
+				existingTerm ? { ...normalizedTerm, ...existingTerm } : normalizedTerm
+			);
+			selectedTechnologyKeys.push(normalizedTerm.key);
+		}
+
+		activeResultSearchTerms = [
+			...activeResultSearchTerms.filter((term) => term.kind !== 'technology'),
+			...nextTechnologyTerms
+		];
+
+		const nextYears: Record<string, number> = {};
+		for (const key of selectedTechnologyKeys) {
+			const years = activeResultRequiredYearsByFilterKey[key];
+			if (typeof years === 'number' && Number.isFinite(years) && years >= 0) {
+				nextYears[key] = years;
+			}
+		}
+		activeResultRequiredYearsByFilterKey = nextYears;
+
+		if (
+			activeResultOpenTechRequirementKey &&
+			!selectedTechnologyKeys.includes(activeResultOpenTechRequirementKey)
+		) {
+			closeActiveResultTechRequirementPopover();
+		}
+	}
+
+	function removeActiveResultSearchFilter(filterKey: string) {
+		activeResultSearchTerms = activeResultSearchTerms.filter((term) => term.key !== filterKey);
+		if (filterKey in activeResultRequiredYearsByFilterKey) {
+			const remainingYears = { ...activeResultRequiredYearsByFilterKey };
+			delete remainingYears[filterKey];
+			activeResultRequiredYearsByFilterKey = remainingYears;
+		}
+		if (activeResultOpenTechRequirementKey === filterKey) {
+			activeResultOpenTechRequirementKey = null;
+			activeResultTechRequirementDraft = '';
+			activeResultTechRequirementError = '';
+		}
+	}
+
+	function openActiveResultTechRequirementPopover(filter: SelectedSearchFilter) {
+		if (filter.kind !== 'technology') return;
+		activeResultOpenTechRequirementKey = filter.key;
+		activeResultTechRequirementDraft =
+			activeResultRequiredYearsByFilterKey[filter.key]?.toString() ?? '';
+		activeResultTechRequirementError = '';
+	}
+
+	function closeActiveResultTechRequirementPopover() {
+		activeResultOpenTechRequirementKey = null;
+		activeResultTechRequirementDraft = '';
+		activeResultTechRequirementError = '';
+	}
+
+	function applyActiveResultTechRequirementDraft(techKey: string, rawDraft?: string) {
+		const draft = rawDraft ?? activeResultTechRequirementDraft;
+		activeResultTechRequirementDraft = draft;
+		const trimmed = draft.trim();
+
+		if (!trimmed) {
+			const remainingYears = { ...activeResultRequiredYearsByFilterKey };
+			delete remainingYears[techKey];
+			activeResultRequiredYearsByFilterKey = remainingYears;
+			activeResultTechRequirementError = '';
+			return;
+		}
+
+		const years = Number(trimmed);
+		if (!Number.isFinite(years) || years < 0) {
+			activeResultTechRequirementError = 'Use 0 or more years.';
+			return;
+		}
+
+		activeResultRequiredYearsByFilterKey = {
+			...activeResultRequiredYearsByFilterKey,
+			[techKey]: years
+		};
+		activeResultTechRequirementError = '';
+	}
+
+	function clearActiveResultTechRequirement(techKey: string) {
+		const remainingYears = { ...activeResultRequiredYearsByFilterKey };
+		delete remainingYears[techKey];
+		activeResultRequiredYearsByFilterKey = remainingYears;
+		activeResultTechRequirementDraft = '';
+		activeResultTechRequirementError = '';
+	}
+
+	function handleActiveResultTechRequirementKeydown(event: KeyboardEvent, techKey: string) {
+		if (event.key !== 'Enter') return;
+		event.preventDefault();
+		applyActiveResultTechRequirementDraft(techKey, (event.currentTarget as HTMLInputElement).value);
+		closeActiveResultTechRequirementPopover();
+	}
+
+	const buildActiveResultTermOverrides = (): ResumeSearchFilterTerm[] =>
+		activeResultSearchFilters.map((filter) => ({
+			label: filter.label,
+			key: filter.key,
+			kind: filter.kind,
+			...(filter.kind === 'technology' && filter.requiredYears !== null
+				? { requiredYears: filter.requiredYears }
+				: {}),
+			...(filter.interpretedFrom ? { interpretedFrom: filter.interpretedFrom } : {})
+		}));
+
+	async function updateActiveSearchJob() {
+		const job = activeDeepSearchJob;
+		if (!job || activeResultTuneStatus === 'loading' || isSearchJobActive(job)) return;
+
+		activeResultTuneStatus = 'loading';
+		activeResultTuneError = null;
+
+		try {
+			const updateResponse = await fetch(
+				`/internal/api/resumes/search/jobs/${encodeURIComponent(job.id)}`,
+				{
+					method: 'PATCH',
+					credentials: 'include',
+					headers: {
+						'Content-Type': 'application/json'
+					},
+					body: JSON.stringify({
+						termOverrides: buildActiveResultTermOverrides()
+					})
+				}
+			);
+			const updatePayload = (await updateResponse.json().catch(() => null)) as {
+				job?: ResumeSearchJob;
+				message?: unknown;
+			} | null;
+
+			if (!updateResponse.ok || !updatePayload?.job) {
+				const message =
+					typeof updatePayload?.message === 'string' && updatePayload.message.trim()
+						? updatePayload.message.trim()
+						: 'Could not update deep-search terms.';
+				throw new Error(message);
+			}
+
+			searchJobs = searchJobs.map((candidate) =>
+				candidate.id === updatePayload.job?.id ? updatePayload.job : candidate
+			);
+			knownSearchJobStatuses = {
+				...knownSearchJobStatuses,
+				[updatePayload.job.id]: updatePayload.job.status
+			};
+
+			const runResponse = await fetch(
+				`/internal/api/resumes/search/jobs/${encodeURIComponent(job.id)}/run`,
+				{
+					method: 'POST',
+					credentials: 'include'
+				}
+			);
+			if (!runResponse.ok) {
+				const runPayload = (await runResponse.json().catch(() => null)) as {
+					message?: unknown;
+				} | null;
+				const message =
+					typeof runPayload?.message === 'string' && runPayload.message.trim()
+						? runPayload.message.trim()
+						: 'Could not restart deep search.';
+				throw new Error(message);
+			}
+
+			activeResultTuneStatus = 'idle';
+			await loadSearchJobs(true);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : 'Could not update deep search.';
+			activeResultTuneStatus = 'error';
+			activeResultTuneError = message;
+			showSearchToast(message, 'error');
+			void loadSearchJobs(false);
+		}
+	}
+
+	async function markSearchJobRead(jobId: string) {
+		const job = searchJobs.find((candidate) => candidate.id === jobId);
+		if (!job || job.status !== 'succeeded' || job.readAt) return;
+
+		try {
+			const response = await fetch(
+				`/internal/api/resumes/search/jobs/${encodeURIComponent(jobId)}/read`,
+				{
+					method: 'POST',
+					credentials: 'include'
+				}
+			);
+			const payload = (await response.json().catch(() => null)) as {
+				job?: ResumeSearchJob;
+				message?: unknown;
+			} | null;
+			if (!response.ok || !payload?.job) {
+				const message =
+					typeof payload?.message === 'string' && payload.message.trim()
+						? payload.message.trim()
+						: 'Could not mark search result as read.';
+				throw new Error(message);
+			}
+
+			searchJobs = searchJobs.map((candidate) =>
+				candidate.id === payload.job?.id ? payload.job : candidate
+			);
+		} catch (error) {
+			showSearchToast(
+				error instanceof Error ? error.message : 'Could not mark search result as read.',
+				'error'
+			);
+		}
+	}
+
+	function selectSearchJob(jobId: string) {
+		selectedSearchJobId = jobId;
+		const job = searchJobs.find((candidate) => candidate.id === jobId);
+		setActiveResultTuneDraftFromJob(job ?? null);
+		if (job?.status === 'succeeded' && !job.readAt) {
+			void markSearchJobRead(job.id);
+		}
+	}
+
+	function clearSelectedSearchJob() {
+		selectedSearchJobId = null;
+		setActiveResultTuneDraftFromJob(null);
+	}
+
+	function openSearchResults() {
+		searchResultsOpen = true;
+	}
+
+	onMount(() => {
+		void loadSearchJobs(false);
+	});
+
 	$effect(() => {
-		if (!hasSelectedTechFilters) {
+		if (!needsTechIndex) {
 			if (techIndexStatus === 'loading') {
 				techIndexAbortController?.abort();
 				techIndexAbortController = null;
@@ -804,32 +1342,8 @@
 			freeTextSearchStatus = 'idle';
 			freeTextSearchError = null;
 			loadedFreeTextSearchCacheKey = null;
-			analyzedSearchTerms = [];
-			extractedSearchTerms = [];
-			analyzedSearchTermsBaseKey = null;
 			return;
 		}
-
-		if (analyzedSearchTermsBaseKey && analyzedSearchTermsBaseKey !== freeTextSearchBaseKey) {
-			analyzedSearchTerms = [];
-			extractedSearchTerms = [];
-			analyzedSearchTermsBaseKey = null;
-		}
-
-		void loadFreeTextSearchForScope(
-			techScopeSignature,
-			techScopeOrgIds,
-			appliedFreeTextSearch,
-			activeFreeTextRequestTerms
-		);
-	});
-
-	$effect(() => {
-		if (!hasFreeTextSearch || !freeTextSearchReady || !activeFreeTextSearchResponse) return;
-		if (analyzedSearchTermsBaseKey === freeTextSearchBaseKey) return;
-		analyzedSearchTerms = activeFreeTextSearchResponse.analyzedTerms;
-		extractedSearchTerms = activeFreeTextSearchResponse.analyzedTerms;
-		analyzedSearchTermsBaseKey = freeTextSearchBaseKey;
 	});
 
 	const recordsEqual = (left: Record<string, number>, right: Record<string, number>) => {
@@ -854,7 +1368,7 @@
 	});
 
 	$effect(() => {
-		const validKeys = new Set(selectedSearchFilters.map((filter) => filter.key));
+		const validKeys = new Set(selectedTechFilters.map((filter) => filter.key));
 		const nextYearsByKey: Record<string, number> = {};
 
 		for (const [key, years] of Object.entries(requiredYearsByFilterKey)) {
@@ -873,8 +1387,48 @@
 		}
 	});
 
+	$effect(() => {
+		if (!activeDeepSearchJob) {
+			if (activeResultTuneJobId !== null) {
+				setActiveResultTuneDraftFromJob(null);
+			}
+			return;
+		}
+		if (activeResultTuneJobId !== activeDeepSearchJob.id) {
+			setActiveResultTuneDraftFromJob(activeDeepSearchJob);
+		}
+	});
+
+	$effect(() => {
+		const validKeys = new Set(activeResultTechFilters.map((filter) => filter.key));
+		const nextYearsByKey: Record<string, number> = {};
+
+		for (const [key, years] of Object.entries(activeResultRequiredYearsByFilterKey)) {
+			if (!validKeys.has(key)) continue;
+			nextYearsByKey[key] = years;
+		}
+
+		if (!recordsEqual(activeResultRequiredYearsByFilterKey, nextYearsByKey)) {
+			activeResultRequiredYearsByFilterKey = nextYearsByKey;
+		}
+
+		if (activeResultOpenTechRequirementKey && !validKeys.has(activeResultOpenTechRequirementKey)) {
+			activeResultOpenTechRequirementKey = null;
+			activeResultTechRequirementDraft = '';
+			activeResultTechRequirementError = '';
+		}
+	});
+
 	const getTalentTechData = (talentId: string): TalentTechData =>
 		activeTechIndexByTalentId[talentId] ?? { searchTechs: [], techYearsByKey: {} };
+
+	const emptyTechMatchSummary = (): TechMatchSummary => ({
+		metCount: 0,
+		insufficientCount: 0,
+		missingCount: 0,
+		total: 0,
+		techMatches: []
+	});
 
 	const talentById = $derived.by(
 		() => new Map<string, Talent>(allTalents.map((talent: Talent) => [talent.id, talent]))
@@ -943,19 +1497,18 @@
 
 	const buildFreeTextTechMatchSummary = (
 		talentId: string,
-		searchResult: ResumeSearchItem
+		searchResult: ResumeSearchItem,
+		techFilters = selectedTechFilters
 	): TechMatchSummary => {
-		if (!hasSelectedTechFilters) {
-			return {
-				metCount: 0,
-				insufficientCount: 0,
-				missingCount: 0,
-				total: 0,
-				techMatches: []
-			};
-		}
+		if (techFilters.length === 0) return emptyTechMatchSummary();
 
 		const techData = getTalentTechData(talentId);
+		const talentTechSet = new Set(
+			techData.searchTechs
+				.filter((tech): tech is string => typeof tech === 'string')
+				.map((tech) => normalize(tech))
+				.filter((tech) => tech.length > 0)
+		);
 		const matchedSearchTermSet = new Set(
 			[...searchResult.matchedTerms, ...searchResult.matchedQueryTechs]
 				.map((term) => normalize(term))
@@ -963,10 +1516,13 @@
 		);
 		const talentTechYearsByKey = techData.techYearsByKey;
 
-		const techMatches: TechMatch[] = selectedTechFilters.map((techFilter) => {
+		const techMatches: TechMatch[] = techFilters.map((techFilter) => {
 			const normalizedLabel = normalize(techFilter.label);
 			const foundInSearch =
-				matchedSearchTermSet.has(techFilter.key) || matchedSearchTermSet.has(normalizedLabel);
+				matchedSearchTermSet.has(techFilter.key) ||
+				matchedSearchTermSet.has(normalizedLabel) ||
+				talentTechSet.has(techFilter.key) ||
+				talentTechSet.has(normalizedLabel);
 			const actualYears =
 				talentTechYearsByKey[techFilter.key] ?? talentTechYearsByKey[normalizedLabel] ?? 0;
 
@@ -1079,14 +1635,52 @@
 			});
 	});
 
+	const rankedDeepSearchTalents = $derived.by<FreeTextTalentResult[]>(() => {
+		const job = activeDeepSearchJob;
+		if (!job?.result) return [];
+
+		const results: FreeTextTalentResult[] = [];
+
+		for (const searchResult of job.result.items) {
+			const talent = talentById.get(searchResult.talentId);
+			if (!talent) continue;
+			if (!matchesNameFilter(talent)) continue;
+			const techMatchSummary =
+				hasActiveResultTechFilters && techIndexReady
+					? buildFreeTextTechMatchSummary(talent.id, searchResult, activeResultTechFilters)
+					: emptyTechMatchSummary();
+
+			results.push({
+				...talent,
+				...techMatchSummary,
+				search: searchResult,
+				sortScore: searchResult.score
+			});
+		}
+
+		return results.sort((left, right) => {
+			if (right.search.matchPercent !== left.search.matchPercent) {
+				return right.search.matchPercent - left.search.matchPercent;
+			}
+			if (right.sortScore !== left.sortScore) return right.sortScore - left.sortScore;
+			return getTalentName(left).localeCompare(getTalentName(right));
+		});
+	});
+
 	const activeFilterCount = $derived.by(() => {
 		const searchFilterCount = hasFreeTextSearch
 			? Math.max(selectedSearchFilters.length, 1)
 			: selectedSearchFilters.length;
-		return searchFilterCount + selectedLabelDefinitions.length + (availabilityMode === 'all' ? 0 : 1);
+		return (
+			searchFilterCount + selectedLabelDefinitions.length + (availabilityMode === 'all' ? 0 : 1)
+		);
 	});
 
 	const filtersSummaryText = $derived.by(() => {
+		if (activeDeepSearchJob) {
+			return `${rankedDeepSearchTalents.length} ranked matches from previous result.`;
+		}
+
 		if (hasFreeTextSearch) {
 			if (freeTextSearchIsLoadingForKey) return 'Searching consultants...';
 			if (freeTextSearchError) return `Could not load search matches: ${freeTextSearchError}`;
@@ -1109,7 +1703,9 @@
 	});
 
 	const showNameFilter = $derived(
-		hasFreeTextSearch || (!hasSelectedTechFilters && resumesViewMode === 'grid')
+		hasActiveDeepSearchResult ||
+			hasFreeTextSearch ||
+			(!hasSelectedTechFilters && resumesViewMode === 'grid')
 	);
 
 	function toggleFilters() {
@@ -1243,7 +1839,11 @@
 		{filtersOpen}
 		{activeFilterCount}
 		viewMode={resumesViewMode}
+		{searchResultsOpen}
+		{hasUnreadSearchResults}
+		{activeSearchJobCount}
 		onToggleFilters={toggleFilters}
+		onToggleSearchResults={() => openSearchResults()}
 		onSetViewMode={setResumesViewMode}
 	/>
 
@@ -1251,6 +1851,8 @@
 		<h1 class="text-foreground text-3xl font-bold tracking-tight sm:text-4xl">Resumes</h1>
 		<p class="text-muted-fg mt-3 text-lg">Manage and view talents and resumes.</p>
 	</header>
+
+	<ResumeSearchJobTray jobs={searchJobs} onOpenResults={openSearchResults} />
 
 	<ResumesFiltersPanel
 		open={filtersOpen}
@@ -1273,9 +1875,12 @@
 		{freeTextSearchInput}
 		{hasFreeTextSearch}
 		freeTextSearchLoading={freeTextSearchIsLoadingForKey}
+		{deepSearchLoading}
 		onFreeTextSearchInput={scheduleFreeTextSearchApply}
 		onFreeTextSearchCommit={applyFreeTextSearchNow}
 		onClearFreeTextSearch={clearFreeTextSearch}
+		onRunSimpleSearch={runSimpleSearch}
+		onRunDeepSearch={runDeepSearch}
 		{selectedTechs}
 		onSelectedTechsChange={setSelectedTechs}
 		{selectedSearchFilters}
@@ -1298,7 +1903,196 @@
 		</div>
 	{/if}
 
-	{#if organisationFilteredTalents.length === 0}
+	{#if activeDeepSearchJob}
+		<div class="border-border bg-card rounded-sm border p-4">
+			<div class="flex flex-wrap items-start justify-between gap-3">
+				<div class="min-w-0">
+					<p class="text-muted-fg text-xs font-semibold uppercase tracking-wide">Previous result</p>
+					<h2 class="text-foreground mt-1 truncate text-lg font-semibold">
+						{getSearchJobTitle(activeDeepSearchJob)}
+					</h2>
+					<p class="text-muted-fg mt-1 text-sm">
+						{#if activeDeepSearchJob.status === 'queued'}
+							Update queued · showing last completed result
+						{:else if activeDeepSearchJob.status === 'processing'}
+							Updating search · showing last completed result
+						{:else if activeDeepSearchJob.status === 'failed'}
+							Update failed · showing last completed result
+						{:else}
+							{rankedDeepSearchTalents.length} ranked matches
+						{/if}
+					</p>
+				</div>
+				<Button type="button" variant="outline" size="sm" onclick={clearSelectedSearchJob}>
+					Back to current list
+				</Button>
+			</div>
+
+			<div class="border-border mt-4 border-t pt-4">
+				<div class="flex flex-wrap items-center justify-between gap-3">
+					<div>
+						<h3 class="text-muted-fg text-xs font-semibold uppercase tracking-wide">Searched on</h3>
+						<p class="text-muted-fg mt-1 text-sm">
+							Adjust these terms, then update this saved search.
+						</p>
+					</div>
+					<Button
+						type="button"
+						size="sm"
+						variant="primary"
+						loading={activeResultTuneLoading}
+						disabled={activeResultTuneLoading ||
+							activeDeepSearchJob.status === 'queued' ||
+							activeDeepSearchJob.status === 'processing' ||
+							activeResultSearchFilters.length === 0}
+						onclick={updateActiveSearchJob}
+					>
+						<RefreshCw class="h-4 w-4" />
+						Update search
+					</Button>
+				</div>
+
+				{#if activeResultTuneError}
+					<p class="mt-3 text-sm text-red-700">{activeResultTuneError}</p>
+				{:else if activeDeepSearchJob.status === 'failed' && activeDeepSearchJob.errorMessage}
+					<p class="mt-3 text-sm text-red-700">{activeDeepSearchJob.errorMessage}</p>
+				{/if}
+
+				{#if activeResultSearchFilters.length > 0}
+					<div
+						class="mt-3 flex flex-wrap gap-2"
+						use:clickOutside={closeActiveResultTechRequirementPopover}
+					>
+						{#each activeResultSearchFilters as searchFilter (searchFilter.key)}
+							<div class="relative">
+								<button
+									type="button"
+									onclick={() => openActiveResultTechRequirementPopover(searchFilter)}
+									class="border-border bg-muted text-foreground inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 pr-8 text-xs font-medium {searchFilter.interpretedFrom
+										? 'cursor-help'
+										: ''}"
+									aria-label={searchFilter.kind === 'technology'
+										? `Set minimum years for ${searchFilter.label}`
+										: searchFilter.label}
+									use:tooltip={searchFilter.interpretedFrom
+										? {
+												text: getInterpretedTooltip(searchFilter.interpretedFrom),
+												position: 'top',
+												openOnClick: false
+											}
+										: ''}
+								>
+									<span>{searchFilter.label}</span>
+									{#if searchFilter.interpretedFrom}
+										<span class="text-primary text-[11px] font-bold" aria-hidden="true"> * </span>
+									{/if}
+									<span class="text-muted-fg text-[10px] uppercase">{searchFilter.kind}</span>
+									{#if searchFilter.requiredYears !== null}
+										<span class="text-muted-fg text-[10px]">
+											{formatYears(searchFilter.requiredYears)}
+										</span>
+									{/if}
+								</button>
+
+								<button
+									type="button"
+									onclick={(event) => {
+										event.stopPropagation();
+										removeActiveResultSearchFilter(searchFilter.key);
+									}}
+									class="text-muted-fg hover:text-foreground absolute right-1 top-1/2 -translate-y-1/2 rounded-sm px-1 text-xs"
+									aria-label={`Remove ${searchFilter.label}`}
+								>
+									×
+								</button>
+
+								{#if activeResultOpenTechRequirementKey === searchFilter.key}
+									<div
+										class="border-border bg-card absolute left-0 top-full z-20 mt-2 w-52 rounded-sm border p-3 shadow-xl"
+									>
+										<p class="text-foreground text-xs font-semibold">
+											Min years for {searchFilter.label}
+										</p>
+										<Input
+											type="number"
+											min="0"
+											step="0.5"
+											size="sm"
+											class="mt-2 w-full"
+											value={activeResultTechRequirementDraft}
+											oninput={(event) =>
+												applyActiveResultTechRequirementDraft(
+													searchFilter.key,
+													(event.currentTarget as HTMLInputElement).value
+												)}
+											onblur={(event) =>
+												applyActiveResultTechRequirementDraft(
+													searchFilter.key,
+													(event.currentTarget as HTMLInputElement).value
+												)}
+											onkeydown={(event) =>
+												handleActiveResultTechRequirementKeydown(event, searchFilter.key)}
+										/>
+
+										{#if activeResultTechRequirementError}
+											<p class="mt-1 text-xs text-red-600">
+												{activeResultTechRequirementError}
+											</p>
+										{/if}
+
+										<div class="mt-2 flex items-center justify-between gap-2">
+											<Button
+												type="button"
+												size="sm"
+												variant="ghost"
+												onclick={() => clearActiveResultTechRequirement(searchFilter.key)}
+											>
+												Clear
+											</Button>
+											<span class="text-muted-fg text-[11px]">Auto-saved</span>
+										</div>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-muted-fg mt-3 text-sm">No search terms are saved for this result.</p>
+				{/if}
+
+				<div class="mt-4">
+					<h3 class="text-muted-fg mb-2 text-xs font-semibold uppercase tracking-wide">
+						Add technologies
+					</h3>
+					<TechStackSelector
+						value={activeResultSelectedTechs}
+						showSelectedChips={false}
+						catalogScope={techCatalogScope}
+						organisationId={techCatalogOrganisationId}
+						organisationIds={activeDeepSearchJob.scope.orgIds}
+						onchange={setActiveResultSelectedTechs}
+					/>
+				</div>
+			</div>
+		</div>
+
+		{#if rankedDeepSearchTalents.length > 0}
+			<ResumeFreeTextResults
+				talents={rankedDeepSearchTalents}
+				viewMode={resumesViewMode}
+				{labelDefinitions}
+				{canManageTalentLabels}
+				{labelMutationByTalentId}
+				onAssignTalentLabel={handleAssignTalentLabel}
+				onRemoveTalentLabel={handleRemoveTalentLabel}
+			/>
+		{:else}
+			<ResumeEmptyState
+				title="No consultants found"
+				description="No consultant from this previous result matches the current name filter."
+			/>
+		{/if}
+	{:else if organisationFilteredTalents.length === 0}
 		<ResumeEmptyState
 			title="No consultants in selected organisations"
 			description="Try selecting another organisation filter."
@@ -1381,6 +2175,13 @@
 		/>
 	{/if}
 </div>
+
+<ResumeSearchResultsDrawer
+	bind:open={searchResultsOpen}
+	jobs={searchJobs}
+	selectedJobId={selectedSearchJobId}
+	onSelectJob={selectSearchJob}
+/>
 
 <style>
 	@media (max-width: 639px) {

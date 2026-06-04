@@ -72,21 +72,19 @@
 				{onAssignTalentLabel}
 				{onRemoveTalentLabel}
 			>
-				{#snippet children()}
-					{#if talent.organisation_logo_url || talent.organisation_name}
-						<div class="mt-3">
-							<ResumeOrganisationMark
-								organisationLogoUrl={talent.organisation_logo_url}
-								organisationName={talent.organisation_name}
-								class="h-4"
-							/>
-						</div>
-					{/if}
-
+				{#if talent.organisation_logo_url || talent.organisation_name}
 					<div class="mt-3">
-						<ResumeSearchInsights search={talent.search} techMatches={talent.techMatches} />
+						<ResumeOrganisationMark
+							organisationLogoUrl={talent.organisation_logo_url}
+							organisationName={talent.organisation_name}
+							class="h-4"
+						/>
 					</div>
-				{/snippet}
+				{/if}
+
+				<div class="mt-3">
+					<ResumeSearchInsights search={talent.search} techMatches={talent.techMatches} />
+				</div>
 			</ResumeTalentCard>
 		{/each}
 	</div>

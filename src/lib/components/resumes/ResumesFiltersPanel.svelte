@@ -5,6 +5,7 @@
 	import { DropdownCheckbox } from '$lib/components/dropdown-checkbox';
 	import TechStackSelector from '$lib/components/tech-stack-selector/tech-stack-selector.svelte';
 	import { clickOutside } from '$lib/utils/clickOutside';
+	import { tooltip } from '$lib/utils/tooltip';
 	import { ResumeFreeTextSearchInput } from '$lib/components/resumes/resume-free-text-search-input';
 	import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 	import type { AvailabilityMode, SelectedSearchFilter } from './pageShared';
@@ -41,9 +42,12 @@
 		freeTextSearchInput: string;
 		hasFreeTextSearch: boolean;
 		freeTextSearchLoading: boolean;
+		deepSearchLoading: boolean;
 		onFreeTextSearchInput: (value: string) => void;
 		onFreeTextSearchCommit: (value: string) => void;
 		onClearFreeTextSearch: () => void;
+		onRunSimpleSearch: () => void;
+		onRunDeepSearch: () => void;
 		selectedTechs: string[];
 		onSelectedTechsChange: (techs: string[]) => void;
 		selectedSearchFilters: SelectedSearchFilter[];
@@ -81,9 +85,12 @@
 		freeTextSearchInput,
 		hasFreeTextSearch,
 		freeTextSearchLoading,
+		deepSearchLoading,
 		onFreeTextSearchInput,
 		onFreeTextSearchCommit,
 		onClearFreeTextSearch,
+		onRunSimpleSearch,
+		onRunDeepSearch,
 		selectedTechs,
 		onSelectedTechsChange,
 		selectedSearchFilters,
@@ -99,6 +106,8 @@
 		onTechRequirementKeydown,
 		summaryText
 	}: Props = $props();
+
+	const getInterpretedTooltip = (source: string) => `Search term interpreted from "${source}"`;
 </script>
 
 {#if open}
@@ -220,17 +229,23 @@
 					active={hasFreeTextSearch}
 					loading={freeTextSearchLoading}
 					placeholder="Search by free text or paste an assignment description..."
-					helperText="Searches profiles, summaries, assignments, and tech."
+					helperText="Simple search uses clear text. Deep search runs AI matching in the background."
+					searchLoading={freeTextSearchLoading}
+					{deepSearchLoading}
+					searchDisabled={!freeTextSearchInput.trim()}
+					deepSearchDisabled={!freeTextSearchInput.trim()}
 					oninput={onFreeTextSearchInput}
 					oncommit={onFreeTextSearchCommit}
 					onclear={onClearFreeTextSearch}
+					onsearch={onRunSimpleSearch}
+					ondeepsearch={onRunDeepSearch}
 				/>
 			</div>
 
 			<div>
 				<div class="mb-3 flex items-center justify-between gap-4">
 					<h2 class="text-muted-fg text-xs font-semibold uppercase tracking-wide">
-						All active filters
+						Search terms and filters
 					</h2>
 					{#if selectedSearchFilters.length > 0 || selectedLabelDefinitions.length > 0}
 						<Button variant="ghost" size="sm" onclick={onClearSelectedSearchFilters}>Clear</Button>
@@ -267,10 +282,29 @@
 							<div class="relative">
 								<button
 									type="button"
-									onclick={() => onOpenTechRequirementPopover(searchFilter)}
-									class="border-border bg-muted text-foreground inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 pr-8 text-xs font-medium"
+									onclick={() => {
+										if (searchFilter.kind === 'technology')
+											onOpenTechRequirementPopover(searchFilter);
+									}}
+									class="border-border bg-muted text-foreground inline-flex items-center gap-2 rounded-sm border px-3 py-1.5 pr-8 text-xs font-medium {searchFilter.interpretedFrom
+										? 'cursor-help'
+										: ''}"
+									aria-label={searchFilter.kind === 'technology'
+										? `Set minimum years for ${searchFilter.label}`
+										: searchFilter.label}
+									use:tooltip={searchFilter.interpretedFrom
+										? {
+												text: getInterpretedTooltip(searchFilter.interpretedFrom),
+												position: 'top',
+												openOnClick: false
+											}
+										: ''}
 								>
 									<span>{searchFilter.label}</span>
+									{#if searchFilter.interpretedFrom}
+										<span class="text-primary text-[11px] font-bold" aria-hidden="true"> * </span>
+									{/if}
+									<span class="text-muted-fg text-[10px] uppercase">{searchFilter.kind}</span>
 									{#if searchFilter.requiredYears !== null}
 										<span class="text-muted-fg text-[10px]">
 											{formatYears(searchFilter.requiredYears)}
@@ -339,8 +373,7 @@
 					</div>
 				{:else if hasFreeTextSearch}
 					<p class="text-muted-fg text-sm">
-						AI-picked filters will appear here after analysis. You can remove terms or add years
-						once they show up.
+						The text search is active. Add technologies above to narrow the result further.
 					</p>
 				{:else}
 					<p class="text-muted-fg text-sm">No active filters yet.</p>

@@ -18,6 +18,7 @@ import {
 	type LawfulBasisType
 } from '$lib/server/legalService';
 import { assertAcceptedForSensitiveAction } from '$lib/server/legalGate';
+import { refreshResumeSearchDocumentForTalentQuietly } from '$lib/server/resumes/searchDocuments';
 
 const canManageTalents = (actor: Awaited<ReturnType<typeof getActorAccessContext>>) =>
 	actor.isAdmin || actor.isBroker || actor.isEmployer;
@@ -422,6 +423,8 @@ export const actions: Actions = {
 			}
 		});
 
+		await refreshResumeSearchDocumentForTalentQuietly(adminClient, insertedTalent.id);
+
 		return {
 			type: 'createTalent',
 			ok: true,
@@ -549,6 +552,8 @@ export const actions: Actions = {
 				}
 			});
 		}
+
+		await refreshResumeSearchDocumentForTalentQuietly(adminClient, talentId);
 
 		return {
 			type: 'updateTalent',

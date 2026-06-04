@@ -12,6 +12,7 @@ export type SelectedTechFilter = {
 	label: string;
 	key: string;
 	requiredYears: number | null;
+	interpretedFrom?: string | null;
 };
 
 export type SelectedSearchFilter = SelectedTechFilter & {
@@ -94,14 +95,14 @@ export const getSearchMatchPillClass = (matchPercent: number) => {
 export const getSearchMatchTooltip = (
 	search: Pick<ResumeSearchItem, 'matchPercent' | 'matchedTerms' | 'missingTerms'>
 ) => {
+	void search;
 	return 'Full search relevance';
 };
 
-export const getTechMatchTooltip = (
-	metCount: number,
-	total: number,
-	insufficientCount: number
-) => {
+export const getTechMatchTooltip = (metCount: number, total: number, insufficientCount: number) => {
+	void metCount;
+	void total;
+	void insufficientCount;
 	return 'Tech stack relevance';
 };
 

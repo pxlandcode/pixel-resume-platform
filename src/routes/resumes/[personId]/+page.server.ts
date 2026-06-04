@@ -29,6 +29,7 @@ import {
 	parseResumeShareForm,
 	ResumeShareAccessError
 } from '$lib/server/resumeShares';
+import { refreshResumeSearchDocumentForTalentQuietly } from '$lib/server/resumes/searchDocuments';
 
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
 
@@ -387,6 +388,8 @@ export const actions: Actions = {
 			});
 		}
 
+		await refreshResumeSearchDocumentForTalentQuietly(adminClient, talentId);
+
 		return { ok: true, type: 'updateProfile', message: 'Profile updated.' };
 	},
 	createResumeShareLink: async ({ request, cookies, url }) => {
@@ -455,10 +458,7 @@ export const actions: Actions = {
 
 			return fail(500, {
 				ok: false,
-				message:
-					shareError instanceof Error
-						? shareError.message
-						: 'Could not create share link.'
+				message: shareError instanceof Error ? shareError.message : 'Could not create share link.'
 			});
 		}
 	},
@@ -923,6 +923,8 @@ export const actions: Actions = {
 		if (error) {
 			return fail(500, { ok: false, message: error.message });
 		}
+
+		await refreshResumeSearchDocumentForTalentQuietly(adminClient, talentId);
 
 		return { ok: true };
 	}

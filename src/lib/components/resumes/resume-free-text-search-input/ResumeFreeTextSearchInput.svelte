@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { TextArea } from '@pixelcode_/blocks/components';
+	import { Button, TextArea } from '@pixelcode_/blocks/components';
 	import { cn } from '@pixelcode_/blocks/utils';
-	import { Loader2, Search } from 'lucide-svelte';
+	import { Loader2, Search, Sparkles } from 'lucide-svelte';
 	import { slide } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import type { ClassNameValue } from 'tailwind-merge';
@@ -21,9 +21,15 @@
 		placeholder?: string;
 		helperText?: string;
 		class?: ClassNameValue;
+		searchLoading?: boolean;
+		deepSearchLoading?: boolean;
+		searchDisabled?: boolean;
+		deepSearchDisabled?: boolean;
 		oninput?: (value: string) => void;
 		oncommit?: (value: string) => void;
 		onclear?: () => void;
+		onsearch?: () => void;
+		ondeepsearch?: () => void;
 	};
 
 	let {
@@ -34,9 +40,15 @@
 		placeholder = 'Search by free text or paste an assignment description...',
 		helperText = 'Searches profiles, summaries, assignments, and tech.',
 		class: className,
+		searchLoading = false,
+		deepSearchLoading = false,
+		searchDisabled = false,
+		deepSearchDisabled = false,
 		oninput,
 		oncommit,
-		onclear
+		onclear,
+		onsearch,
+		ondeepsearch
 	}: Props = $props();
 
 	let expanded = $state(false);
@@ -87,6 +99,18 @@
 			wrapperEl?.querySelector('textarea')?.focus();
 		}
 	}
+
+	function handleSearchClick(event: MouseEvent) {
+		event.stopPropagation();
+		oncommit?.(value);
+		onsearch?.();
+	}
+
+	function handleDeepSearchClick(event: MouseEvent) {
+		event.stopPropagation();
+		oncommit?.(value);
+		ondeepsearch?.();
+	}
 </script>
 
 <div
@@ -136,8 +160,38 @@
 	</div>
 
 	{#if expanded}
-		<p transition:slide={{ duration: 180, easing: cubicOut }} class="text-muted-fg text-sm">
-			{helperText}
-		</p>
+		<div transition:slide={{ duration: 180, easing: cubicOut }} class="space-y-3">
+			<p class="text-muted-fg text-sm">{helperText}</p>
+			{#if onsearch || ondeepsearch}
+				<div class="flex flex-wrap justify-end gap-2">
+					{#if onsearch}
+						<Button
+							type="button"
+							size="sm"
+							variant="primary"
+							loading={searchLoading}
+							disabled={disabled || searchDisabled || searchLoading || deepSearchLoading}
+							onclick={handleSearchClick}
+						>
+							<Search class="h-4 w-4" />
+							Search
+						</Button>
+					{/if}
+					{#if ondeepsearch}
+						<Button
+							type="button"
+							size="sm"
+							variant="outline"
+							loading={deepSearchLoading}
+							disabled={disabled || deepSearchDisabled || searchLoading || deepSearchLoading}
+							onclick={handleDeepSearchClick}
+						>
+							<Sparkles class="h-4 w-4" />
+							Deep search
+						</Button>
+					{/if}
+				</div>
+			{/if}
+		</div>
 	{/if}
 </div>
