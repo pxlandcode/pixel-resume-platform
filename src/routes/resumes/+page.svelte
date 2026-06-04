@@ -56,6 +56,7 @@
 	const MS_PER_DAY = 24 * 60 * 60 * 1000;
 	const SEARCH_JOBS_POLL_INTERVAL_MS = 3500;
 	const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+	const SEMANTIC_ONLY_MATCH_PERCENT_CAP = 45;
 	const serverTalents = (data.talents ?? []) as Talent[];
 
 	const buildTalentLabelState = (talents: Talent[]) =>
@@ -233,6 +234,7 @@
 			.replace(/[^a-z0-9]+/g, ' ')
 			.replace(/\s+/g, ' ')
 			.trim();
+	const HIDDEN_SEARCH_FILTER_KEYS = new Set(['developer experience', 'semantic match']);
 	const FILTER_KIND_ORDER: Record<SelectedSearchFilter['kind'], number> = {
 		technology: 0,
 		role: 1,
@@ -309,6 +311,70 @@
 				return left.name.localeCompare(right.name);
 			})
 		};
+	};
+
+	const sanitizeSearchTermLabels = (terms: string[]) =>
+		terms.filter((term) => {
+			const normalized = normalize(term);
+			return normalized.length > 0 && !HIDDEN_SEARCH_FILTER_KEYS.has(normalized);
+		});
+
+	const getConcreteSearchMatchCount = (search: ResumeSearchItem) => {
+		const matchedKeys: string[] = [];
+		for (const term of [
+			...search.matchedTerms,
+			...search.matchedQueryTechs,
+			...search.matchedTechs
+		]) {
+			const normalized = normalize(term);
+			if (!normalized || HIDDEN_SEARCH_FILTER_KEYS.has(normalized)) continue;
+			if (matchedKeys.includes(normalized)) continue;
+			matchedKeys.push(normalized);
+		}
+		return matchedKeys.length;
+	};
+
+	const normalizeSearchResultForDisplay = (search: ResumeSearchItem): ResumeSearchItem => {
+		const normalizedSearch: ResumeSearchItem = {
+			...search,
+			matchedTerms: sanitizeSearchTermLabels(search.matchedTerms),
+			missingTerms: sanitizeSearchTermLabels(search.missingTerms),
+			matchedQueryTechs: sanitizeSearchTermLabels(search.matchedQueryTechs),
+			missingQueryTechs: sanitizeSearchTermLabels(search.missingQueryTechs),
+			matchedTechs: sanitizeSearchTermLabels(search.matchedTechs)
+		};
+		const isSemanticOnly =
+			getConcreteSearchMatchCount(normalizedSearch) === 0 &&
+			((normalizedSearch.semanticMatchPercent ?? 0) > 0 ||
+				normalizedSearch.reasons.some((reason) => normalize(reason.label) === 'semantic match'));
+
+		if (!isSemanticOnly) return normalizedSearch;
+		return {
+			...normalizedSearch,
+			matchPercent: Math.min(normalizedSearch.matchPercent, SEMANTIC_ONLY_MATCH_PERCENT_CAP)
+		};
+	};
+
+	const compareFreeTextTalentResults = (
+		left: FreeTextTalentResult,
+		right: FreeTextTalentResult
+	) => {
+		const leftConcreteMatchCount = getConcreteSearchMatchCount(left.search);
+		const rightConcreteMatchCount = getConcreteSearchMatchCount(right.search);
+		const leftHasConcreteMatches = leftConcreteMatchCount > 0;
+		const rightHasConcreteMatches = rightConcreteMatchCount > 0;
+
+		if (rightHasConcreteMatches !== leftHasConcreteMatches) {
+			return Number(rightHasConcreteMatches) - Number(leftHasConcreteMatches);
+		}
+		if (right.search.matchPercent !== left.search.matchPercent) {
+			return right.search.matchPercent - left.search.matchPercent;
+		}
+		if (rightConcreteMatchCount !== leftConcreteMatchCount) {
+			return rightConcreteMatchCount - leftConcreteMatchCount;
+		}
+		if (right.sortScore !== left.sortScore) return right.sortScore - left.sortScore;
+		return getTalentName(left).localeCompare(getTalentName(right));
 	};
 
 	const setTalentLabelMutation = (talentId: string, isBusy: boolean) => {
@@ -659,6 +725,9 @@
 		if (!label) return null;
 		const key = (term.key?.trim() || normalize(label)).toLowerCase();
 		if (!key) return null;
+		if (HIDDEN_SEARCH_FILTER_KEYS.has(key) || HIDDEN_SEARCH_FILTER_KEYS.has(normalize(label))) {
+			return null;
+		}
 		const requiredYears =
 			term.kind === 'technology'
 				? normalizeRequiredYears((term as ResumeSearchFilterTerm).requiredYears)
@@ -1600,12 +1669,13 @@
 
 		return activeFreeTextSearchResults
 			.map((searchResult) => {
+				const displaySearchResult = normalizeSearchResultForDisplay(searchResult);
 				const talent = talentById.get(searchResult.talentId);
 				if (!talent) return null;
 				if (!labelFilteredTalentIdSet.has(talent.id)) return null;
 				if (!matchesNameFilter(talent)) return null;
 
-				const techMatchSummary = buildFreeTextTechMatchSummary(talent.id, searchResult);
+				const techMatchSummary = buildFreeTextTechMatchSummary(talent.id, displaySearchResult);
 				if (
 					hasSelectedTechFilters &&
 					techMatchSummary.metCount + techMatchSummary.insufficientCount === 0
@@ -1621,18 +1691,12 @@
 				return {
 					...talent,
 					...techMatchSummary,
-					search: searchResult,
+					search: displaySearchResult,
 					sortScore
 				} satisfies FreeTextTalentResult;
 			})
 			.filter((result): result is FreeTextTalentResult => result !== null)
-			.sort((left, right) => {
-				if (right.search.matchPercent !== left.search.matchPercent) {
-					return right.search.matchPercent - left.search.matchPercent;
-				}
-				if (right.sortScore !== left.sortScore) return right.sortScore - left.sortScore;
-				return getTalentName(left).localeCompare(getTalentName(right));
-			});
+			.sort(compareFreeTextTalentResults);
 	});
 
 	const rankedDeepSearchTalents = $derived.by<FreeTextTalentResult[]>(() => {
@@ -1642,29 +1706,24 @@
 		const results: FreeTextTalentResult[] = [];
 
 		for (const searchResult of job.result.items) {
+			const displaySearchResult = normalizeSearchResultForDisplay(searchResult);
 			const talent = talentById.get(searchResult.talentId);
 			if (!talent) continue;
 			if (!matchesNameFilter(talent)) continue;
 			const techMatchSummary =
 				hasActiveResultTechFilters && techIndexReady
-					? buildFreeTextTechMatchSummary(talent.id, searchResult, activeResultTechFilters)
+					? buildFreeTextTechMatchSummary(talent.id, displaySearchResult, activeResultTechFilters)
 					: emptyTechMatchSummary();
 
 			results.push({
 				...talent,
 				...techMatchSummary,
-				search: searchResult,
-				sortScore: searchResult.score
+				search: displaySearchResult,
+				sortScore: displaySearchResult.score
 			});
 		}
 
-		return results.sort((left, right) => {
-			if (right.search.matchPercent !== left.search.matchPercent) {
-				return right.search.matchPercent - left.search.matchPercent;
-			}
-			if (right.sortScore !== left.sortScore) return right.sortScore - left.sortScore;
-			return getTalentName(left).localeCompare(getTalentName(right));
-		});
+		return results.sort(compareFreeTextTalentResults);
 	});
 
 	const activeFilterCount = $derived.by(() => {

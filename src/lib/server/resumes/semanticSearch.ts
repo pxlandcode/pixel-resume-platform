@@ -17,6 +17,7 @@ const MAX_REFRESH_LIMIT = 2_000;
 const DEFAULT_SEMANTIC_LIMIT = 250;
 const MAX_SEMANTIC_LIMIT = 500;
 const DEFAULT_MIN_SIMILARITY = 0.2;
+const SEMANTIC_ONLY_MATCH_PERCENT_CAP = 45;
 
 type SearchDocumentRow = {
 	talent_id: string;
@@ -316,12 +317,13 @@ export const searchResumeDocumentsSemantically = async (payload: {
 			resumeId: reasons[0]?.resumeId ?? null,
 			resumeTitle: reasons[0]?.resumeTitle ?? null
 		};
-		const matchPercent = semanticSimilarityToMatchPercent(similarity);
+		const semanticMatchPercent = semanticSimilarityToMatchPercent(similarity);
+		const matchPercent = Math.min(semanticMatchPercent, SEMANTIC_ONLY_MATCH_PERCENT_CAP);
 		items.push({
 			talentId,
 			score: similarity * 120,
 			matchPercent,
-			matchedTerms: ['Semantic match'],
+			matchedTerms: [],
 			missingTerms: [],
 			matchedQueryTechs: [],
 			missingQueryTechs: [],
@@ -330,7 +332,7 @@ export const searchResumeDocumentsSemantically = async (payload: {
 			bestResumeId: semanticReason.resumeId,
 			bestResumeTitle: semanticReason.resumeTitle,
 			semanticSimilarity: similarity,
-			semanticMatchPercent: matchPercent
+			semanticMatchPercent
 		});
 	}
 

@@ -24,6 +24,8 @@ import { resolveScopedResumeSearchTalentIds } from './searchScope';
 const CACHE_TTL_MS = 60_000;
 const MAX_DEEP_SEARCH_RESULTS = 200;
 const MAX_SEARCH_TITLE_LENGTH = 72;
+const SEMANTIC_SCORE_BOOST_WEIGHT = 0.35;
+const NON_CONCRETE_RANK_TERMS = new Set(['semantic match']);
 
 type SearchIndexCacheEntry = {
 	expiresAt: number;
@@ -165,6 +167,43 @@ const mergeUniqueStrings = (left: string[], right: string[]) => {
 	return out;
 };
 
+const normalizeRankTerm = (value: string) =>
+	value
+		.trim()
+		.normalize('NFKD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+
+const getConcreteMatchCount = (item: ResumeSearchItem) => {
+	const terms = new Set<string>();
+	for (const value of [...item.matchedTerms, ...item.matchedQueryTechs, ...item.matchedTechs]) {
+		const normalized = normalizeRankTerm(value);
+		if (!normalized || NON_CONCRETE_RANK_TERMS.has(normalized)) continue;
+		terms.add(normalized);
+	}
+	return terms.size;
+};
+
+const compareHybridSearchItems = (left: ResumeSearchItem, right: ResumeSearchItem) => {
+	const leftConcreteMatchCount = getConcreteMatchCount(left);
+	const rightConcreteMatchCount = getConcreteMatchCount(right);
+	const leftHasConcreteMatches = leftConcreteMatchCount > 0;
+	const rightHasConcreteMatches = rightConcreteMatchCount > 0;
+
+	if (rightHasConcreteMatches !== leftHasConcreteMatches) {
+		return Number(rightHasConcreteMatches) - Number(leftHasConcreteMatches);
+	}
+	if (right.matchPercent !== left.matchPercent) return right.matchPercent - left.matchPercent;
+	if (rightConcreteMatchCount !== leftConcreteMatchCount) {
+		return rightConcreteMatchCount - leftConcreteMatchCount;
+	}
+	if (right.score !== left.score) return right.score - left.score;
+	return left.talentId.localeCompare(right.talentId);
+};
+
 const mergeSearchReasons = (
 	left: ResumeSearchItem['reasons'],
 	right: ResumeSearchItem['reasons']
@@ -232,7 +271,7 @@ const mergeHybridSearchItems = (
 
 		itemsByTalentId.set(semanticItem.talentId, {
 			...existing,
-			score: existing.score + semanticItem.score * 0.65,
+			score: existing.score + semanticItem.score * SEMANTIC_SCORE_BOOST_WEIGHT,
 			matchPercent: Math.max(existing.matchPercent, semanticItem.matchPercent),
 			matchedTerms: mergeUniqueStrings(existing.matchedTerms, semanticItem.matchedTerms),
 			missingTerms: existing.missingTerms,
@@ -255,13 +294,7 @@ const mergeHybridSearchItems = (
 		});
 	}
 
-	return Array.from(itemsByTalentId.values())
-		.sort((left, right) => {
-			if (right.matchPercent !== left.matchPercent) return right.matchPercent - left.matchPercent;
-			if (right.score !== left.score) return right.score - left.score;
-			return left.talentId.localeCompare(right.talentId);
-		})
-		.slice(0, limit);
+	return Array.from(itemsByTalentId.values()).sort(compareHybridSearchItems).slice(0, limit);
 };
 
 const buildHash = (value: string) => {

@@ -20,6 +20,7 @@
 		'dar',
 		'del',
 		'denna',
+		'developer experience',
 		'efter',
 		'erbjudande',
 		'forandring',
@@ -40,6 +41,7 @@
 		'renodlat',
 		'saaa',
 		'sakerstalla',
+		'semantic match',
 		'stallet',
 		'stod',
 		'teknisk',
@@ -200,6 +202,16 @@
 	);
 	const hiddenMatchedCount = $derived(combinedMatchedTerms.length - visibleMatchedTerms.length);
 	const hiddenMissingCount = $derived(combinedMissingTerms.length - visibleMissingTerms.length);
+	const hasSemanticMatch = $derived(
+		(search.semanticMatchPercent ?? 0) > 0 ||
+			(search.semanticSimilarity ?? 0) > 0 ||
+			search.reasons.some(
+				(reason: ResumeSearchItem['reasons'][number]) =>
+					normalizeTerm(reason.label) === 'semantic match'
+			)
+	);
+	const semanticMatchTooltip =
+		'Meaning-based match from resume and profile text. It helps find relevant consultants when the wording differs, but it is not a searched requirement or skill.';
 
 	$effect(() => {
 		if (matchedTermsKey === previousMatchedTermsKey) return;
@@ -227,7 +239,7 @@
 </script>
 
 <div class="space-y-3">
-	{#if combinedMatchedTerms.length > 0}
+	{#if combinedMatchedTerms.length > 0 || hasSemanticMatch}
 		<div>
 			<p class="text-foreground text-[11px] font-semibold uppercase tracking-wide">Matching</p>
 			<div class="mt-1 flex flex-wrap gap-1">
@@ -288,6 +300,25 @@
 					>
 						Show less
 					</button>
+				{/if}
+
+				{#if hasSemanticMatch}
+					<span
+						class="cursor-help rounded-sm bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700"
+						role="button"
+						tabindex="0"
+						aria-label={`Semantic match. ${semanticMatchTooltip}`}
+						use:tooltip={{
+							text: semanticMatchTooltip,
+							position: 'top',
+							openOnClick: false
+						}}
+						onmousedown={stopResultNavigation}
+						onclick={stopResultNavigation}
+						onkeydown={stopResultKeyboardNavigation}
+					>
+						Semantic match
+					</span>
 				{/if}
 			</div>
 		</div>
