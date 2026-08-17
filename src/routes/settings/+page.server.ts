@@ -383,33 +383,118 @@ const loadSharingData = async (payload: {
 const loadManagedOrganisation = async (payload: {
 	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>;
 	canManageOrganisation: boolean;
+	isAdmin: boolean;
 	homeOrganisationId: string | null;
+	requestedOrganisationId?: string | null;
 }) => {
-	if (!payload.canManageOrganisation || !payload.homeOrganisationId) {
-		return null;
+	if (!payload.canManageOrganisation) {
+		return {
+			organisation: null,
+			managedOrganisationOptions: [] as OrganisationOption[],
+			defaultManagedOrganisationId: null as string | null,
+			canSelectManagedOrganisation: false
+		};
 	}
 
-	const { data: organisation, error: organisationError } = await payload.adminClient
-		.from('organisations')
-		.select('id, name, slug, homepage_url, brand_settings, created_at, updated_at')
-		.eq('id', payload.homeOrganisationId)
-		.maybeSingle();
+	const organisationsResult = payload.isAdmin
+		? await payload.adminClient
+				.from('organisations')
+				.select('id, name, slug, homepage_url, brand_settings, created_at, updated_at')
+				.order('name', { ascending: true })
+		: payload.homeOrganisationId
+			? await payload.adminClient
+					.from('organisations')
+					.select('id, name, slug, homepage_url, brand_settings, created_at, updated_at')
+					.eq('id', payload.homeOrganisationId)
+			: {
+					data: [] as Array<{
+						id: string;
+						name: string;
+						slug: string;
+						homepage_url: string | null;
+						brand_settings: Record<string, unknown> | null;
+						created_at: string | null;
+						updated_at: string | null;
+					}>,
+					error: null
+				};
 
-	if (organisationError) {
-		throw error(500, organisationError.message);
+	if (organisationsResult.error) {
+		throw error(500, organisationsResult.error.message);
 	}
-	if (!organisation) {
-		throw error(404, 'Organisation not found.');
+
+	const organisationRows = (
+		(organisationsResult.data ?? []) as Array<{
+			id?: string | null;
+			name?: string | null;
+			slug?: string | null;
+			homepage_url?: string | null;
+			brand_settings?: Record<string, unknown> | null;
+			created_at?: string | null;
+			updated_at?: string | null;
+		}>
+	).filter(
+		(
+			organisation
+		): organisation is {
+			id: string;
+			name: string;
+			slug: string;
+			homepage_url: string | null;
+			brand_settings: Record<string, unknown> | null;
+			created_at: string | null;
+			updated_at: string | null;
+		} =>
+			typeof organisation.id === 'string' &&
+			typeof organisation.name === 'string' &&
+			typeof organisation.slug === 'string'
+	);
+
+	const managedOrganisationOptions = organisationRows.map((organisation) => ({
+		id: organisation.id,
+		name: organisation.name
+	}));
+
+	if (managedOrganisationOptions.length === 0) {
+		return {
+			organisation: null,
+			managedOrganisationOptions,
+			defaultManagedOrganisationId: null,
+			canSelectManagedOrganisation: false
+		};
 	}
+
+	const requestedOrganisationId = payload.requestedOrganisationId?.trim() ?? '';
+	const requestedOrganisationIsSelectable =
+		UUID_REGEX.test(requestedOrganisationId) &&
+		managedOrganisationOptions.some((organisation) => organisation.id === requestedOrganisationId);
+	const homeOrganisationIsSelectable =
+		payload.homeOrganisationId &&
+		managedOrganisationOptions.some(
+			(organisation) => organisation.id === payload.homeOrganisationId
+		);
+	const organisationId =
+		(requestedOrganisationIsSelectable
+			? requestedOrganisationId
+			: homeOrganisationIsSelectable
+				? payload.homeOrganisationId
+				: managedOrganisationOptions[0]?.id) ?? null;
+	const organisation = organisationRows.find((row) => row.id === organisationId) ?? null;
+	if (!organisation || !organisationId) throw error(404, 'Organisation not found.');
 
 	try {
 		const emailDomainsByOrganisationId = await loadOrganisationEmailDomains(payload.adminClient, [
-			payload.homeOrganisationId
+			organisationId
 		]);
 
 		return {
-			...organisation,
-			email_domains: emailDomainsByOrganisationId.get(payload.homeOrganisationId) ?? []
+			organisation: {
+				...organisation,
+				email_domains: emailDomainsByOrganisationId.get(organisationId) ?? []
+			},
+			managedOrganisationOptions,
+			defaultManagedOrganisationId: organisationId,
+			canSelectManagedOrganisation: payload.isAdmin && managedOrganisationOptions.length > 1
 		};
 	} catch (domainError) {
 		throw error(
@@ -479,13 +564,14 @@ const isRecordWithStatus = (value: unknown): value is { status?: unknown } =>
 	typeof value === 'object' && value !== null;
 
 const ensureLegalAcceptance = async (
-	context: Extract<Awaited<ReturnType<typeof ensureOrgManager>>, { ok: true }>
+	context: Extract<Awaited<ReturnType<typeof ensureOrgManager>>, { ok: true }>,
+	organisationId?: string | null
 ) => {
 	try {
 		await assertAcceptedForSensitiveAction({
 			adminClient: context.adminClient,
 			userId: context.actor.userId,
-			homeOrganisationId: context.actor.homeOrganisationId
+			homeOrganisationId: organisationId ?? context.actor.homeOrganisationId
 		});
 		return null;
 	} catch (legalError) {
@@ -508,12 +594,37 @@ const failTalentLabelAction = (payload: {
 		| 'updateTalentLabelDefinition'
 		| 'deleteTalentLabelDefinition';
 	message: string;
+	organisationId?: string | null;
 }) =>
 	fail(payload.status, {
 		type: payload.type,
 		ok: false,
-		message: payload.message
+		message: payload.message,
+		organisation_id: payload.organisationId ?? null
 	});
+
+const parseSubmittedOrganisationId = (formData: FormData) => {
+	const organisationId = formData.get('organisation_id');
+	return typeof organisationId === 'string' && UUID_REGEX.test(organisationId)
+		? organisationId
+		: null;
+};
+
+const withSubmittedOrganisationId = <T>(result: T, organisationId: string | null): T => {
+	if (!organisationId || !result || typeof result !== 'object') return result;
+	if ('data' in result) {
+		const resultWithData = result as { data?: unknown };
+		if (
+			resultWithData.data &&
+			typeof resultWithData.data === 'object' &&
+			!Array.isArray(resultWithData.data)
+		) {
+			(resultWithData.data as Record<string, unknown>).organisation_id = organisationId;
+		}
+		return result;
+	}
+	return { ...(result as Record<string, unknown>), organisation_id: organisationId } as T;
+};
 
 const ensureAllowedSourceOrganisation = (
 	context: Awaited<ReturnType<typeof ensureSharingActionContext>>,
@@ -1109,13 +1220,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const techCatalogManagementEnabled =
 		isAdmin || effectiveRoles.includes('broker') || effectiveRoles.includes('employer');
 	const canManageOrganisation =
-		(isAdmin || effectiveRoles.includes('organisation_admin')) && Boolean(actor.homeOrganisationId);
+		isAdmin || (effectiveRoles.includes('organisation_admin') && Boolean(actor.homeOrganisationId));
 
 	const [
 		legalDocumentsResult,
 		sharingData,
 		resumeShareLinks,
-		organisation,
+		managedOrganisationData,
 		planVersions,
 		addonVersions
 	] = await Promise.all([
@@ -1141,7 +1252,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		loadManagedOrganisation({
 			adminClient,
 			canManageOrganisation,
-			homeOrganisationId: actor.homeOrganisationId
+			isAdmin,
+			homeOrganisationId: actor.homeOrganisationId,
+			requestedOrganisationId: url.searchParams.get('org')
 		}),
 		isAdmin ? loadBillingPlanVersions(adminClient) : Promise.resolve([]),
 		isAdmin ? loadBillingAddonVersions(adminClient) : Promise.resolve([])
@@ -1159,7 +1272,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		canManageOrganisationTechCatalog: techCatalogManagementEnabled,
 		canManageOrganisation,
 		homeOrganisationId: actor.homeOrganisationId ?? null,
-		organisation,
+		organisation: managedOrganisationData.organisation,
+		managedOrganisationOptions: managedOrganisationData.managedOrganisationOptions,
+		defaultManagedOrganisationId: managedOrganisationData.defaultManagedOrganisationId,
+		canSelectManagedOrganisation: managedOrganisationData.canSelectManagedOrganisation,
 		planVersions,
 		addonVersions,
 		legalDocuments: legalDocumentsResult.data ?? [],
@@ -1433,112 +1549,158 @@ export const actions: Actions = {
 
 	updateOrganisation: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return fail(context.status, {
 				type: 'updateOrganisation',
 				ok: false,
-				message: context.message
+				message: context.message,
+				organisation_id: organisationId
 			});
 		}
-		return handleUpdateOrganisation(formData, context);
+		return withSubmittedOrganisationId(
+			await handleUpdateOrganisation(formData, context),
+			organisationId
+		);
 	},
 
 	updateOrganisationBranding: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return fail(context.status, {
 				type: 'updateOrganisationBranding',
 				ok: false,
-				message: context.message
+				message: context.message,
+				organisation_id: organisationId
 			});
 		}
-		return handleUpdateOrganisationBranding(formData, context);
+		return withSubmittedOrganisationId(
+			await handleUpdateOrganisationBranding(formData, context),
+			organisationId
+		);
 	},
 
 	updateOrganisationTemplate: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return fail(context.status, {
 				type: 'updateOrganisationTemplate',
 				ok: false,
-				message: context.message
+				message: context.message,
+				organisation_id: organisationId
 			});
 		}
-		return handleUpdateOrganisationTemplate(formData, context);
+		return withSubmittedOrganisationId(
+			await handleUpdateOrganisationTemplate(formData, context),
+			organisationId
+		);
 	},
 
 	connectUserHome: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return fail(context.status, {
 				type: 'connectUserHome',
 				ok: false,
-				message: context.message
+				message: context.message,
+				organisation_id: organisationId
 			});
 		}
-		return handleConnectUserHome(formData, context);
+		return withSubmittedOrganisationId(
+			await handleConnectUserHome(formData, context),
+			organisationId
+		);
 	},
 
 	disconnectUserHome: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return fail(context.status, {
 				type: 'disconnectUserHome',
 				ok: false,
-				message: context.message
+				message: context.message,
+				organisation_id: organisationId
 			});
 		}
-		return handleDisconnectUserHome(formData, context);
+		return withSubmittedOrganisationId(
+			await handleDisconnectUserHome(formData, context),
+			organisationId
+		);
 	},
 
 	connectTalentHome: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return fail(context.status, {
 				type: 'connectTalentHome',
 				ok: false,
-				message: context.message
+				message: context.message,
+				organisation_id: organisationId
 			});
 		}
-		return handleConnectTalentHome(formData, context);
+		return withSubmittedOrganisationId(
+			await handleConnectTalentHome(formData, context),
+			organisationId
+		);
 	},
 
 	disconnectTalentHome: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return fail(context.status, {
 				type: 'disconnectTalentHome',
 				ok: false,
-				message: context.message
+				message: context.message,
+				organisation_id: organisationId
 			});
 		}
-		return handleDisconnectTalentHome(formData, context);
+		return withSubmittedOrganisationId(
+			await handleDisconnectTalentHome(formData, context),
+			organisationId
+		);
 	},
 
 	createTalentLabelDefinition: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
+		if (!organisationId) {
+			return failTalentLabelAction({
+				status: 400,
+				type: 'createTalentLabelDefinition',
+				message: 'Invalid organisation id.',
+				organisationId
+			});
+		}
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return failTalentLabelAction({
 				status: context.status,
 				type: 'createTalentLabelDefinition',
-				message: context.message
+				message: context.message,
+				organisationId
 			});
 		}
 
-		const legalError = await ensureLegalAcceptance(context);
+		const legalError = await ensureLegalAcceptance(context, organisationId);
 		if (legalError) {
 			return failTalentLabelAction({
 				status: legalError.status,
 				type: 'createTalentLabelDefinition',
-				message: legalError.message
+				message: legalError.message,
+				organisationId
 			});
 		}
 
@@ -1546,43 +1708,57 @@ export const actions: Actions = {
 			await createTalentLabelDefinition({
 				adminClient: context.adminClient,
 				actor: context.actor,
+				organisationId,
 				name: typeof formData.get('name') === 'string' ? String(formData.get('name')) : '',
 				colorHex:
 					typeof formData.get('color_hex') === 'string' ? String(formData.get('color_hex')) : ''
 			});
-			invalidateOrganisationContextCache(context.actor.homeOrganisationId);
+			invalidateOrganisationContextCache(organisationId);
 			return {
 				type: 'createTalentLabelDefinition' as const,
 				ok: true,
-				message: 'Label created.'
+				message: 'Label created.',
+				organisation_id: organisationId
 			};
 		} catch (actionError) {
 			const status = actionError instanceof TalentLabelServiceError ? actionError.status : 500;
 			return failTalentLabelAction({
 				status,
 				type: 'createTalentLabelDefinition',
-				message: actionError instanceof Error ? actionError.message : 'Could not create label.'
+				message: actionError instanceof Error ? actionError.message : 'Could not create label.',
+				organisationId
 			});
 		}
 	},
 
 	updateTalentLabelDefinition: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
+		if (!organisationId) {
+			return failTalentLabelAction({
+				status: 400,
+				type: 'updateTalentLabelDefinition',
+				message: 'Invalid organisation id.',
+				organisationId
+			});
+		}
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return failTalentLabelAction({
 				status: context.status,
 				type: 'updateTalentLabelDefinition',
-				message: context.message
+				message: context.message,
+				organisationId
 			});
 		}
 
-		const legalError = await ensureLegalAcceptance(context);
+		const legalError = await ensureLegalAcceptance(context, organisationId);
 		if (legalError) {
 			return failTalentLabelAction({
 				status: legalError.status,
 				type: 'updateTalentLabelDefinition',
-				message: legalError.message
+				message: legalError.message,
+				organisationId
 			});
 		}
 
@@ -1591,7 +1767,8 @@ export const actions: Actions = {
 			return failTalentLabelAction({
 				status: 400,
 				type: 'updateTalentLabelDefinition',
-				message: 'Invalid label id.'
+				message: 'Invalid label id.',
+				organisationId
 			});
 		}
 
@@ -1599,44 +1776,58 @@ export const actions: Actions = {
 			await updateTalentLabelDefinition({
 				adminClient: context.adminClient,
 				actor: context.actor,
+				organisationId,
 				labelDefinitionId,
 				name: typeof formData.get('name') === 'string' ? String(formData.get('name')) : '',
 				colorHex:
 					typeof formData.get('color_hex') === 'string' ? String(formData.get('color_hex')) : ''
 			});
-			invalidateOrganisationContextCache(context.actor.homeOrganisationId);
+			invalidateOrganisationContextCache(organisationId);
 			return {
 				type: 'updateTalentLabelDefinition' as const,
 				ok: true,
-				message: 'Label updated.'
+				message: 'Label updated.',
+				organisation_id: organisationId
 			};
 		} catch (actionError) {
 			const status = actionError instanceof TalentLabelServiceError ? actionError.status : 500;
 			return failTalentLabelAction({
 				status,
 				type: 'updateTalentLabelDefinition',
-				message: actionError instanceof Error ? actionError.message : 'Could not update label.'
+				message: actionError instanceof Error ? actionError.message : 'Could not update label.',
+				organisationId
 			});
 		}
 	},
 
 	deleteTalentLabelDefinition: async ({ request, cookies }) => {
 		const formData = await request.formData();
+		const organisationId = parseSubmittedOrganisationId(formData);
+		if (!organisationId) {
+			return failTalentLabelAction({
+				status: 400,
+				type: 'deleteTalentLabelDefinition',
+				message: 'Invalid organisation id.',
+				organisationId
+			});
+		}
 		const context = await ensureOrgManager(cookies, formData);
 		if (!context.ok) {
 			return failTalentLabelAction({
 				status: context.status,
 				type: 'deleteTalentLabelDefinition',
-				message: context.message
+				message: context.message,
+				organisationId
 			});
 		}
 
-		const legalError = await ensureLegalAcceptance(context);
+		const legalError = await ensureLegalAcceptance(context, organisationId);
 		if (legalError) {
 			return failTalentLabelAction({
 				status: legalError.status,
 				type: 'deleteTalentLabelDefinition',
-				message: legalError.message
+				message: legalError.message,
+				organisationId
 			});
 		}
 
@@ -1645,7 +1836,8 @@ export const actions: Actions = {
 			return failTalentLabelAction({
 				status: 400,
 				type: 'deleteTalentLabelDefinition',
-				message: 'Invalid label id.'
+				message: 'Invalid label id.',
+				organisationId
 			});
 		}
 
@@ -1653,20 +1845,23 @@ export const actions: Actions = {
 			await deleteTalentLabelDefinition({
 				adminClient: context.adminClient,
 				actor: context.actor,
+				organisationId,
 				labelDefinitionId
 			});
-			invalidateOrganisationContextCache(context.actor.homeOrganisationId);
+			invalidateOrganisationContextCache(organisationId);
 			return {
 				type: 'deleteTalentLabelDefinition' as const,
 				ok: true,
-				message: 'Label deleted.'
+				message: 'Label deleted.',
+				organisation_id: organisationId
 			};
 		} catch (actionError) {
 			const status = actionError instanceof TalentLabelServiceError ? actionError.status : 500;
 			return failTalentLabelAction({
 				status,
 				type: 'deleteTalentLabelDefinition',
-				message: actionError instanceof Error ? actionError.message : 'Could not delete label.'
+				message: actionError instanceof Error ? actionError.message : 'Could not delete label.',
+				organisationId
 			});
 		}
 	},

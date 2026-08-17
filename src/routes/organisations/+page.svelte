@@ -207,7 +207,9 @@
 		};
 	});
 	const brandingTemplate = $derived(
-		selectedContextStatus === 'ready' ? (selectedOrganisationContext?.template ?? undefined) : undefined
+		selectedContextStatus === 'ready'
+			? (selectedOrganisationContext?.template ?? undefined)
+			: undefined
 	);
 
 	type OrgListRow = {
@@ -363,6 +365,8 @@
 	bind:open={isBrandingDrawerOpen}
 	organisation={brandingOrganisation}
 	template={brandingTemplate}
+	loading={selectedContextStatus === 'loading'}
+	loadError={selectedContextError}
 	canManagePixelCode={true}
 	{form}
 />

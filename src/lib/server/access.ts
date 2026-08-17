@@ -5,6 +5,11 @@ import {
 	resolveOrganisationBrandingTheme,
 	type OrganisationBrandingTheme
 } from '$lib/branding/theme';
+import {
+	DEFAULT_RESUME_PRINT_LAYOUT,
+	resolveResumePrintLayout,
+	type ResumePrintLayout
+} from '$lib/branding/resumePrintLayout';
 import { normalizeUserSettings } from '$lib/types/userSettings';
 
 export type AppRole = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
@@ -128,6 +133,7 @@ export type ResolvedTemplateContext = {
 	endLogoUrl: string | null;
 	homepageUrl: string | null;
 	brandingTheme: OrganisationBrandingTheme;
+	resumePrintLayout: ResumePrintLayout;
 	isPixelCode: boolean;
 	mainFontCssStack: string;
 	mainFontFaceCss: string | null;
@@ -150,13 +156,7 @@ type ActorContextCacheEntry = {
 };
 
 const actorContextCache = new Map<string, ActorContextCacheEntry>();
-const ROLE_PRIORITY: AppRole[] = [
-	'admin',
-	'organisation_admin',
-	'broker',
-	'employer',
-	'talent'
-];
+const ROLE_PRIORITY: AppRole[] = ['admin', 'organisation_admin', 'broker', 'employer', 'talent'];
 
 const emptyActorContext = (): ActorAccessContext => ({
 	userId: null,
@@ -216,7 +216,9 @@ const unique = (values: string[]) => {
 const sortRolesByPriority = (roles: AppRole[]) => {
 	const priorityIndex = new Map(ROLE_PRIORITY.map((role, index) => [role, index]));
 	return [...roles].sort(
-		(a, b) => (priorityIndex.get(a) ?? ROLE_PRIORITY.length) - (priorityIndex.get(b) ?? ROLE_PRIORITY.length)
+		(a, b) =>
+			(priorityIndex.get(a) ?? ROLE_PRIORITY.length) -
+			(priorityIndex.get(b) ?? ROLE_PRIORITY.length)
 	);
 };
 
@@ -889,6 +891,7 @@ const mapTemplateContext = (
 		endLogoUrl: resolveOrganisationAssetUrl(adminClient, row?.end_logo_path),
 		homepageUrl: organisation?.homepage_url ?? null,
 		brandingTheme,
+		resumePrintLayout: resolveResumePrintLayout(row?.template_json),
 		isPixelCode,
 		mainFontCssStack: mainFont.cssStack,
 		mainFontFaceCss: mainFont.fontFaceCss
@@ -908,6 +911,7 @@ const buildDefaultTemplateContext = (): ResolvedTemplateContext => {
 		endLogoUrl: null,
 		homepageUrl: null,
 		brandingTheme: DEFAULT_ORGANISATION_BRANDING_THEME,
+		resumePrintLayout: DEFAULT_RESUME_PRINT_LAYOUT,
 		isPixelCode: false,
 		mainFontCssStack: mainFont.cssStack,
 		mainFontFaceCss: null

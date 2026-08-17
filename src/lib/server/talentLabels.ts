@@ -106,26 +106,32 @@ const resolveActorLabelOrganisationId = (
 		ActorAccessContext,
 		'userId' | 'homeOrganisationId' | 'isAdmin' | 'isOrganisationAdmin' | 'isBroker' | 'isEmployer'
 	>,
-	mode: 'view' | 'assign' | 'define'
+	mode: 'view' | 'assign' | 'define',
+	targetOrganisationId?: string | null
 ) => {
+	const organisationId = targetOrganisationId ?? actor.homeOrganisationId;
+	if (targetOrganisationId && !actor.isAdmin && targetOrganisationId !== actor.homeOrganisationId) {
+		throw new TalentLabelServiceError(403, 'You do not have permission to manage labels.');
+	}
+
 	if (mode === 'define') {
-		if (!canManageTalentLabelDefinitions(actor)) {
+		if (!actor.userId || !organisationId || !(actor.isAdmin || actor.isOrganisationAdmin)) {
 			throw new TalentLabelServiceError(403, 'You do not have permission to manage labels.');
 		}
-		return actor.homeOrganisationId!;
+		return organisationId;
 	}
 
 	if (mode === 'assign') {
 		if (!canManageTalentLabelAssignments(actor)) {
 			throw new TalentLabelServiceError(403, 'You do not have permission to manage labels.');
 		}
-		return actor.homeOrganisationId!;
+		return organisationId!;
 	}
 
 	if (!canViewTalentLabels(actor)) {
 		throw new TalentLabelServiceError(403, 'You do not have permission to view labels.');
 	}
-	return actor.homeOrganisationId!;
+	return organisationId!;
 };
 
 const mapSupabaseError = (error: { code?: string; message?: string }) => {
@@ -272,8 +278,13 @@ const loadDefinitionForActorOrganisation = async (payload: {
 	actor: ActorAccessContext;
 	labelDefinitionId: string;
 	mode: 'assign' | 'define';
+	organisationId?: string | null;
 }) => {
-	const organisationId = resolveActorLabelOrganisationId(payload.actor, payload.mode);
+	const organisationId = resolveActorLabelOrganisationId(
+		payload.actor,
+		payload.mode,
+		payload.organisationId
+	);
 
 	const { data, error } = await payload.adminClient
 		.from('organisation_talent_label_definitions')
@@ -402,6 +413,7 @@ export const removeTalentLabel = async (payload: {
 export const createTalentLabelDefinition = async (payload: {
 	adminClient: SupabaseClient;
 	actor: ActorAccessContext;
+	organisationId?: string | null;
 	name: string;
 	colorHex: string;
 }) => {
@@ -409,7 +421,11 @@ export const createTalentLabelDefinition = async (payload: {
 		throw new TalentLabelServiceError(401, 'Unauthorized.');
 	}
 
-	const organisationId = resolveActorLabelOrganisationId(payload.actor, 'define');
+	const organisationId = resolveActorLabelOrganisationId(
+		payload.actor,
+		'define',
+		payload.organisationId
+	);
 	const name = normalizeLabelName(payload.name);
 	if (!name) {
 		throw new TalentLabelServiceError(400, 'Enter a label name.');
@@ -477,6 +493,7 @@ export const createTalentLabelDefinition = async (payload: {
 export const updateTalentLabelDefinition = async (payload: {
 	adminClient: SupabaseClient;
 	actor: ActorAccessContext;
+	organisationId?: string | null;
 	labelDefinitionId: string;
 	name: string;
 	colorHex: string;
@@ -485,7 +502,11 @@ export const updateTalentLabelDefinition = async (payload: {
 		throw new TalentLabelServiceError(401, 'Unauthorized.');
 	}
 
-	const organisationId = resolveActorLabelOrganisationId(payload.actor, 'define');
+	const organisationId = resolveActorLabelOrganisationId(
+		payload.actor,
+		'define',
+		payload.organisationId
+	);
 	const name = normalizeLabelName(payload.name);
 	if (!name) {
 		throw new TalentLabelServiceError(400, 'Enter a label name.');
@@ -500,7 +521,8 @@ export const updateTalentLabelDefinition = async (payload: {
 		adminClient: payload.adminClient,
 		actor: payload.actor,
 		labelDefinitionId: payload.labelDefinitionId,
-		mode: 'define'
+		mode: 'define',
+		organisationId
 	});
 
 	const { data, error } = await payload.adminClient
@@ -545,18 +567,24 @@ export const updateTalentLabelDefinition = async (payload: {
 export const deleteTalentLabelDefinition = async (payload: {
 	adminClient: SupabaseClient;
 	actor: ActorAccessContext;
+	organisationId?: string | null;
 	labelDefinitionId: string;
 }) => {
 	if (!payload.actor.userId) {
 		throw new TalentLabelServiceError(401, 'Unauthorized.');
 	}
 
-	const organisationId = resolveActorLabelOrganisationId(payload.actor, 'define');
+	const organisationId = resolveActorLabelOrganisationId(
+		payload.actor,
+		'define',
+		payload.organisationId
+	);
 	const existing = await loadDefinitionForActorOrganisation({
 		adminClient: payload.adminClient,
 		actor: payload.actor,
 		labelDefinitionId: payload.labelDefinitionId,
-		mode: 'define'
+		mode: 'define',
+		organisationId
 	});
 
 	const { data: assignmentRows, error: assignmentCountError } = await payload.adminClient

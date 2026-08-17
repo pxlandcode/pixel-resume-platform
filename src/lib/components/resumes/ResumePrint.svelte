@@ -11,9 +11,12 @@
 		transformSupabasePublicUrlSrcSet
 	} from '$lib/images/supabaseImage';
 	import pdfStyles from './pdf-print.css?inline';
-	import andLogo from '$lib/assets/and.svg?url';
-	import pixelcodeLogoDark from '$lib/assets/pixelcodelogodark.svg?url';
-	import worldclassUrl from '$lib/assets/worldclass.svg?url';
+	import {
+		DEFAULT_RESUME_PRINT_LAYOUT,
+		resolveResumePrintLayout,
+		resumePrintLayoutToInlineStyle,
+		type ResumePrintLayout
+	} from '$lib/branding/resumePrintLayout';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
 	type ResolvedImage = {
@@ -34,6 +37,7 @@
 		templateMainLogotypeUrl = null,
 		templateAccentLogoUrl = null,
 		templateEndLogoUrl = null,
+		templateResumePrintLayout = DEFAULT_RESUME_PRINT_LAYOUT,
 		templateHomepageUrl = null,
 		templateMainFontCssStack = "'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
 		templateIsPixelCode = false
@@ -47,14 +51,16 @@
 		templateMainLogotypeUrl?: string | null;
 		templateAccentLogoUrl?: string | null;
 		templateEndLogoUrl?: string | null;
+		templateResumePrintLayout?: ResumePrintLayout | null;
 		templateHomepageUrl?: string | null;
 		templateMainFontCssStack?: string;
 		templateIsPixelCode?: boolean;
 	} = $props();
 
-	const resolvedBrandLogo = $derived(templateMainLogotypeUrl ?? pixelcodeLogoDark);
-	const resolvedAccentLogo = $derived(templateAccentLogoUrl ?? andLogo);
-	const resolvedEndLogo = $derived(templateEndLogoUrl ?? worldclassUrl);
+	const resolvedBrandLogo = $derived(templateMainLogotypeUrl?.trim() || null);
+	const resolvedAccentLogo = $derived(templateAccentLogoUrl?.trim() || null);
+	const resolvedEndLogo = $derived(templateEndLogoUrl?.trim() || null);
+	const resolvedResumePrintLayout = $derived(resolveResumePrintLayout(templateResumePrintLayout));
 	const resolvedHomepage = $derived.by(() => {
 		const homepage = templateHomepageUrl?.trim() ?? '';
 		if (!homepage) return 'www.pixelcode.se';
@@ -167,7 +173,7 @@
 	const displaySummary = $derived((t(data.summary) ?? '').trim() || (person?.bio ?? '').trim());
 	const displayFooterNote = $derived((t(data.footerNote) ?? '').trim());
 	const resumeRootStyle = $derived(
-		`--resume-main-font: ${templateMainFontCssStack}; font-family: var(--resume-main-font);`
+		`--resume-main-font: ${templateMainFontCssStack}; ${resumePrintLayoutToInlineStyle(resolvedResumePrintLayout)}; font-family: var(--resume-main-font);`
 	);
 
 	// Format date for display (e.g., "Jan 2020")
@@ -194,8 +200,10 @@
 		<div class="header-top">
 			<!-- Brand -->
 			<div class="header-brand mb-6 text-center">
-				<img src={resolvedBrandLogo} alt="Brand logo" class="mx-auto h-8" />
-				{#if templateIsPixelCode}
+				{#if resolvedBrandLogo}
+					<img src={resolvedBrandLogo} alt="Brand logo" class="mx-auto h-8" />
+				{/if}
+				{#if templateIsPixelCode && resolvedBrandLogo}
 					<p
 						class="-rotate-10 text-primary -mt-1 text-2xl"
 						style="font-family: 'Fave Script', cursive;"
@@ -345,12 +353,14 @@
 
 		<!-- Ampersand at bottom left -->
 		<div class="ampersand-container">
-			<img
-				src={resolvedAccentLogo}
-				class="ampersand-logo h-20 w-auto opacity-80"
-				alt="Brand accent logo"
-			/>
-			<p class="ampersand-url">{resolvedHomepage}</p>
+			{#if resolvedAccentLogo}
+				<img
+					src={resolvedAccentLogo}
+					class="ampersand-logo h-20 w-auto opacity-80"
+					alt="Brand accent logo"
+				/>
+				<p class="ampersand-url">{resolvedHomepage}</p>
+			{/if}
 		</div>
 	</div>
 
@@ -541,17 +551,21 @@
 			</div>
 		{/if}
 
-		<div class="brand-outro">
-			<div class="brand-outro-accent">
-				<img src={resolvedAccentLogo} class="ampersand-logo" alt="Brand accent logo" />
-				<p class="ampersand-url">{resolvedHomepage}</p>
-			</div>
-			<div class="brand-outro-end">
-				<img
-					src={resolvedEndLogo}
-					alt="Worldclass Tech, Worldclass People"
-					class="brand-outro-end-logo"
-				/>
+		<div class="resume-print-final-branding">
+			<div class="brand-outro">
+				{#if resolvedResumePrintLayout.showLastPageAccentLogo && resolvedAccentLogo}
+					<div class="brand-outro-accent">
+						<img src={resolvedAccentLogo} class="ampersand-logo" alt="Brand accent logo" />
+						<p class="ampersand-url">{resolvedHomepage}</p>
+					</div>
+				{:else}
+					<div class="brand-outro-accent brand-outro-accent-hidden" aria-hidden="true"></div>
+				{/if}
+				<div class="brand-outro-end">
+					{#if resolvedEndLogo}
+						<img src={resolvedEndLogo} alt="Brand end logo" class="brand-outro-end-logo" />
+					{/if}
+				</div>
 			</div>
 		</div>
 	</div>
@@ -576,6 +590,8 @@
 
 	.page-2-plus {
 		position: relative;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.consultant-profile {
@@ -608,6 +624,11 @@
 		opacity: 0.8;
 	}
 
+	.ampersand-container .ampersand-logo {
+		transform: scale(var(--resume-first-page-accent-logo-scale, 1));
+		transform-origin: center bottom;
+	}
+
 	.ampersand-url {
 		margin: 0;
 		font-size: 8px;
@@ -615,14 +636,25 @@
 		text-align: center;
 	}
 
+	.resume-print-final-branding {
+		break-inside: avoid;
+		display: flex;
+		flex-direction: column;
+		flex-shrink: 0;
+		height: auto;
+		margin-top: auto;
+		page-break-inside: avoid;
+	}
+
 	.brand-outro {
-		margin-top: 8mm;
 		padding-top: 6mm;
 		border-top: 1px solid rgb(226 232 240);
 		display: grid;
 		grid-template-columns: 34mm minmax(0, 1fr) 34mm;
 		align-items: end;
 		column-gap: 12mm;
+		break-inside: avoid;
+		page-break-inside: avoid;
 	}
 
 	.brand-outro-accent {
@@ -631,6 +663,15 @@
 		flex-direction: column;
 		align-items: center;
 		gap: 2mm;
+	}
+
+	.brand-outro-accent .ampersand-logo {
+		transform: scale(var(--resume-last-page-accent-logo-scale, 1));
+		transform-origin: center bottom;
+	}
+
+	.brand-outro-accent-hidden {
+		min-height: 1px;
 	}
 
 	.brand-outro-end {
@@ -648,6 +689,8 @@
 		max-height: 45mm;
 		object-fit: contain;
 		object-position: center bottom;
+		transform: scale(var(--resume-end-logo-scale, 1));
+		transform-origin: center bottom;
 	}
 
 	:global(body) {

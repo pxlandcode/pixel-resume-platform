@@ -10,7 +10,15 @@
 		DEFAULT_ORGANISATION_BRANDING_THEME,
 		organisationBrandingThemeToInlineStyle
 	} from '$lib/branding/theme';
-	import { Download, Globe2, Mail, MessageSquareText, MoreHorizontal, Phone, X } from 'lucide-svelte';
+	import {
+		Download,
+		Globe2,
+		Mail,
+		MessageSquareText,
+		MoreHorizontal,
+		Phone,
+		X
+	} from 'lucide-svelte';
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData | null } = $props();
@@ -91,7 +99,8 @@
 	};
 
 	const switchLanguage = async (nextLanguage: 'sv' | 'en') => {
-		if (nextLanguage === language || !readyData || !canSwitchLanguage || isSwitchingLanguage) return;
+		if (nextLanguage === language || !readyData || !canSwitchLanguage || isSwitchingLanguage)
+			return;
 		isSwitchingLanguage = true;
 		pendingLanguage = nextLanguage;
 		const target = new URL(window.location.href);
@@ -175,13 +184,17 @@
 			templateMainLogotypeUrl={readyData.templateContext?.mainLogotypeUrl}
 			templateAccentLogoUrl={readyData.templateContext?.accentLogoUrl}
 			templateEndLogoUrl={readyData.templateContext?.endLogoUrl}
+			templateResumePrintLayout={readyData.templateContext?.resumePrintLayout}
 			templateHomepageUrl={readyData.templateContext?.homepageUrl}
 			templateMainFontCssStack={readyData.templateContext?.mainFontCssStack}
 			templateIsPixelCode={readyData.templateContext?.isPixelCode}
 		/>
 	</div>
 {:else if readyData}
-	<div class="min-h-screen bg-[#f4f1eb] px-4 py-6 pb-28 sm:px-6 lg:px-8" style={templateBrandingStyle}>
+	<div
+		class="min-h-screen bg-[#f4f1eb] px-4 py-6 pb-28 sm:px-6 lg:px-8"
+		style={templateBrandingStyle}
+	>
 		<div
 			class="mx-auto max-w-6xl overflow-hidden rounded-sm border border-black/10 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]"
 		>
@@ -196,6 +209,7 @@
 				templateMainLogotypeUrl={readyData.templateContext?.mainLogotypeUrl}
 				templateAccentLogoUrl={readyData.templateContext?.accentLogoUrl}
 				templateEndLogoUrl={readyData.templateContext?.endLogoUrl}
+				templateResumePrintLayout={readyData.templateContext?.resumePrintLayout}
 				templateHomepageUrl={readyData.templateContext?.homepageUrl}
 				templateMainFontCssStack={readyData.templateContext?.mainFontCssStack}
 				templateIsPixelCode={readyData.templateContext?.isPixelCode}
@@ -203,7 +217,9 @@
 		</div>
 
 		{#if showFloatingBar}
-			<div class="pointer-events-none fixed bottom-4 right-4 z-20 hidden flex-wrap items-center justify-end gap-3 sm:bottom-6 sm:right-6 sm:flex">
+			<div
+				class="pointer-events-none fixed bottom-4 right-4 z-20 hidden flex-wrap items-center justify-end gap-3 sm:bottom-6 sm:right-6 sm:flex"
+			>
 				{#if canSwitchLanguage}
 					<div class="pointer-events-auto relative min-w-[168px]">
 						<OptionButton
@@ -256,7 +272,9 @@
 									out:fly={{ y: 18, duration: 140 }}
 									class="w-[164px]"
 								>
-									<div class="mb-2 flex items-center justify-end gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+									<div
+										class="mb-2 flex items-center justify-end gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500"
+									>
 										<Globe2 class="h-3.5 w-3.5" />
 										<span>Language</span>
 									</div>
@@ -293,10 +311,7 @@
 							{/if}
 
 							{#if downloadHref}
-								<div
-									in:fly={{ y: 28, duration: 220 }}
-									out:fly={{ y: 18, duration: 140 }}
-								>
+								<div in:fly={{ y: 28, duration: 220 }} out:fly={{ y: 18, duration: 140 }}>
 									<Button
 										type="button"
 										variant="primary"
@@ -342,15 +357,15 @@
 			{#if readyData.contactInfo?.email}
 				<a
 					href={`mailto:${readyData.contactInfo.email}`}
-					class="flex items-start gap-3 rounded-sm border border-border px-4 py-3 transition-colors hover:border-primary/30 hover:bg-muted/30"
+					class="border-border hover:border-primary/30 hover:bg-muted/30 flex items-start gap-3 rounded-sm border px-4 py-3 transition-colors"
 				>
-					<Mail class="mt-0.5 h-4 w-4 shrink-0 text-muted-fg" />
+					<Mail class="text-muted-fg mt-0.5 h-4 w-4 shrink-0" />
 					<div>
 						{#if readyData.contactInfo?.name}
-							<p class="text-sm font-semibold text-foreground">{readyData.contactInfo.name}</p>
+							<p class="text-foreground text-sm font-semibold">{readyData.contactInfo.name}</p>
 						{/if}
-						<p class="text-xs uppercase tracking-[0.16em] text-muted-fg">Email</p>
-						<p class="mt-1 text-sm font-medium text-foreground">{readyData.contactInfo.email}</p>
+						<p class="text-muted-fg text-xs uppercase tracking-[0.16em]">Email</p>
+						<p class="text-foreground mt-1 text-sm font-medium">{readyData.contactInfo.email}</p>
 					</div>
 				</a>
 			{/if}
@@ -358,29 +373,31 @@
 			{#if readyData.contactInfo?.phone}
 				<a
 					href={`tel:${readyData.contactInfo.phone}`}
-					class="flex items-start gap-3 rounded-sm border border-border px-4 py-3 transition-colors hover:border-primary/30 hover:bg-muted/30"
+					class="border-border hover:border-primary/30 hover:bg-muted/30 flex items-start gap-3 rounded-sm border px-4 py-3 transition-colors"
 				>
-					<Phone class="mt-0.5 h-4 w-4 shrink-0 text-muted-fg" />
+					<Phone class="text-muted-fg mt-0.5 h-4 w-4 shrink-0" />
 					<div>
 						{#if readyData.contactInfo?.name && !readyData.contactInfo?.email}
-							<p class="text-sm font-semibold text-foreground">{readyData.contactInfo.name}</p>
+							<p class="text-foreground text-sm font-semibold">{readyData.contactInfo.name}</p>
 						{/if}
-						<p class="text-xs uppercase tracking-[0.16em] text-muted-fg">Phone</p>
-						<p class="mt-1 text-sm font-medium text-foreground">{readyData.contactInfo.phone}</p>
+						<p class="text-muted-fg text-xs uppercase tracking-[0.16em]">Phone</p>
+						<p class="text-foreground mt-1 text-sm font-medium">{readyData.contactInfo.phone}</p>
 					</div>
 				</a>
 			{/if}
 
 			{#if readyData.contactInfo?.note}
-				<div class="rounded-sm border border-border px-4 py-3">
+				<div class="border-border rounded-sm border px-4 py-3">
 					<div class="flex items-start gap-3">
-						<MessageSquareText class="mt-0.5 h-4 w-4 shrink-0 text-muted-fg" />
+						<MessageSquareText class="text-muted-fg mt-0.5 h-4 w-4 shrink-0" />
 						<div>
 							{#if readyData.contactInfo?.name && !readyData.contactInfo?.email && !readyData.contactInfo?.phone}
-								<p class="text-sm font-semibold text-foreground">{readyData.contactInfo.name}</p>
+								<p class="text-foreground text-sm font-semibold">{readyData.contactInfo.name}</p>
 							{/if}
-							<p class="text-xs uppercase tracking-[0.16em] text-muted-fg">Note</p>
-							<p class="mt-1 whitespace-pre-wrap text-sm text-foreground">{readyData.contactInfo.note}</p>
+							<p class="text-muted-fg text-xs uppercase tracking-[0.16em]">Note</p>
+							<p class="text-foreground mt-1 whitespace-pre-wrap text-sm">
+								{readyData.contactInfo.note}
+							</p>
 						</div>
 					</div>
 				</div>
@@ -389,13 +406,13 @@
 	</Drawer>
 {:else if status === 'password_required'}
 	<div class="flex min-h-screen items-center justify-center bg-[#f4f1eb] px-4 py-10">
-		<Card class="w-full max-w-md border-black/10 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+		<Card
+			class="w-full max-w-md border-black/10 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)]"
+		>
 			<p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
 				Shared by {sharingOrganisationName}
 			</p>
-			<h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-				Enter password
-			</h1>
+			<h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Enter password</h1>
 			<p class="mt-2 text-sm text-slate-600">
 				{sharingOrganisationName} has shared a resume with you. Enter the password you received to continue.
 			</p>
@@ -417,15 +434,15 @@
 					</p>
 				{/if}
 
-				<Button type="submit" variant="primary" class="w-full justify-center">
-					Continue
-				</Button>
+				<Button type="submit" variant="primary" class="w-full justify-center">Continue</Button>
 			</form>
 		</Card>
 	</div>
 {:else}
 	<div class="flex min-h-screen items-center justify-center bg-[#f4f1eb] px-4 py-10">
-		<Card class="w-full max-w-lg border-black/10 bg-white p-8 text-center shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+		<Card
+			class="w-full max-w-lg border-black/10 bg-white p-8 text-center shadow-[0_24px_80px_rgba(15,23,42,0.08)]"
+		>
 			<p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
 				{data.organisationName ? `Shared by ${sharingOrganisationName}` : 'Resume share'}
 			</p>

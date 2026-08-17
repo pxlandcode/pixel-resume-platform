@@ -138,6 +138,7 @@
 						>
 							<span class="text-foreground text-sm">{displayUser(membership.user_id)}</span>
 							<form method="POST" action="?/disconnectUserHome">
+								<input type="hidden" name="organisation_id" value={organisation.id} />
 								<input type="hidden" name="user_id" value={membership.user_id} />
 								<Button type="submit" variant="ghost" size="sm">Remove</Button>
 							</form>
@@ -173,6 +174,7 @@
 						>
 							<span class="text-foreground text-sm">{displayTalent(membership.talent_id)}</span>
 							<form method="POST" action="?/disconnectTalentHome">
+								<input type="hidden" name="organisation_id" value={organisation.id} />
 								<input type="hidden" name="talent_id" value={membership.talent_id} />
 								<Button type="submit" variant="ghost" size="sm">Remove</Button>
 							</form>

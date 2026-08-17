@@ -57,6 +57,7 @@
 		templateMainLogotypeUrl={data.templateContext?.mainLogotypeUrl}
 		templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
 		templateEndLogoUrl={data.templateContext?.endLogoUrl}
+		templateResumePrintLayout={data.templateContext?.resumePrintLayout}
 		templateHomepageUrl={data.templateContext?.homepageUrl}
 		templateMainFontCssStack={data.templateContext?.mainFontCssStack}
 		templateIsPixelCode={data.templateContext?.isPixelCode}

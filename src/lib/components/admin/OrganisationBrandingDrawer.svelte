@@ -12,6 +12,11 @@
 		ORGANISATION_MAIN_FONT_OPTIONS,
 		resolveOrganisationBrandingTypography
 	} from '$lib/branding/font';
+	import {
+		DEFAULT_RESUME_PRINT_LAYOUT,
+		RESUME_PRINT_LAYOUT_LIMITS,
+		resolveResumePrintLayout
+	} from '$lib/branding/resumePrintLayout';
 	import BrandingColorField from './BrandingColorField.svelte';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
 	import OrganisationTemplateImageUpload from './OrganisationTemplateImageUpload.svelte';
@@ -113,6 +118,10 @@
 
 	// pixel&code_ branding flag
 	let isPixelCode = $state(false);
+	let firstPageAccentLogoScale = $state(DEFAULT_RESUME_PRINT_LAYOUT.firstPageAccentLogoScale);
+	let lastPageAccentLogoScale = $state(DEFAULT_RESUME_PRINT_LAYOUT.lastPageAccentLogoScale);
+	let endLogoScale = $state(DEFAULT_RESUME_PRINT_LAYOUT.endLogoScale);
+	let showLastPageAccentLogo = $state(DEFAULT_RESUME_PRINT_LAYOUT.showLastPageAccentLogo);
 
 	const selectedFontLabel = $derived(
 		ORGANISATION_MAIN_FONT_OPTIONS.find((opt) => opt.key === selectedBuiltInFont)?.label ??
@@ -179,20 +188,25 @@
 		organisation = undefined,
 		template = undefined,
 		form = undefined,
-		canManagePixelCode = false
+		canManagePixelCode = false,
+		loading = false,
+		loadError = null
 	}: {
 		open: boolean;
 		organisation?: Organisation;
 		template?: Template;
 		form?: { type?: string; ok?: boolean; message?: string } | null;
 		canManagePixelCode?: boolean;
+		loading?: boolean;
+		loadError?: string | null;
 	} = $props();
 
 	const templateImageUrl = (slot: TemplateAssetSlot) => {
 		if (!template) return null;
 		if (slot === 'main_logotype_path') return template.main_logotype_url ?? null;
 		if (slot === 'accent_logo_path') return template.accent_logo_url ?? null;
-		return template.end_logo_url ?? null;
+		if (slot === 'end_logo_path') return template.end_logo_url ?? null;
+		return null;
 	};
 
 	const brandingTheme = $derived(
@@ -208,6 +222,7 @@
 			? form.message
 			: null
 	);
+	const layoutLimits = RESUME_PRINT_LAYOUT_LIMITS;
 
 	// Derive the actual main_font_key to submit
 	// When isPixelCode is true, use montserrat; otherwise use uploaded or selected built-in
@@ -236,6 +251,14 @@
 	});
 
 	$effect(() => {
+		const layout = resolveResumePrintLayout(template?.template_json ?? null);
+		firstPageAccentLogoScale = layout.firstPageAccentLogoScale;
+		lastPageAccentLogoScale = layout.lastPageAccentLogoScale;
+		endLogoScale = layout.endLogoScale;
+		showLastPageAccentLogo = layout.showLastPageAccentLogo;
+	});
+
+	$effect(() => {
 		if (!open) {
 			// Reset font state when drawer closes
 			if (typography.mainFontKey === 'uploaded') {
@@ -250,6 +273,12 @@
 			// Reset isPixelCode
 			const settings = organisation?.brand_settings as Record<string, unknown> | null;
 			isPixelCode = settings?.isPixelCode === true;
+
+			const layout = resolveResumePrintLayout(template?.template_json ?? null);
+			firstPageAccentLogoScale = layout.firstPageAccentLogoScale;
+			lastPageAccentLogoScale = layout.lastPageAccentLogoScale;
+			endLogoScale = layout.endLogoScale;
+			showLastPageAccentLogo = layout.showLastPageAccentLogo;
 		}
 	});
 </script>
@@ -262,7 +291,15 @@
 	class="mr-0 w-full max-w-xl"
 	dismissable
 >
-	{#if organisation}
+	{#if loading && !template}
+		<div class="text-muted-fg p-6 text-sm">Loading branding...</div>
+	{:else if loadError && !template}
+		<div class="p-6">
+			<Alert variant="destructive" size="sm">
+				<p class="text-foreground text-sm font-medium">{loadError}</p>
+			</Alert>
+		</div>
+	{:else if organisation}
 		<form
 			method="POST"
 			action="?/updateOrganisationBranding"
@@ -271,6 +308,11 @@
 		>
 			<input type="hidden" name="organisation_id" value={organisation.id} />
 			<input type="hidden" name="main_font_key" value={actualMainFontKey} />
+			<input
+				type="hidden"
+				name="resume_print_show_last_page_accent_logo"
+				value={showLastPageAccentLogo ? 'true' : 'false'}
+			/>
 			{#if canManagePixelCode}
 				<input type="hidden" name="is_pixel_code" value={isPixelCode ? 'true' : 'false'} />
 			{/if}
@@ -572,6 +614,86 @@
 							</div>
 						</div>
 					{/each}
+				</div>
+			</div>
+
+			<!-- Resume Print Layout -->
+			<div class="border-border space-y-4 border-t pt-6">
+				<div>
+					<h3 class="text-foreground text-sm font-semibold">Resume print layout</h3>
+					<p class="text-muted-fg text-xs">
+						Scale resume template logos without changing layout boxes.
+					</p>
+				</div>
+
+				<div class="space-y-4">
+					<FormControl label="First page accent logo scale" class="gap-2 text-sm">
+						<div class="grid grid-cols-[1fr_5rem] items-center gap-3">
+							<input
+								type="range"
+								min={layoutLimits.firstPageAccentLogoScale.min}
+								max={layoutLimits.firstPageAccentLogoScale.max}
+								step={layoutLimits.firstPageAccentLogoScale.step}
+								bind:value={firstPageAccentLogoScale}
+								class="accent-primary w-full"
+							/>
+							<input
+								name="resume_print_first_page_accent_logo_scale"
+								type="number"
+								min={layoutLimits.firstPageAccentLogoScale.min}
+								max={layoutLimits.firstPageAccentLogoScale.max}
+								step={layoutLimits.firstPageAccentLogoScale.step}
+								bind:value={firstPageAccentLogoScale}
+								class="border-border bg-input text-foreground rounded border px-2 py-1 text-sm"
+							/>
+						</div>
+					</FormControl>
+
+					<FormControl label="Last page accent logo scale" class="gap-2 text-sm">
+						<div class="grid grid-cols-[1fr_5rem] items-center gap-3">
+							<input
+								type="range"
+								min={layoutLimits.lastPageAccentLogoScale.min}
+								max={layoutLimits.lastPageAccentLogoScale.max}
+								step={layoutLimits.lastPageAccentLogoScale.step}
+								bind:value={lastPageAccentLogoScale}
+								class="accent-primary w-full"
+							/>
+							<input
+								name="resume_print_last_page_accent_logo_scale"
+								type="number"
+								min={layoutLimits.lastPageAccentLogoScale.min}
+								max={layoutLimits.lastPageAccentLogoScale.max}
+								step={layoutLimits.lastPageAccentLogoScale.step}
+								bind:value={lastPageAccentLogoScale}
+								class="border-border bg-input text-foreground rounded border px-2 py-1 text-sm"
+							/>
+						</div>
+					</FormControl>
+
+					<FormControl label="End logo scale" class="gap-2 text-sm">
+						<div class="grid grid-cols-[1fr_5rem] items-center gap-3">
+							<input
+								type="range"
+								min={layoutLimits.endLogoScale.min}
+								max={layoutLimits.endLogoScale.max}
+								step={layoutLimits.endLogoScale.step}
+								bind:value={endLogoScale}
+								class="accent-primary w-full"
+							/>
+							<input
+								name="resume_print_end_logo_scale"
+								type="number"
+								min={layoutLimits.endLogoScale.min}
+								max={layoutLimits.endLogoScale.max}
+								step={layoutLimits.endLogoScale.step}
+								bind:value={endLogoScale}
+								class="border-border bg-input text-foreground rounded border px-2 py-1 text-sm"
+							/>
+						</div>
+					</FormControl>
+
+					<Checkbox bind:checked={showLastPageAccentLogo}>Show last page accent logo</Checkbox>
 				</div>
 			</div>
 
