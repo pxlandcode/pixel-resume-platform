@@ -22,6 +22,11 @@ import {
 	resolveOrganisationBrandingTheme
 } from '$lib/branding/theme';
 import {
+	mergeResumePrintLayoutIntoTemplateJson,
+	parseResumePrintLayoutFormData,
+	resolveResumePrintLayout
+} from '$lib/branding/resumePrintLayout';
+import {
 	DEFAULT_ORGANISATION_MAIN_FONT_KEY,
 	mergeOrganisationBrandingTypography,
 	resolveOrganisationBrandingTypography,
@@ -392,7 +397,8 @@ const ensureTalentAndLinkedUserHomeOrg = async (
 
 const disconnectUserAndLinkedTalentHomeOrg = async (
 	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
-	userId: string
+	userId: string,
+	organisationId: string
 ) => {
 	const { data: linkedTalent } = await adminClient
 		.from('talents')
@@ -400,15 +406,24 @@ const disconnectUserAndLinkedTalentHomeOrg = async (
 		.eq('user_id', userId)
 		.maybeSingle();
 
-	await adminClient.from('organisation_users').delete().eq('user_id', userId);
+	await adminClient
+		.from('organisation_users')
+		.delete()
+		.eq('organisation_id', organisationId)
+		.eq('user_id', userId);
 	if (linkedTalent?.id) {
-		await adminClient.from('organisation_talents').delete().eq('talent_id', linkedTalent.id);
+		await adminClient
+			.from('organisation_talents')
+			.delete()
+			.eq('organisation_id', organisationId)
+			.eq('talent_id', linkedTalent.id);
 	}
 };
 
 const disconnectTalentAndLinkedUserHomeOrg = async (
 	adminClient: NonNullable<ReturnType<typeof getSupabaseAdminClient>>,
-	talentId: string
+	talentId: string,
+	organisationId: string
 ) => {
 	const { data: talentRow } = await adminClient
 		.from('talents')
@@ -416,9 +431,17 @@ const disconnectTalentAndLinkedUserHomeOrg = async (
 		.eq('id', talentId)
 		.maybeSingle();
 
-	await adminClient.from('organisation_talents').delete().eq('talent_id', talentId);
+	await adminClient
+		.from('organisation_talents')
+		.delete()
+		.eq('organisation_id', organisationId)
+		.eq('talent_id', talentId);
 	if (talentRow?.user_id) {
-		await adminClient.from('organisation_users').delete().eq('user_id', talentRow.user_id);
+		await adminClient
+			.from('organisation_users')
+			.delete()
+			.eq('organisation_id', organisationId)
+			.eq('user_id', talentRow.user_id);
 	}
 };
 
@@ -720,6 +743,23 @@ export const actions: Actions = {
 			});
 		}
 
+		const { data: templateRow, error: templateError } = await context.adminClient
+			.from('organisation_templates')
+			.select('template_json')
+			.eq('organisation_id', organisationId)
+			.maybeSingle();
+		if (templateError) {
+			return fail(500, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: templateError.message
+			});
+		}
+		const resumePrintLayout = parseResumePrintLayoutFormData(
+			formData,
+			resolveResumePrintLayout(templateRow?.template_json)
+		);
+
 		const existingTypography = resolveOrganisationBrandingTypography(
 			organisationRow.brand_settings
 		);
@@ -957,6 +997,33 @@ export const actions: Actions = {
 		const isPixelCode = isPixelCodeRaw === 'true';
 		mergedBrandSettings.isPixelCode = isPixelCode;
 
+		const nextTemplateJson = mergeResumePrintLayoutIntoTemplateJson(
+			templateRow?.template_json,
+			resumePrintLayout
+		);
+		const { error: templateUpsertError } = await context.adminClient
+			.from('organisation_templates')
+			.upsert(
+				{
+					organisation_id: organisationId,
+					template_json: nextTemplateJson,
+					updated_at: new Date().toISOString()
+				},
+				{ onConflict: 'organisation_id' }
+			);
+		if (templateUpsertError) {
+			if (uploadedPathsForRollback.length > 0) {
+				await context.adminClient.storage
+					.from(ORGANISATION_IMAGES_BUCKET)
+					.remove(uploadedPathsForRollback);
+			}
+			return fail(500, {
+				type: 'updateOrganisationBranding',
+				ok: false,
+				message: templateUpsertError.message
+			});
+		}
+
 		const { error: updateError } = await context.adminClient
 			.from('organisations')
 			.update({
@@ -1090,6 +1157,7 @@ export const actions: Actions = {
 			});
 		}
 
+		invalidateOrganisationContextCache(organisationId);
 		return { type: 'connectUserHome', ok: true, message: 'User connected to organisation.' };
 	},
 
@@ -1104,12 +1172,21 @@ export const actions: Actions = {
 		}
 
 		const formData = await request.formData();
+		const organisationId = formData.get('organisation_id');
 		const userId = formData.get('user_id');
+		if (typeof organisationId !== 'string' || !isValidUuid(organisationId)) {
+			return fail(400, {
+				type: 'disconnectUserHome',
+				ok: false,
+				message: 'Invalid organisation id.'
+			});
+		}
 		if (typeof userId !== 'string' || !isValidUuid(userId)) {
 			return fail(400, { type: 'disconnectUserHome', ok: false, message: 'Invalid user id.' });
 		}
 
-		await disconnectUserAndLinkedTalentHomeOrg(context.adminClient, userId);
+		await disconnectUserAndLinkedTalentHomeOrg(context.adminClient, userId, organisationId);
+		invalidateOrganisationContextCache(organisationId);
 		return {
 			type: 'disconnectUserHome',
 			ok: true,
@@ -1151,6 +1228,7 @@ export const actions: Actions = {
 			});
 		}
 
+		invalidateOrganisationContextCache(organisationId);
 		return { type: 'connectTalentHome', ok: true, message: 'Talent connected to organisation.' };
 	},
 
@@ -1165,12 +1243,21 @@ export const actions: Actions = {
 		}
 
 		const formData = await request.formData();
+		const organisationId = formData.get('organisation_id');
 		const talentId = formData.get('talent_id');
+		if (typeof organisationId !== 'string' || !isValidUuid(organisationId)) {
+			return fail(400, {
+				type: 'disconnectTalentHome',
+				ok: false,
+				message: 'Invalid organisation id.'
+			});
+		}
 		if (typeof talentId !== 'string' || !isValidUuid(talentId)) {
 			return fail(400, { type: 'disconnectTalentHome', ok: false, message: 'Invalid talent id.' });
 		}
 
-		await disconnectTalentAndLinkedUserHomeOrg(context.adminClient, talentId);
+		await disconnectTalentAndLinkedUserHomeOrg(context.adminClient, talentId, organisationId);
+		invalidateOrganisationContextCache(organisationId);
 		return {
 			type: 'disconnectTalentHome',
 			ok: true,

@@ -9,7 +9,12 @@
 	} from '$lib/types/resume';
 	import { cloneResumeDataValue, cloneTechCategoriesValue } from '$lib/resumes/clone';
 	import { soloImages } from '$lib/images/manifest';
-	import worldclassUrl from '$lib/assets/worldclass.svg?url';
+	import {
+		DEFAULT_RESUME_PRINT_LAYOUT,
+		resolveResumePrintLayout,
+		resumePrintLayoutToInlineStyle,
+		type ResumePrintLayout
+	} from '$lib/branding/resumePrintLayout';
 
 	// Import all resume components
 	import {
@@ -29,7 +34,6 @@
 	} from './components';
 	import type { Person, TechCategory } from '$lib/types/resume';
 	import type { ResumeAiGenerateParams, ResumeAiGenerateResult } from './components/utils';
-	import andLogo from '$lib/assets/and.svg?url';
 
 	type ImageResource = (typeof soloImages)[keyof typeof soloImages];
 	type ResumeItemIdKind = 'experience' | 'highlighted';
@@ -47,6 +51,7 @@
 		templateMainLogotypeUrl = null,
 		templateAccentLogoUrl = null,
 		templateEndLogoUrl = null,
+		templateResumePrintLayout = DEFAULT_RESUME_PRINT_LAYOUT,
 		templateHomepageUrl = null,
 		templateMainFontCssStack = "'Inter', 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
 		templateIsPixelCode = false,
@@ -68,6 +73,7 @@
 		templateMainLogotypeUrl?: string | null;
 		templateAccentLogoUrl?: string | null;
 		templateEndLogoUrl?: string | null;
+		templateResumePrintLayout?: ResumePrintLayout | null;
 		templateHomepageUrl?: string | null;
 		templateMainFontCssStack?: string;
 		templateIsPixelCode?: boolean;
@@ -199,8 +205,9 @@
 	const resolvedImage: ImageResource | string | null = $derived.by(() => {
 		return image ?? person?.avatar_url ?? null;
 	});
-	const resolvedAccentLogo = $derived(templateAccentLogoUrl ?? andLogo);
-	const resolvedEndLogo = $derived(templateEndLogoUrl ?? worldclassUrl);
+	const resolvedAccentLogo = $derived(templateAccentLogoUrl?.trim() || null);
+	const resolvedEndLogo = $derived(templateEndLogoUrl?.trim() || null);
+	const resolvedResumePrintLayout = $derived(resolveResumePrintLayout(templateResumePrintLayout));
 	const resolvedHomepage = $derived.by(() => {
 		const homepage = templateHomepageUrl?.trim() ?? '';
 		if (!homepage) return 'www.pixelcode.se';
@@ -213,7 +220,7 @@
 		}
 	});
 	const resumeRootStyle = $derived(
-		`--resume-main-font: ${templateMainFontCssStack}; font-family: var(--resume-main-font);`
+		`--resume-main-font: ${templateMainFontCssStack}; ${resumePrintLayoutToInlineStyle(resolvedResumePrintLayout)}; font-family: var(--resume-main-font);`
 	);
 
 	$effect(() => {
@@ -998,32 +1005,52 @@
 	<!-- Footer -->
 	<ResumeFooter bind:footerNote={editingData.footerNote} {isEditing} language={componentLanguage} />
 
-	<div class="resume-brand-outro border-border mt-8 border-t pt-6">
-		<div class="resume-brand-accent">
-			<img
-				src={resolvedAccentLogo}
-				class="resume-brand-accent-logo"
-				alt="Brand accent logo"
-				loading="lazy"
-			/>
-			<p class="resume-brand-homepage text-foreground">{resolvedHomepage}</p>
-		</div>
-		<div class="resume-brand-end">
-			<img
-				src={resolvedEndLogo}
-				alt="Brand end logo"
-				class="resume-brand-end-logo"
-				loading="lazy"
-			/>
+	<div class="resume-final-branding">
+		<div class="resume-brand-outro border-border mt-8 border-t pt-6">
+			{#if resolvedResumePrintLayout.showLastPageAccentLogo && resolvedAccentLogo}
+				<div class="resume-brand-accent">
+					<img
+						src={resolvedAccentLogo}
+						class="resume-brand-accent-logo"
+						alt="Brand accent logo"
+						loading="lazy"
+					/>
+					<p class="resume-brand-homepage text-foreground">{resolvedHomepage}</p>
+				</div>
+			{:else}
+				<div class="resume-brand-accent resume-brand-accent-hidden" aria-hidden="true"></div>
+			{/if}
+			<div class="resume-brand-end">
+				{#if resolvedEndLogo}
+					<img
+						src={resolvedEndLogo}
+						alt="Brand end logo"
+						class="resume-brand-end-logo"
+						loading="lazy"
+					/>
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>
 
 <style>
+	.resume-print-page {
+		display: flex;
+		flex-direction: column;
+	}
+
 	.consultant-profile {
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
+	}
+
+	.resume-final-branding {
+		flex-shrink: 0;
+		margin-top: auto;
+		break-inside: avoid;
+		page-break-inside: avoid;
 	}
 
 	.resume-brand-outro {
@@ -1050,6 +1077,8 @@
 		object-fit: contain;
 		object-position: center bottom;
 		opacity: 0.85;
+		transform: scale(var(--resume-last-page-accent-logo-scale, 1));
+		transform-origin: center bottom;
 	}
 
 	.resume-brand-homepage {
@@ -1074,5 +1103,11 @@
 		max-height: 12.5rem;
 		object-fit: contain;
 		object-position: center bottom;
+		transform: scale(var(--resume-end-logo-scale, 1));
+		transform-origin: center bottom;
+	}
+
+	.resume-brand-accent-hidden {
+		min-height: 1px;
 	}
 </style>

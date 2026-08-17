@@ -18,7 +18,10 @@
 	const statusLabel = (job: ResumeSearchJob) => {
 		if (job.status === 'queued') return 'Queued';
 		if (job.status === 'processing') return 'Searching';
-		if (job.status === 'succeeded') return `${job.result?.items.length ?? 0} results`;
+		if (job.status === 'succeeded') {
+			const resultCount = Array.isArray(job.result?.items) ? job.result.items.length : 0;
+			return `${resultCount} results`;
+		}
 		return 'Failed';
 	};
 

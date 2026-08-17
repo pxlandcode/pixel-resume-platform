@@ -2,7 +2,16 @@
 	import { deserialize } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import { Button, Card, Toaster, toast } from '@pixelcode_/blocks/components';
-	import { AlertCircle, ArrowLeft, Download, Edit, RotateCcw, Save, Share2, X } from 'lucide-svelte';
+	import {
+		AlertCircle,
+		ArrowLeft,
+		Download,
+		Edit,
+		RotateCcw,
+		Save,
+		Share2,
+		X
+	} from 'lucide-svelte';
 	import ResumeView from '$lib/components/resumes/ResumeView.svelte';
 	import ResumeShareDrawer from '$lib/components/resumes/ResumeShareDrawer.svelte';
 	import Drawer from '$lib/components/drawer/drawer.svelte';
@@ -637,18 +646,18 @@
 				actionLabel: 'Discard changes',
 				action: discardEditing
 			}}
-			>
-				<Button variant="inverted" type="button" left={X}>Cancel</Button>
-			</span>
-			<Button
-				variant="primary"
-				onclick={handleSave}
-				loading={saving}
-				loading-text="Saving…"
-				left={Save}
-			>
-				Save
-			</Button>
+		>
+			<Button variant="inverted" type="button" left={X}>Cancel</Button>
+		</span>
+		<Button
+			variant="primary"
+			onclick={handleSave}
+			loading={saving}
+			loading-text="Saving…"
+			left={Save}
+		>
+			Save
+		</Button>
 	{:else}
 		<div class="relative flex items-center gap-2">
 			{#if showDownloadOptions}
@@ -718,24 +727,23 @@
 				</div>
 			{/if}
 
-				<Button
-					variant="inverted"
-					left={Download}
-					onclick={() => (showDownloadOptions = !showDownloadOptions)}
-				>
-					Download
-				</Button>
-				<Button variant="inverted" type="button" left={Share2} onclick={() => (shareDrawerOpen = true)}>
-					Share
-				</Button>
-				{#if canEdit}
-				<Button
-					variant="primary"
-					left={Edit}
-					onclick={startEditing}
-				>
-					Edit
-				</Button>
+			<Button
+				variant="inverted"
+				left={Download}
+				onclick={() => (showDownloadOptions = !showDownloadOptions)}
+			>
+				Download
+			</Button>
+			<Button
+				variant="inverted"
+				type="button"
+				left={Share2}
+				onclick={() => (shareDrawerOpen = true)}
+			>
+				Share
+			</Button>
+			{#if canEdit}
+				<Button variant="primary" left={Edit} onclick={startEditing}>Edit</Button>
 			{/if}
 		</div>
 	{/if}
@@ -754,6 +762,7 @@
 				templateMainLogotypeUrl={data.templateContext?.mainLogotypeUrl}
 				templateAccentLogoUrl={data.templateContext?.accentLogoUrl}
 				templateEndLogoUrl={data.templateContext?.endLogoUrl}
+				templateResumePrintLayout={data.templateContext?.resumePrintLayout}
 				templateHomepageUrl={data.templateContext?.homepageUrl}
 				templateMainFontCssStack={data.templateContext?.mainFontCssStack}
 				templateIsPixelCode={data.templateContext?.isPixelCode}
@@ -780,7 +789,9 @@
 	<div class="space-y-5">
 		<div class="border-border bg-card rounded-sm border px-5 py-5 shadow-sm">
 			<div class="flex items-start gap-4">
-				<div class="bg-primary/10 text-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-full">
+				<div
+					class="bg-primary/10 text-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+				>
 					<RotateCcw size={18} />
 				</div>
 				<div class="min-w-0 flex-1 space-y-2">
@@ -795,8 +806,8 @@
 						{/if}
 					</div>
 					<p class="text-muted-fg text-sm leading-6">
-						Restore the unsaved local draft to continue where you left off, or discard it and
-						keep the current saved resume.
+						Restore the unsaved local draft to continue where you left off, or discard it and keep
+						the current saved resume.
 					</p>
 				</div>
 			</div>
@@ -809,8 +820,8 @@
 					<div class="space-y-1">
 						<p class="text-sm font-semibold text-amber-900">Saved resume changed</p>
 						<p class="text-sm leading-6 text-amber-800">
-							This draft was created from an older saved version. Restoring it may overwrite
-							newer saved changes when you save next time.
+							This draft was created from an older saved version. Restoring it may overwrite newer
+							saved changes when you save next time.
 						</p>
 					</div>
 				</div>
@@ -826,9 +837,7 @@
 			>
 				Discard local draft
 			</Button>
-			<Button type="button" variant="primary" onclick={restoreStoredDraft}>
-				Restore draft
-			</Button>
+			<Button type="button" variant="primary" onclick={restoreStoredDraft}>Restore draft</Button>
 		</div>
 	</div>
 </Drawer>

@@ -6,12 +6,15 @@ import {
 	setCachedOrganisationContext
 } from '$lib/server/organisationContextCache';
 import { normalizeRolesFromJoinRows } from '$lib/server/access';
+import { loadOrganisationEmailDomains } from '$lib/server/organisationEmailDomains';
 import { listOrganisationTalentLabelDefinitions } from '$lib/server/talentLabels';
 import type { TalentLabelDefinition } from '$lib/types/talentLabels';
 
 const CACHE_TTL_MS = 60_000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ORGANISATION_IMAGES_BUCKET = 'organisation-images';
+const TEMPLATE_BASE_SELECT =
+	'id, organisation_id, template_key, template_json, template_version, main_logotype_path, accent_logo_path, end_logo_path';
 
 type Role = 'admin' | 'organisation_admin' | 'broker' | 'talent' | 'employer';
 
@@ -22,6 +25,7 @@ type OrganisationContextResponse = {
 		slug: string;
 		homepage_url: string | null;
 		brand_settings: Record<string, unknown> | null;
+		email_domains: string[];
 	};
 	template: {
 		id: string;
@@ -51,7 +55,19 @@ type OrganisationContextResponse = {
 	usersWithHomeOrgIds: string[];
 	talentsWithHomeOrgIds: string[];
 	talentLabelDefinitions: TalentLabelDefinition[];
+	membershipContextLoaded: boolean;
 	generatedAt: string;
+};
+
+type OrganisationTemplateContextRow = {
+	id: string;
+	organisation_id: string;
+	template_key: string | null;
+	template_json: unknown;
+	template_version: number | null;
+	main_logotype_path: string | null;
+	accent_logo_path: string | null;
+	end_logo_path: string | null;
 };
 
 const buildCacheHeaders = (etag: string) => ({
@@ -82,11 +98,21 @@ const resolveStoragePublicUrl = (adminClient: SupabaseClient, value: string | nu
 	return data.publicUrl ?? null;
 };
 
+const loadOrganisationTemplate = async (adminClient: SupabaseClient, orgId: string) => {
+	return adminClient
+		.from('organisation_templates')
+		.select(TEMPLATE_BASE_SELECT)
+		.eq('organisation_id', orgId)
+		.maybeSingle();
+};
+
 export const GET: RequestHandler = async ({ url, request, locals }) => {
 	const orgId = url.searchParams.get('org')?.trim() ?? '';
 	if (!UUID_REGEX.test(orgId)) {
 		return json({ message: 'Invalid organisation id.' }, { status: 400 });
 	}
+	const includeMembershipContext =
+		url.searchParams.get('membership') === '1' || url.searchParams.get('scope') === 'membership';
 
 	const requestContext = locals.requestContext;
 	const adminClient = requestContext.getAdminClient();
@@ -100,7 +126,7 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 		return json({ message: 'Forbidden.' }, { status: 403 });
 	}
 
-	const cacheKey = `${actor.userId}:${orgId}`;
+	const cacheKey = `${actor.userId}:${orgId}:${includeMembershipContext ? 'membership' : 'base'}`;
 	const now = Date.now();
 	let entry = getCachedOrganisationContext<OrganisationContextResponse>(cacheKey, now);
 
@@ -123,28 +149,39 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 					.select('id, name, slug, homepage_url, brand_settings')
 					.eq('id', orgId)
 					.maybeSingle(),
-				adminClient
-					.from('organisation_templates')
-					.select(
-						'id, organisation_id, template_key, template_json, template_version, main_logotype_path, accent_logo_path, end_logo_path'
-					)
-					.eq('organisation_id', orgId)
-					.maybeSingle(),
-				adminClient.from('organisation_users').select('user_id').eq('organisation_id', orgId),
-				adminClient.from('organisation_talents').select('talent_id').eq('organisation_id', orgId),
-				adminClient
-					.from('user_profiles')
-					.select('user_id, first_name, last_name, email')
-					.order('last_name', { ascending: true })
-					.order('first_name', { ascending: true }),
-				adminClient.from('user_roles').select('user_id, roles(key)'),
-				adminClient
-					.from('talents')
-					.select('id, user_id, first_name, last_name')
-					.order('last_name', { ascending: true })
-					.order('first_name', { ascending: true }),
-				adminClient.from('organisation_users').select('user_id, organisation_id'),
-				adminClient.from('organisation_talents').select('talent_id, organisation_id'),
+				loadOrganisationTemplate(adminClient, orgId),
+				includeMembershipContext
+					? adminClient.from('organisation_users').select('user_id').eq('organisation_id', orgId)
+					: Promise.resolve({ data: [], error: null }),
+				includeMembershipContext
+					? adminClient
+							.from('organisation_talents')
+							.select('talent_id')
+							.eq('organisation_id', orgId)
+					: Promise.resolve({ data: [], error: null }),
+				includeMembershipContext
+					? adminClient
+							.from('user_profiles')
+							.select('user_id, first_name, last_name, email')
+							.order('last_name', { ascending: true })
+							.order('first_name', { ascending: true })
+					: Promise.resolve({ data: [], error: null }),
+				includeMembershipContext
+					? adminClient.from('user_roles').select('user_id, roles(key)')
+					: Promise.resolve({ data: [], error: null }),
+				includeMembershipContext
+					? adminClient
+							.from('talents')
+							.select('id, user_id, first_name, last_name')
+							.order('last_name', { ascending: true })
+							.order('first_name', { ascending: true })
+					: Promise.resolve({ data: [], error: null }),
+				includeMembershipContext
+					? adminClient.from('organisation_users').select('user_id, organisation_id')
+					: Promise.resolve({ data: [], error: null }),
+				includeMembershipContext
+					? adminClient.from('organisation_talents').select('talent_id, organisation_id')
+					: Promise.resolve({ data: [], error: null }),
 				listOrganisationTalentLabelDefinitions(adminClient, orgId)
 			]);
 
@@ -161,6 +198,9 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 			if (allUserMembershipsResult.error) throw new Error(allUserMembershipsResult.error.message);
 			if (allTalentMembershipsResult.error)
 				throw new Error(allTalentMembershipsResult.error.message);
+
+			const emailDomainMap = await loadOrganisationEmailDomains(adminClient, [orgId]);
+			const emailDomains = emailDomainMap.get(orgId) ?? [];
 
 			const rolesByUserId = new Map<string, Role[]>();
 			for (const row of (userRolesResult.data ?? []) as Array<{
@@ -188,27 +228,22 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				new Set((allTalentMembershipsResult.data ?? []).map((row) => row.talent_id))
 			);
 
-			const template = templateResult.data
+			const templateRow = templateResult.data as OrganisationTemplateContextRow | null;
+			const template = templateRow
 				? {
-						id: templateResult.data.id,
-						organisation_id: templateResult.data.organisation_id,
-						template_key: templateResult.data.template_key ?? 'default',
+						id: templateRow.id,
+						organisation_id: templateRow.organisation_id,
+						template_key: templateRow.template_key ?? 'default',
 						template_json:
-							templateResult.data.template_json &&
-							typeof templateResult.data.template_json === 'object' &&
-							!Array.isArray(templateResult.data.template_json)
-								? (templateResult.data.template_json as Record<string, unknown>)
+							templateRow.template_json &&
+							typeof templateRow.template_json === 'object' &&
+							!Array.isArray(templateRow.template_json)
+								? (templateRow.template_json as Record<string, unknown>)
 								: null,
-						template_version: templateResult.data.template_version ?? 1,
-						main_logotype_url: resolveStoragePublicUrl(
-							adminClient,
-							templateResult.data.main_logotype_path
-						),
-						accent_logo_url: resolveStoragePublicUrl(
-							adminClient,
-							templateResult.data.accent_logo_path
-						),
-						end_logo_url: resolveStoragePublicUrl(adminClient, templateResult.data.end_logo_path)
+						template_version: templateRow.template_version ?? 1,
+						main_logotype_url: resolveStoragePublicUrl(adminClient, templateRow.main_logotype_path),
+						accent_logo_url: resolveStoragePublicUrl(adminClient, templateRow.accent_logo_path),
+						end_logo_url: resolveStoragePublicUrl(adminClient, templateRow.end_logo_path)
 					}
 				: null;
 
@@ -223,7 +258,8 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 						typeof organisationResult.data.brand_settings === 'object' &&
 						!Array.isArray(organisationResult.data.brand_settings)
 							? (organisationResult.data.brand_settings as Record<string, unknown>)
-							: null
+							: null,
+					email_domains: emailDomains
 				},
 				template,
 				membershipsUsers: (membershipsUsersResult.data ?? []).map((row) => ({
@@ -242,6 +278,7 @@ export const GET: RequestHandler = async ({ url, request, locals }) => {
 				usersWithHomeOrgIds,
 				talentsWithHomeOrgIds,
 				talentLabelDefinitions,
+				membershipContextLoaded: includeMembershipContext,
 				generatedAt: new Date().toISOString()
 			};
 

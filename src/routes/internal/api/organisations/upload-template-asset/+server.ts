@@ -15,11 +15,21 @@ const TEMPLATE_ASSET_SLOTS = ['main_logotype_path', 'accent_logo_path', 'end_log
 
 type TemplateAssetSlot = (typeof TEMPLATE_ASSET_SLOTS)[number];
 
-const isValidUuid = (value: string | null | undefined) =>
+const isValidUuid = (value: string | null | undefined): value is string =>
 	typeof value === 'string' && UUID_REGEX.test(value);
 
 const isTemplateAssetSlot = (value: string | null | undefined): value is TemplateAssetSlot =>
 	typeof value === 'string' && TEMPLATE_ASSET_SLOTS.includes(value as TemplateAssetSlot);
+
+const isMissingTemplateAssetColumnError = (
+	error: { code?: unknown; message?: unknown; details?: unknown },
+	assetSlot: TemplateAssetSlot
+) => {
+	const text = `${String(error.code ?? '')} ${String(error.message ?? '')} ${String(
+		error.details ?? ''
+	)}`.toLowerCase();
+	return text.includes(assetSlot.toLowerCase());
+};
 
 const normalizeFilenameSegment = (value: string) =>
 	value
@@ -41,6 +51,34 @@ const getFileExtension = (file: File) => {
 	if (file.type === 'image/gif') return '.gif';
 	if (file.type === 'image/avif') return '.avif';
 	return '';
+};
+
+const toRemovableObjectPath = (organisationId: string, value: unknown) => {
+	if (typeof value !== 'string') return null;
+	const trimmed = value.trim();
+	if (!trimmed || /^https?:\/\//i.test(trimmed)) return null;
+	const normalizedPath = trimmed.replace(/^\/+/, '').replace(/^organisation-images\//, '');
+	if (!normalizedPath.startsWith(`${organisationId}/`)) return null;
+	return normalizedPath;
+};
+
+const parseRemovePayload = async (request: Request) => {
+	const contentType = request.headers.get('content-type') ?? '';
+	if (contentType.includes('application/json')) {
+		const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+		return {
+			organisationId: typeof payload?.organisation_id === 'string' ? payload.organisation_id : null,
+			assetSlot: typeof payload?.asset_slot === 'string' ? payload.asset_slot : null
+		};
+	}
+
+	const formData = await request.formData().catch(() => null);
+	const organisationId = formData?.get('organisation_id');
+	const assetSlot = formData?.get('asset_slot');
+	return {
+		organisationId: typeof organisationId === 'string' ? organisationId : null,
+		assetSlot: typeof assetSlot === 'string' ? assetSlot : null
+	};
 };
 
 export const POST: RequestHandler = async ({ request, cookies }) => {
@@ -136,6 +174,109 @@ export const POST: RequestHandler = async ({ request, cookies }) => {
 	return json({
 		path: objectPath,
 		url: publicUrlData.publicUrl ?? null,
+		organisation_id: organisationId,
+		asset_slot: assetSlot
+	});
+};
+
+export const DELETE: RequestHandler = async ({ request, cookies }) => {
+	const supabase = createSupabaseServerClient(cookies.get(AUTH_COOKIE_NAMES.access) ?? null);
+	const adminClient = getSupabaseAdminClient();
+
+	if (!supabase || !adminClient) {
+		return json({ message: 'You are not authenticated.' }, { status: 401 });
+	}
+
+	const { organisationId, assetSlot } = await parseRemovePayload(request);
+
+	if (!isValidUuid(organisationId)) {
+		return json({ message: 'Invalid organisation id.' }, { status: 400 });
+	}
+	if (!isTemplateAssetSlot(assetSlot)) {
+		return json({ message: 'Invalid asset slot.' }, { status: 400 });
+	}
+
+	const actor = await getActorAccessContext(supabase, adminClient);
+	if (!actor.userId) {
+		return json({ message: 'You are not authenticated.' }, { status: 401 });
+	}
+
+	const canManageOrganisation =
+		actor.isAdmin || (actor.isOrganisationAdmin && actor.homeOrganisationId === organisationId);
+	if (!canManageOrganisation) {
+		return json(
+			{ message: 'You do not have permission to remove branding assets for this organisation.' },
+			{ status: 403 }
+		);
+	}
+
+	const templateResult = await adminClient
+		.from('organisation_templates')
+		.select(assetSlot)
+		.eq('organisation_id', organisationId)
+		.maybeSingle();
+
+	if (templateResult.error) {
+		if (isMissingTemplateAssetColumnError(templateResult.error, assetSlot)) {
+			invalidateOrganisationContextCache(organisationId);
+			return json({
+				path: null,
+				url: null,
+				organisation_id: organisationId,
+				asset_slot: assetSlot
+			});
+		}
+		return json({ message: templateResult.error.message }, { status: 500 });
+	}
+
+	const currentPath = toRemovableObjectPath(
+		organisationId,
+		templateResult.data ? (templateResult.data as Record<string, unknown>)[assetSlot] : null
+	);
+
+	const { error: templateError } = await adminClient
+		.from('organisation_templates')
+		.update({
+			[assetSlot]: null,
+			updated_at: new Date().toISOString()
+		})
+		.eq('organisation_id', organisationId);
+
+	if (templateError) {
+		if (isMissingTemplateAssetColumnError(templateError, assetSlot)) {
+			invalidateOrganisationContextCache(organisationId);
+			return json({
+				path: null,
+				url: null,
+				organisation_id: organisationId,
+				asset_slot: assetSlot
+			});
+		}
+		return json({ message: templateError.message }, { status: 500 });
+	}
+
+	if (currentPath) {
+		const { error: removeError } = await adminClient.storage
+			.from(ORGANISATION_IMAGES_BUCKET)
+			.remove([currentPath]);
+		if (removeError) {
+			console.warn(
+				'[organisation template asset] removed DB reference but storage cleanup failed',
+				{
+					organisationId,
+					assetSlot,
+					currentPath,
+					message: removeError.message
+				}
+			);
+		}
+	}
+
+	invalidateOrganisationContextCache(organisationId);
+
+	return json({
+		path: null,
+		url: null,
 		organisation_id: organisationId,
 		asset_slot: assetSlot
 	});

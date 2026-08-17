@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
+	import { untrack } from 'svelte';
 	import type { ComponentProps } from 'svelte';
 	import {
 		Alert,
@@ -66,6 +67,7 @@
 			slug: string;
 			homepage_url: string | null;
 			brand_settings: Record<string, unknown> | null;
+			email_domains: string[];
 		};
 		template: {
 			id: string;
@@ -95,6 +97,7 @@
 		usersWithHomeOrgIds: string[];
 		talentsWithHomeOrgIds: string[];
 		talentLabelDefinitions: TalentLabelDefinition[];
+		membershipContextLoaded: boolean;
 		generatedAt: string;
 	};
 
@@ -166,11 +169,18 @@
 	const allOrganisations = $derived(
 		(data.allOrganisations as OrganisationOption[] | undefined) ?? []
 	);
+	const managedOrganisationOptions = $derived(
+		(data.managedOrganisationOptions as OrganisationOption[] | undefined) ?? []
+	);
 	const sourceTalentOptions = $derived(
 		(data.sourceTalentOptions as SourceTalentOption[] | undefined) ?? []
 	);
 	const canManagePixelCode = $derived(((data.roles ?? []) as Role[]).includes('admin'));
+	const initialOrganisation = (data.organisation as Organisation | null | undefined) ?? null;
 	const organisation = $derived((data.organisation as Organisation | null | undefined) ?? null);
+	const canSelectManagedOrganisation = $derived(
+		Boolean(data.canSelectManagedOrganisation) && managedOrganisationOptions.length > 1
+	);
 	const organisationShareRules = $derived(
 		(data.organisationShareRules as OrganisationShareRule[] | undefined) ?? []
 	);
@@ -199,6 +209,23 @@
 		typeof form.tech_context_id === 'string'
 			? form.tech_context_id
 			: null;
+	const initialManagedOrganisationIdFromForm =
+		form &&
+		typeof form === 'object' &&
+		'organisation_id' in form &&
+		typeof form.organisation_id === 'string' &&
+		form.organisation_id.length > 0
+			? form.organisation_id
+			: null;
+	const managedOrganisationIdFromForm = $derived(
+		form &&
+			typeof form === 'object' &&
+			'organisation_id' in form &&
+			typeof form.organisation_id === 'string' &&
+			form.organisation_id.length > 0
+			? form.organisation_id
+			: null
+	);
 	const TECH_ACTION_TYPES = new Set([
 		'upsertTechCategory',
 		'setTechCategoryStatus',
@@ -254,6 +281,11 @@
 
 	const initialSourceOrganisationId =
 		sourceContextFromForm ?? data.defaultSourceOrganisationId ?? '';
+	const initialManagedOrganisationId =
+		initialManagedOrganisationIdFromForm ??
+		data.defaultManagedOrganisationId ??
+		initialOrganisation?.id ??
+		'';
 	const initialExpandedPanel: SettingsPanel =
 		form?.type === 'changePassword'
 			? 'account'
@@ -277,6 +309,7 @@
 	);
 
 	let selectedSourceOrganisationId = $state(initialSourceOrganisationId);
+	let selectedManagedOrganisationId = $state(initialManagedOrganisationId);
 	let expandedPanel = $state<SettingsPanel>(initialExpandedPanel);
 	let organisationRuleTargetOrganisationId = $state('');
 	let organisationRuleAccessLevel = $state<'read' | 'write'>('read');
@@ -297,6 +330,9 @@
 	let contextStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
 	let contextError = $state<string | null>(null);
 	let contextEtag = $state<string | null>(null);
+	let contextLoadingOrganisationId = $state<string | null>(null);
+	let contextLoadingIncludesMembership = $state(false);
+	let contextHasMembership = $state(false);
 	let contextAbortController: AbortController | null = null;
 	let lastFormToastKey = $state<string | null>(null);
 
@@ -432,24 +468,57 @@
 	const activeBillingAddonCount = $derived(
 		billingAddonVersions.filter((addon) => addon.isActive).length
 	);
-	const membershipUsers = $derived(organisationContext?.users ?? []);
-	const membershipTalents = $derived(organisationContext?.talents ?? []);
-	const membershipUserRows = $derived(organisationContext?.membershipsUsers ?? []);
-	const membershipTalentRows = $derived(organisationContext?.membershipsTalents ?? []);
-	const usersWithHomeOrg = $derived(new Set(organisationContext?.usersWithHomeOrgIds ?? []));
-	const talentsWithHomeOrg = $derived(new Set(organisationContext?.talentsWithHomeOrgIds ?? []));
-	const talentLabelDefinitions = $derived(organisationContext?.talentLabelDefinitions ?? []);
+	const selectedManagedOrganisationName = $derived(
+		managedOrganisationOptions.find((option) => option.id === selectedManagedOrganisationId)
+			?.name ??
+			organisation?.name ??
+			'this organisation'
+	);
+	const selectedOrganisationContext = $derived(
+		organisationContext?.organisation.id === selectedManagedOrganisationId
+			? organisationContext
+			: null
+	);
+	const selectedManagedOrganisationDetails = $derived.by(() => {
+		if (selectedOrganisationContext) {
+			return {
+				...selectedOrganisationContext.organisation,
+				created_at: null,
+				updated_at: null
+			};
+		}
+		if (organisation?.id === selectedManagedOrganisationId) return organisation;
+		return undefined;
+	});
+	const hasSelectedManagedOrganisationContext = $derived(
+		organisation?.id === selectedManagedOrganisationId || Boolean(selectedOrganisationContext)
+	);
+	const membershipUsers = $derived(selectedOrganisationContext?.users ?? []);
+	const membershipTalents = $derived(selectedOrganisationContext?.talents ?? []);
+	const membershipUserRows = $derived(selectedOrganisationContext?.membershipsUsers ?? []);
+	const membershipTalentRows = $derived(selectedOrganisationContext?.membershipsTalents ?? []);
+	const usersWithHomeOrg = $derived(
+		new Set(selectedOrganisationContext?.usersWithHomeOrgIds ?? [])
+	);
+	const talentsWithHomeOrg = $derived(
+		new Set(selectedOrganisationContext?.talentsWithHomeOrgIds ?? [])
+	);
+	const talentLabelDefinitions = $derived(
+		selectedOrganisationContext?.talentLabelDefinitions ?? []
+	);
 	const brandingOrganisation = $derived(
-		organisation
+		selectedManagedOrganisationDetails
 			? {
-					id: organisation.id,
-					name: organisation.name,
+					id: selectedManagedOrganisationDetails.id,
+					name: selectedManagedOrganisationDetails.name,
 					brand_settings:
-						organisation.brand_settings ?? organisationContext?.organisation.brand_settings ?? null
+						selectedManagedOrganisationDetails.brand_settings ??
+						selectedOrganisationContext?.organisation.brand_settings ??
+						null
 				}
 			: undefined
 	);
-	const brandingTemplate = $derived(organisationContext?.template ?? undefined);
+	const brandingTemplate = $derived(selectedOrganisationContext?.template ?? undefined);
 
 	$effect(() => {
 		if (
@@ -459,6 +528,32 @@
 			)
 		) {
 			selectedSourceOrganisationId = sourceOrganisationOptions[0]?.id ?? '';
+		}
+	});
+
+	$effect(() => {
+		if (
+			selectedManagedOrganisationId &&
+			!managedOrganisationOptions.some(
+				(organisation) => organisation.id === selectedManagedOrganisationId
+			)
+		) {
+			selectedManagedOrganisationId = managedOrganisationOptions[0]?.id ?? '';
+			resetManagedOrganisationContext();
+		}
+	});
+
+	$effect(() => {
+		if (
+			managedOrganisationIdFromForm &&
+			managedOrganisationIdFromForm !== selectedManagedOrganisationId
+		) {
+			selectedManagedOrganisationId = managedOrganisationIdFromForm;
+			resetManagedOrganisationContext();
+			void loadOrganisationContext({
+				force: true,
+				organisationId: managedOrganisationIdFromForm
+			});
 		}
 	});
 
@@ -537,25 +632,51 @@
 	const brandingLabel = (allowTargetLogoExport: boolean) =>
 		allowTargetLogoExport ? 'Uses target organisation branding' : 'Uses talent owner branding';
 
-	const loadOrganisationContext = async (options: { force?: boolean } = {}) => {
+	const loadOrganisationContext = async (
+		options: { force?: boolean; organisationId?: string; includeMembership?: boolean } = {}
+	) => {
 		const force = options.force ?? false;
-		if (!organisation?.id) return;
-		if (!force && contextStatus === 'loading') return;
-		if (!force && contextStatus === 'ready' && organisationContext) return;
+		const includeMembership = options.includeMembership ?? false;
+		const organisationId = options.organisationId ?? selectedManagedOrganisationId;
+		if (!organisationId) return;
+		const contextMatchesSelection = organisationContext?.organisation.id === organisationId;
+		if (
+			!force &&
+			contextStatus === 'loading' &&
+			contextLoadingOrganisationId === organisationId &&
+			(!includeMembership || contextLoadingIncludesMembership)
+		) {
+			return;
+		}
+		if (
+			!force &&
+			contextStatus === 'ready' &&
+			contextMatchesSelection &&
+			(!includeMembership || contextHasMembership)
+		) {
+			return;
+		}
 
 		contextAbortController?.abort();
 		const controller = new AbortController();
 		contextAbortController = controller;
+		contextLoadingOrganisationId = organisationId;
+		contextLoadingIncludesMembership = includeMembership;
 		contextStatus = 'loading';
 		contextError = null;
 
 		try {
-			const endpoint = `/internal/api/organisations/context?org=${encodeURIComponent(organisation.id)}`;
+			const endpoint = `/internal/api/organisations/context?org=${encodeURIComponent(
+				organisationId
+			)}&membership=${includeMembership ? '1' : '0'}`;
 			const response = await fetch(endpoint, {
 				method: 'GET',
 				credentials: 'include',
 				signal: controller.signal,
-				headers: !force && contextEtag ? { 'If-None-Match': contextEtag } : undefined
+				headers:
+					!force && contextEtag && contextMatchesSelection
+						? { 'If-None-Match': contextEtag }
+						: undefined
 			});
 
 			if (response.status === 304) {
@@ -563,6 +684,7 @@
 					throw new Error('Organisation context cache was empty after revalidation.');
 				}
 				if (controller.signal.aborted) return;
+				if (includeMembership) contextHasMembership = true;
 				contextStatus = 'ready';
 				contextError = null;
 				return;
@@ -575,8 +697,31 @@
 
 			const payload = (await response.json()) as OrganisationContext;
 			if (controller.signal.aborted) return;
+			if (selectedManagedOrganisationId !== organisationId) {
+				if (contextAbortController === controller) contextStatus = 'idle';
+				return;
+			}
 
-			organisationContext = payload;
+			const membershipContextToPreserve =
+				!payload.membershipContextLoaded &&
+				contextHasMembership &&
+				organisationContext?.organisation.id === organisationId
+					? organisationContext
+					: null;
+			organisationContext = membershipContextToPreserve
+				? {
+						...payload,
+						membershipsUsers: membershipContextToPreserve.membershipsUsers,
+						membershipsTalents: membershipContextToPreserve.membershipsTalents,
+						users: membershipContextToPreserve.users,
+						talents: membershipContextToPreserve.talents,
+						usersWithHomeOrgIds: membershipContextToPreserve.usersWithHomeOrgIds,
+						talentsWithHomeOrgIds: membershipContextToPreserve.talentsWithHomeOrgIds,
+						membershipContextLoaded: true
+					}
+				: payload;
+			contextHasMembership =
+				payload.membershipContextLoaded || Boolean(membershipContextToPreserve);
 			contextEtag = response.headers.get('etag');
 			contextStatus = 'ready';
 			contextError = null;
@@ -587,12 +732,34 @@
 		} finally {
 			if (contextAbortController === controller) {
 				contextAbortController = null;
+				contextLoadingOrganisationId = null;
+				contextLoadingIncludesMembership = false;
 			}
 		}
 	};
 
+	const resetManagedOrganisationContext = () => {
+		contextAbortController?.abort();
+		contextAbortController = null;
+		contextLoadingOrganisationId = null;
+		contextLoadingIncludesMembership = false;
+		contextHasMembership = false;
+		organisationContext = null;
+		contextStatus = 'idle';
+		contextError = null;
+		contextEtag = null;
+	};
+
+	const handleManagedOrganisationSelection = (organisationId: string) => {
+		if (!organisationId) return;
+		selectedManagedOrganisationId = organisationId;
+		resetManagedOrganisationContext();
+		void loadOrganisationContext({ force: true, organisationId });
+	};
+
 	const openDetailsDrawer = () => {
 		isDetailsDrawerOpen = true;
+		void loadOrganisationContext();
 	};
 
 	const openBrandingDrawer = () => {
@@ -602,7 +769,7 @@
 
 	const openMembershipDrawer = () => {
 		isMembershipDrawerOpen = true;
-		void loadOrganisationContext();
+		void loadOrganisationContext({ includeMembership: true });
 	};
 
 	const openLabelsDrawer = () => {
@@ -611,12 +778,20 @@
 	};
 
 	const refreshOrganisationContext = async () => {
-		await loadOrganisationContext({ force: true });
+		await loadOrganisationContext({ force: true, includeMembership: isMembershipDrawerOpen });
 	};
 
 	$effect(() => {
-		if (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen) {
-			void loadOrganisationContext();
+		if (
+			isDetailsDrawerOpen ||
+			isBrandingDrawerOpen ||
+			isMembershipDrawerOpen ||
+			isLabelsDrawerOpen
+		) {
+			const includeMembership = isMembershipDrawerOpen;
+			untrack(() => {
+				void loadOrganisationContext({ includeMembership });
+			});
 		}
 	});
 
@@ -725,10 +900,10 @@
 
 	{#if data.canManageOrganisation && organisation}
 		<section
-			class={`bg-card group overflow-hidden rounded-sm border transition-colors ${
+			class={`bg-card group relative rounded-sm border transition-colors ${
 				expandedPanel === 'organisation'
-					? 'border-primary/50'
-					: 'border-border hover:border-primary/50'
+					? 'border-primary/50 z-20 overflow-visible'
+					: 'border-border hover:border-primary/50 overflow-hidden'
 			}`}
 		>
 			<button
@@ -750,7 +925,7 @@
 					<div class="min-w-0 flex-1">
 						<h2 class="text-foreground text-lg font-semibold">Organisation</h2>
 						<p class="text-muted-fg mt-1 text-sm">
-							Manage details, branding, and memberships for your organisation.
+							Manage details, branding, and memberships for {selectedManagedOrganisationName}.
 						</p>
 					</div>
 					<div class="text-muted-fg flex shrink-0 items-center gap-2">
@@ -771,9 +946,27 @@
 					id="settings-organisation-panel"
 					class="border-border space-y-5 border-t px-5 py-5 sm:px-6"
 				>
-					{#if contextStatus === 'loading' && (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
+					{#if canSelectManagedOrganisation}
+						<div class="max-w-xl">
+							<Dropdown
+								label="Organisation"
+								bind:value={selectedManagedOrganisationId}
+								options={managedOrganisationOptions.map((organisation) => ({
+									label: organisation.name,
+									value: organisation.id
+								}))}
+								placeholder="Choose organisation"
+								search={managedOrganisationOptions.length > 6}
+								searchPlaceholder="Search organisations"
+								onchange={handleManagedOrganisationSelection}
+								class="w-full"
+							/>
+						</div>
+					{/if}
+
+					{#if contextStatus === 'loading' && (isDetailsDrawerOpen || isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
 						<p class="text-muted-fg text-sm">Loading organisation details…</p>
-					{:else if contextError && (isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
+					{:else if contextError && (isDetailsDrawerOpen || isBrandingDrawerOpen || isMembershipDrawerOpen || isLabelsDrawerOpen)}
 						<Alert variant="destructive" size="sm">
 							<p class="text-foreground text-sm font-medium">{contextError}</p>
 						</Alert>
@@ -1449,20 +1642,26 @@
 
 <OrganisationDetailsDrawer
 	bind:open={isDetailsDrawerOpen}
-	organisation={organisation ?? undefined}
+	organisation={hasSelectedManagedOrganisationContext
+		? selectedManagedOrganisationDetails
+		: undefined}
 />
 
 <OrganisationBrandingDrawer
 	bind:open={isBrandingDrawerOpen}
 	organisation={brandingOrganisation}
 	template={brandingTemplate}
+	loading={contextStatus === 'loading' && !brandingTemplate}
+	loadError={!brandingTemplate ? contextError : null}
 	{canManagePixelCode}
 	{form}
 />
 
 <OrganisationMembershipDrawer
 	bind:open={isMembershipDrawerOpen}
-	organisation={organisation ?? undefined}
+	organisation={hasSelectedManagedOrganisationContext
+		? selectedManagedOrganisationDetails
+		: undefined}
 	users={membershipUsers}
 	talents={membershipTalents}
 	userMemberships={membershipUserRows}
@@ -1473,7 +1672,9 @@
 
 <OrganisationTalentLabelsDrawer
 	bind:open={isLabelsDrawerOpen}
-	organisation={organisation ?? undefined}
+	organisation={hasSelectedManagedOrganisationContext
+		? selectedManagedOrganisationDetails
+		: undefined}
 	{talentLabelDefinitions}
 	{refreshOrganisationContext}
 />

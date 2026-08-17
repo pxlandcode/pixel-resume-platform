@@ -1127,8 +1127,9 @@
 			return;
 		}
 
-		const sourceTerms =
-			job.result.appliedTerms.length > 0 ? job.result.appliedTerms : job.result.analyzedTerms;
+		const appliedTerms = Array.isArray(job.result.appliedTerms) ? job.result.appliedTerms : [];
+		const analyzedTerms = Array.isArray(job.result.analyzedTerms) ? job.result.analyzedTerms : [];
+		const sourceTerms = appliedTerms.length > 0 ? appliedTerms : analyzedTerms;
 		const normalizedTerms: ResumeSearchFilterTerm[] = [];
 		const yearsByKey: Record<string, number> = {};
 
@@ -1719,7 +1720,9 @@
 
 		const results: FreeTextTalentResult[] = [];
 
-		for (const searchResult of job.result.items) {
+		const searchItems = Array.isArray(job.result.items) ? job.result.items : [];
+
+		for (const searchResult of searchItems) {
 			const displaySearchResult = normalizeSearchResultForDisplay(searchResult);
 			const talent = talentById.get(searchResult.talentId);
 			if (!talent) continue;

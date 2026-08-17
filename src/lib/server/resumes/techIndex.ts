@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ResumeTechIndexItem } from '$lib/types/resumes';
 import { loadTechCatalogMatchState, resolveTechCatalogMatchKeys } from '$lib/server/techCatalog';
 
-const IN_FILTER_BATCH_SIZE = 200;
+const IN_FILTER_BATCH_SIZE = 75;
 
 type BatchedQueryResult = {
 	data: unknown[] | null;

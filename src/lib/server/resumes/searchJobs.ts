@@ -2,8 +2,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ActorAccessContext } from '$lib/server/access';
 import type {
 	ResumeSearchFilterTerm,
+	ResumeSearchInterpretedMatch,
+	ResumeSearchItem,
 	ResumeSearchJob,
 	ResumeSearchJobStatus,
+	ResumeSearchReason,
 	ResumeSearchResponse
 } from '$lib/types/resumes';
 import {
@@ -50,15 +53,164 @@ const toSafeMessage = (value: unknown, fallback: string): string => {
 	return trimmed ? trimmed.slice(0, 300) : fallback;
 };
 
-const isResumeSearchResponse = (value: unknown): value is ResumeSearchResponse => {
-	if (!value || typeof value !== 'object') return false;
-	const record = value as Partial<ResumeSearchResponse>;
-	return (
-		typeof record.query === 'string' &&
-		Boolean(record.scope) &&
-		Array.isArray(record.items) &&
-		typeof record.generatedAt === 'string'
-	);
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+	Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
+const toSafeString = (value: unknown, maxLength = 300) =>
+	typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+
+const toSafeNumber = (value: unknown, fallback = 0) => {
+	if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+	return value;
+};
+
+const toSafePercent = (value: unknown, fallback = 0) =>
+	Math.max(0, Math.min(100, toSafeNumber(value, fallback)));
+
+const toStringArray = (value: unknown) => {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map((entry) => (typeof entry === 'string' ? entry.trim().slice(0, 120) : ''))
+		.filter(Boolean);
+};
+
+const normalizeSearchReason = (value: unknown): ResumeSearchReason | null => {
+	if (!isRecord(value)) return null;
+
+	const label = toSafeString(value.label, 120);
+	const text = toSafeString(value.text, 300);
+	if (!label || !text) return null;
+
+	return {
+		label,
+		text,
+		resumeId: toSafeString(value.resumeId ?? value.resume_id, 80) || null,
+		resumeTitle: toSafeString(value.resumeTitle ?? value.resume_title, 160) || null
+	};
+};
+
+const normalizeSearchReasons = (value: unknown): ResumeSearchReason[] => {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map(normalizeSearchReason)
+		.filter((entry): entry is ResumeSearchReason => entry !== null);
+};
+
+const normalizeInterpretedMatch = (value: unknown): ResumeSearchInterpretedMatch | null => {
+	if (!isRecord(value)) return null;
+
+	const label = toSafeString(value.label, 120);
+	if (!label) return null;
+
+	const key = toSafeString(value.key, 120).toLowerCase() || label.toLowerCase();
+	const evidence = toStringArray(value.evidence).slice(0, 8);
+
+	return {
+		label,
+		key,
+		evidence
+	};
+};
+
+const normalizeInterpretedMatches = (value: unknown): ResumeSearchInterpretedMatch[] => {
+	if (!Array.isArray(value)) return [];
+	return value
+		.map(normalizeInterpretedMatch)
+		.filter((entry): entry is ResumeSearchInterpretedMatch => entry !== null);
+};
+
+const normalizeSearchItem = (value: unknown): ResumeSearchItem | null => {
+	if (!isRecord(value)) return null;
+
+	const talentId = toSafeString(value.talentId ?? value.talent_id, 80);
+	if (!talentId) return null;
+
+	const semanticSimilarity =
+		typeof value.semanticSimilarity === 'number' && Number.isFinite(value.semanticSimilarity)
+			? value.semanticSimilarity
+			: null;
+	const semanticMatchPercent =
+		typeof value.semanticMatchPercent === 'number' && Number.isFinite(value.semanticMatchPercent)
+			? value.semanticMatchPercent
+			: null;
+
+	return {
+		talentId,
+		score: toSafeNumber(value.score),
+		matchPercent: toSafePercent(value.matchPercent, toSafePercent(value.score)),
+		matchedTerms: toStringArray(value.matchedTerms),
+		missingTerms: toStringArray(value.missingTerms),
+		matchedQueryTechs: toStringArray(value.matchedQueryTechs),
+		missingQueryTechs: toStringArray(value.missingQueryTechs),
+		matchedTechs: toStringArray(value.matchedTechs),
+		interpretedMatches: normalizeInterpretedMatches(value.interpretedMatches),
+		reasons: normalizeSearchReasons(value.reasons),
+		bestResumeId: toSafeString(value.bestResumeId ?? value.best_resume_id, 80) || null,
+		bestResumeTitle: toSafeString(value.bestResumeTitle ?? value.best_resume_title, 160) || null,
+		semanticSimilarity,
+		semanticMatchPercent
+	};
+};
+
+const normalizeOrgIds = (value: unknown) => {
+	if (!Array.isArray(value)) return [];
+	return value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
+};
+
+const normalizeSearchScope = (
+	value: unknown,
+	row: ResumeSearchJobRow
+): ResumeSearchResponse['scope'] => {
+	const record = isRecord(value) ? value : null;
+	const rowOrgIds = normalizeOrgIds(row.scope_org_ids);
+	const resultOrgIds = record ? normalizeOrgIds(record.orgIds) : [];
+	const orgIds = resultOrgIds.length > 0 ? resultOrgIds : rowOrgIds;
+	const signature =
+		toSafeString(record?.signature, 500) ||
+		toSafeString(row.scope_signature, 500) ||
+		(orgIds.length > 0 ? `org:${orgIds.join(',')}` : 'default');
+
+	return {
+		orgIds,
+		signature
+	};
+};
+
+const normalizeResumeSearchResponse = (
+	value: unknown,
+	row: ResumeSearchJobRow
+): ResumeSearchResponse | null => {
+	if (!isRecord(value) || !Array.isArray(value.items)) return null;
+
+	const query = toSafeString(value.query, MAX_RESUME_SEARCH_QUERY_LENGTH) || row.query;
+	const rowTermOverrides = sanitizeResumeSearchTermOverrides(row.term_overrides) ?? [];
+	const analyzedTerms = sanitizeResumeSearchTermOverrides(value.analyzedTerms) ?? [];
+	const appliedTerms = sanitizeResumeSearchTermOverrides(value.appliedTerms) ?? rowTermOverrides;
+	const items = value.items
+		.map(normalizeSearchItem)
+		.filter((entry): entry is ResumeSearchItem => entry !== null);
+	const generatedAt =
+		toSafeString(value.generatedAt, 80) ||
+		row.completed_at ||
+		row.updated_at ||
+		row.created_at ||
+		new Date().toISOString();
+
+	const title =
+		toSafeString(value.title, 300) ||
+		toSafeString(row.title, 300) ||
+		buildResumeSearchTitleFallback({ query, terms: appliedTerms });
+
+	return {
+		title: toSafeMessage(title, 'Deep search'),
+		query,
+		scope: normalizeSearchScope(value.scope, row),
+		aiApplied: typeof value.aiApplied === 'boolean' ? value.aiApplied : false,
+		analyzedTerms,
+		appliedTerms,
+		items,
+		generatedAt
+	};
 };
 
 const getSearchJobTitle = (row: ResumeSearchJobRow, result: ResumeSearchResponse | null) =>
@@ -68,7 +220,7 @@ const getSearchJobTitle = (row: ResumeSearchJobRow, result: ResumeSearchResponse
 	);
 
 const toSearchJob = (row: ResumeSearchJobRow): ResumeSearchJob => {
-	const result = isResumeSearchResponse(row.result_json) ? row.result_json : null;
+	const result = normalizeResumeSearchResponse(row.result_json, row);
 	return {
 		id: String(row.id),
 		status: row.status,
